@@ -94,7 +94,9 @@
     refs.templateStrip = document.getElementById("template-strip");
     refs.workflowQueue = document.getElementById("workflow-queue");
     refs.approvalSummary = document.getElementById("approval-summary");
+    refs.filePermissionSummary = document.getElementById("file-permission-summary");
     refs.approvalsList = document.getElementById("approvals-list");
+    refs.filePermissionsList = document.getElementById("file-permissions-list");
     refs.vaultStatusCards = document.getElementById("vault-status-cards");
     refs.auditStream = document.getElementById("audit-stream");
     refs.streamIndicator = document.getElementById("stream-indicator");
@@ -264,8 +266,10 @@
       return;
     }
     const status = state.console.status;
-    refs.runtimeBadge.textContent = `${status.workflows} workflows`;
-    refs.runtimeDetail.textContent = `${status.pending_approvals} approvals waiting in ${status.workspace_root}`;
+    const pendingApprovals = Number(status.pending_approvals || 0);
+    const pendingFilePermissions = Number(status.pending_file_permissions || 0);
+    refs.runtimeBadge.textContent = `${status.workflows} workflows tracked`;
+    refs.runtimeDetail.textContent = `${pendingApprovals} approvals and ${pendingFilePermissions} file requests pending in ${status.workspace_root}`;
 
     const brain = state.console.brain || { enabled: false, provider: "OpenAI-compatible", mode: "disabled" };
     refs.brainBadge.textContent = brain.enabled ? "Enabled" : "Disabled";
@@ -286,10 +290,11 @@
     }
     const status = state.console.status;
     const cards = [
-      ["Workflow queue", String(status.workflows), "Recent runs tracked locally."],
-      ["Pending approvals", String(status.pending_approvals), "Outbound actions stay frozen until approval."],
-      ["Provider health", providerHealthText(), "Local-first brain plus live CRM/SMS connectors."],
-      ["Event bus", String(status.event_bus.published), "Published internal events since startup."]
+      ["Workflow queue", String(status.workflows), "Local runs and structured submissions tracked from one console."],
+      ["Pending approvals", String(status.pending_approvals || 0), "Outbound sends stay frozen until a human decides."],
+      ["File access", String(status.pending_file_permissions || 0), "Workspace reads and writes are operator-visible actions."],
+      ["Provider health", providerHealthText(), "Brain, CRM, and SMS readiness across the current vault."],
+      ["Event bus", String(status.event_bus.published), "Internal runtime events published since startup."]
     ];
     refs.summaryStrip.innerHTML = cards.map(([label, value, detail]) => `
       <article class="summary-card">
@@ -355,11 +360,18 @@
 
   function renderApprovals() {
     const approvals = getPendingApprovals();
-    const markup = approvals.length
+    const filePermissions = getPendingFilePermissions();
+    const approvalMarkup = approvals.length
       ? approvals.map((approval) => renderApprovalCard(approval, true)).join("")
       : `<article class="data-card"><h3>No pending approvals</h3><p>Approval-gated actions will appear here before any outbound delivery occurs.</p></article>`;
-    refs.approvalSummary.innerHTML = markup;
-    refs.approvalsList.innerHTML = markup;
+    refs.approvalSummary.innerHTML = approvalMarkup;
+    refs.approvalsList.innerHTML = approvalMarkup;
+
+    const filePermissionMarkup = filePermissions.length
+      ? filePermissions.map((permission) => renderFilePermissionCard(permission)).join("")
+      : `<article class="data-card"><h3>No file requests</h3><p>File reads and writes that need operator approval will surface here.</p></article>`;
+    refs.filePermissionSummary.innerHTML = filePermissionMarkup;
+    refs.filePermissionsList.innerHTML = filePermissionMarkup;
 
     [refs.approvalSummary, refs.approvalsList].forEach((node) => {
       node.querySelectorAll("[data-approval-open]").forEach((button) => {
@@ -370,6 +382,15 @@
       });
       node.querySelectorAll("[data-approval-reject]").forEach((button) => {
         button.addEventListener("click", () => resolveApproval(button.dataset.approvalReject, "reject"));
+      });
+    });
+
+    [refs.filePermissionSummary, refs.filePermissionsList].forEach((node) => {
+      node.querySelectorAll("[data-file-approve]").forEach((button) => {
+        button.addEventListener("click", () => resolveFilePermission(button.dataset.fileApprove, "approve"));
+      });
+      node.querySelectorAll("[data-file-reject]").forEach((button) => {
+        button.addEventListener("click", () => resolveFilePermission(button.dataset.fileReject, "reject"));
       });
     });
   }
@@ -422,19 +443,19 @@
       handle.addEventListener("pointerdown", startDrag);
     });
 
-    refs.canvasLinks.setAttribute("viewBox", "0 0 1200 760");
+    refs.canvasLinks.setAttribute("viewBox", "0 0 1240 820");
     refs.canvasLinks.innerHTML = edges.map((edge) => {
       const from = findNode(edge.from);
       const to = findNode(edge.to);
       if (!from || !to) {
         return "";
       }
-      const startX = from.position.x + 180;
-      const startY = from.position.y + 54;
+      const startX = from.position.x + 188;
+      const startY = from.position.y + 56;
       const endX = to.position.x;
-      const endY = to.position.y + 54;
+      const endY = to.position.y + 56;
       const midX = (startX + endX) / 2;
-      return `<path d="M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}" fill="none" stroke="rgba(79,107,87,0.55)" stroke-width="2.5" stroke-linecap="round"></path>`;
+      return `<path d="M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}" fill="none" stroke="rgba(45,108,223,0.5)" stroke-width="2.5" stroke-linecap="round"></path>`;
     }).join("");
 
     renderInspector();
@@ -569,6 +590,11 @@
     await loadAll();
   }
 
+  async function resolveFilePermission(id, action) {
+    await fetchJSON(`/api/v1/file-permissions/${id}/${action}`, { method: "POST" });
+    await loadAll();
+  }
+
   async function resolveModalApproval(action) {
     if (!state.activeApprovalId) {
       return;
@@ -621,6 +647,10 @@
         if (payload.type === "approval.required" && payload.approval_id) {
           await loadAll();
           openApprovalModal(payload.approval_id);
+          return;
+        }
+        if (typeof payload.type === "string" && payload.type.indexOf("file.access.") === 0) {
+          await loadAll();
         }
       } catch (error) {
         pushAuditEntry({
@@ -745,8 +775,8 @@
       return;
     }
     const stageRect = refs.canvasStage.getBoundingClientRect();
-    node.position.x = clamp(event.clientX - stageRect.left - state.drag.offsetX + refs.canvasStage.scrollLeft, 24, 980);
-    node.position.y = clamp(event.clientY - stageRect.top - state.drag.offsetY + refs.canvasStage.scrollTop, 24, 660);
+    node.position.x = clamp(event.clientX - stageRect.left - state.drag.offsetX + refs.canvasStage.scrollLeft, 24, 1040);
+    node.position.y = clamp(event.clientY - stageRect.top - state.drag.offsetY + refs.canvasStage.scrollTop, 64, 720);
     renderCanvas();
   }
 
@@ -788,14 +818,14 @@
           type: "goal",
           label: "Goal",
           config: { goal: "Research competitor pricing online and draft an SMS campaign for our leads." },
-          position: { x: 72, y: 80 }
+          position: { x: 84, y: 124 }
         },
         {
           id: "node_research",
           type: "research",
           label: "Research",
           config: { focus: "competitor pricing" },
-          position: { x: 340, y: 120 }
+          position: { x: 368, y: 164 }
         },
         {
           id: "node_draft",
@@ -806,14 +836,14 @@
             message: "VIP early access is live. Tap to claim your spot.",
             recipient: "+61400000000"
           },
-          position: { x: 620, y: 220 }
+          position: { x: 652, y: 264 }
         },
         {
           id: "node_approval",
           type: "approval",
           label: "Approval",
           config: {},
-          position: { x: 900, y: 220 }
+          position: { x: 936, y: 264 }
         }
       ],
       edges: [
@@ -836,7 +866,7 @@
             type: "validate",
             label: "Validate",
             config: { url: template.input.url || "" },
-            position: { x: 180, y: 160 }
+            position: { x: 220, y: 210 }
           }
         ],
         edges: []
@@ -853,14 +883,14 @@
               message: template.input.message || "",
               recipient: Array.isArray(template.input.recipients) ? template.input.recipients[0] : ""
             },
-            position: { x: 220, y: 170 }
+            position: { x: 240, y: 210 }
           },
           {
             id: "node_approval",
             type: "approval",
             label: "Approval",
             config: {},
-            position: { x: 520, y: 170 }
+            position: { x: 564, y: 210 }
           }
         ],
         edges: [{ from: "node_draft", to: "node_approval" }]
@@ -952,13 +982,17 @@
   function nextNodePosition() {
     const count = state.canvas.nodes.length;
     return {
-      x: 80 + (count % 4) * 220,
-      y: 80 + Math.floor(count / 4) * 140
+      x: 96 + (count % 4) * 232,
+      y: 128 + Math.floor(count / 4) * 148
     };
   }
 
   function getPendingApprovals() {
     return ((state.console && state.console.approvals) || []).filter((item) => item.state === "pending");
+  }
+
+  function getPendingFilePermissions() {
+    return ((state.console && state.console.file_permissions) || []).filter((item) => item.state === "pending");
   }
 
   function findNode(id) {
@@ -986,10 +1020,34 @@
           <p>Workflow ${escapeHTML(approval.workflow_id)} is waiting for an operator decision.</p>
         </div>
         <div>${approvalDiffMarkup(approval)}</div>
+        <div class="data-card__meta">
+          ${renderStatusPill(approval.state)}
+          <span class="metric-pill">${escapeHTML(new Date(approval.updated_at).toLocaleString())}</span>
+        </div>
         <div class="button-row">
           ${compact ? `<button class="button secondary" type="button" data-approval-open="${escapeHTML(approval.id)}">Inspect</button>` : ""}
           <button class="button" type="button" data-approval-approve="${escapeHTML(approval.id)}">Approve</button>
           <button class="button danger" type="button" data-approval-reject="${escapeHTML(approval.id)}">Reject</button>
+        </div>
+      </article>
+    `;
+  }
+
+  function renderFilePermissionCard(permission) {
+    return `
+      <article class="data-card">
+        <div>
+          <span class="skill-pill">${escapeHTML(permission.mode)}</span>
+          <h3>${escapeHTML(permission.path)}</h3>
+          <p>${escapeHTML(permission.requester)} is requesting workspace ${escapeHTML(permission.mode)} access.</p>
+        </div>
+        <div class="data-card__meta">
+          ${renderStatusPill(permission.state)}
+          <span class="metric-pill">${escapeHTML(new Date(permission.updated_at).toLocaleString())}</span>
+        </div>
+        <div class="button-row">
+          <button class="button" type="button" data-file-approve="${escapeHTML(permission.id)}">Approve</button>
+          <button class="button danger" type="button" data-file-reject="${escapeHTML(permission.id)}">Reject</button>
         </div>
       </article>
     `;
@@ -1013,7 +1071,7 @@
   }
 
   function renderStatusPill(status) {
-    const variant = status === "completed" ? " is-ready" : status === "failed" || status === "rejected" ? " is-warn" : "";
+    const variant = status === "completed" || status === "approved" ? " is-ready" : status === "failed" || status === "rejected" ? " is-warn" : "";
     return `<span class="status-pill${variant}">${escapeHTML(status)}</span>`;
   }
 

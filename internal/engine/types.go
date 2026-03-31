@@ -182,14 +182,14 @@ type FilePermission struct {
 }
 
 type StatusSnapshot struct {
-	RuntimeRoot      string           `json:"runtime_root"`
-	WorkspaceRoot    string           `json:"workspace_root"`
-	Workflows        int              `json:"workflows"`
+	RuntimeRoot            string           `json:"runtime_root"`
+	WorkspaceRoot          string           `json:"workspace_root"`
+	Workflows              int              `json:"workflows"`
 	PendingApprovals       int              `json:"pending_approvals"`
 	PendingFilePermissions int              `json:"pending_file_permissions"`
-	SubTurns         []SubTurnStatus  `json:"subturns"`
-	EventBus         EventBusSnapshot `json:"event_bus"`
-	StartedAt        time.Time        `json:"started_at"`
+	SubTurns               []SubTurnStatus  `json:"subturns"`
+	EventBus               EventBusSnapshot `json:"event_bus"`
+	StartedAt              time.Time        `json:"started_at"`
 }
 
 type Sandbox interface {

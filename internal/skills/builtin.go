@@ -196,10 +196,10 @@ func (s *MittoSMSDrafterSkill) Execute(_ context.Context, req engine.SkillReques
 
 	return engine.SkillResult{
 		Output: map[string]any{
-			"campaign_name":  campaign,
-			"message":        message,
-			"recipients":     recipients,
-			"issues":         issues,
+			"campaign_name":   campaign,
+			"message":         message,
+			"recipients":      recipients,
+			"issues":          issues,
 			"recipient_count": len(recipients),
 		},
 		Actions: []engine.AdapterAction{{
@@ -220,4 +220,3 @@ func (m Manifest) toDefinition() engine.SkillDefinition {
 		Prompt:      m.Prompt,
 	}
 }
-

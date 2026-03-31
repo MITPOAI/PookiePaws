@@ -123,8 +123,8 @@ func (s *Service) publishEvent(eventType engine.EventType, payload map[string]an
 		return
 	}
 	_ = s.bus.Publish(engine.Event{
-		Type:   eventType,
-		Source: "brain",
+		Type:    eventType,
+		Source:  "brain",
 		Payload: payload,
 	})
 }

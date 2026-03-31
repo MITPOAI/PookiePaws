@@ -42,8 +42,8 @@ type Command struct {
 type DispatchResult struct {
 	Command  Command          `json:"command"`
 	Workflow *engine.Workflow `json:"workflow,omitempty"`
-	Model    string          `json:"model,omitempty"`
-	Raw      string          `json:"raw,omitempty"`
+	Model    string           `json:"model,omitempty"`
+	Raw      string           `json:"raw,omitempty"`
 }
 
 func (c Command) Validate(skillNames []string) error {

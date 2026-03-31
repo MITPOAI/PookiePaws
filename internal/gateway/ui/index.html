@@ -10,18 +10,35 @@
     <div class="app-shell">
       <aside class="sidebar">
         <div class="brand-block">
-          <p class="eyebrow">MITPO Operator Console</p>
-          <h1>PookiePaws</h1>
-          <p class="brand-copy">Local-first marketing operations with approval-gated execution and a visible audit trail.</p>
+          <div class="brand-mark">PP</div>
+          <div class="brand-copy-wrap">
+            <p class="eyebrow">MITPO Spatial Console</p>
+            <h1>PookiePaws</h1>
+            <p class="brand-copy">Pure-Go marketing operations with approval-gated execution, workspace controls, and a live audit surface.</p>
+          </div>
         </div>
+
         <nav class="sidebar-nav" aria-label="Console sections">
-          <button class="nav-item is-active" type="button" data-view="workflows">Workflows</button>
-          <button class="nav-item" type="button" data-view="skills">Skills</button>
-          <button class="nav-item" type="button" data-view="approvals">Approvals</button>
-          <button class="nav-item" type="button" data-view="settings">Settings</button>
+          <button class="nav-item is-active" type="button" data-view="workflows">
+            <span class="nav-item__label">Workflows</span>
+            <span class="nav-item__hint">Canvas and queue</span>
+          </button>
+          <button class="nav-item" type="button" data-view="skills">
+            <span class="nav-item__label">Skills</span>
+            <span class="nav-item__hint">Direct execution</span>
+          </button>
+          <button class="nav-item" type="button" data-view="approvals">
+            <span class="nav-item__label">Approvals</span>
+            <span class="nav-item__hint">Human review</span>
+          </button>
+          <button class="nav-item" type="button" data-view="settings">
+            <span class="nav-item__label">Settings</span>
+            <span class="nav-item__hint">Providers and vault</span>
+          </button>
         </nav>
+
         <section class="status-stack">
-          <div class="status-card">
+          <div class="status-card status-card--primary">
             <span class="status-label">Runtime</span>
             <strong id="runtime-badge">Starting</strong>
             <p id="runtime-detail">Waiting for status.</p>
@@ -36,67 +53,91 @@
             <div class="provider-flags" id="provider-flags"></div>
           </div>
         </section>
+
         <section class="sidebar-footnote">
-          <p>Templates and direct forms stay available even when the brain is disabled. Free-text routing is optional.</p>
+          <p>Direct skills, templates, and approval surfaces remain available even when the brain is offline.</p>
         </section>
       </aside>
 
       <main class="workspace">
         <header class="workspace-header">
-          <div>
-            <p class="eyebrow">Spatial Workflow Builder</p>
-            <h2>Build, inspect, and approve marketing operations without leaving the local console.</h2>
+          <div class="workspace-header__copy">
+            <p class="eyebrow">Operations Canvas</p>
+            <h2>Build, inspect, and approve campaign workflows from a single spatial control plane.</h2>
+            <p>The center canvas stays focused on work composition while the audit rail remains visible at all times.</p>
           </div>
           <div class="header-actions">
-            <button class="button secondary" id="refresh-console" type="button">Refresh</button>
+            <button class="button secondary" id="refresh-console" type="button">Refresh Console</button>
           </div>
         </header>
 
         <section class="summary-strip" id="summary-strip"></section>
 
         <section class="view is-active" id="view-workflows" aria-labelledby="workflows-heading">
-          <div class="panel prompt-panel">
-            <div class="panel-head">
-              <div>
-                <p class="eyebrow">Goal Input</p>
-                <h3 id="workflows-heading">Tell the agent what outcome you want.</h3>
+          <div class="hero-grid">
+            <section class="panel prompt-panel">
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">Mission Input</p>
+                  <h3 id="workflows-heading">Describe the marketing outcome and route it through the local operator flow.</h3>
+                </div>
               </div>
-            </div>
-            <form id="goal-form" class="prompt-form">
-              <label class="field">
-                Campaign goal
-                <textarea id="goal-input" name="prompt" placeholder="Research competitor pricing online and draft an SMS campaign for our leads."></textarea>
-              </label>
-              <div class="button-row">
-                <button class="button" type="submit">Run with brain</button>
-                <button class="button secondary" id="run-canvas" type="button">Run canvas plan</button>
-                <button class="button ghost" id="reset-canvas" type="button">Reset canvas</button>
+              <form id="goal-form" class="prompt-form">
+                <label class="field">
+                  Campaign goal
+                  <textarea id="goal-input" name="prompt" placeholder="Research competitor pricing online and draft an SMS campaign for our VIP leads with approval before send."></textarea>
+                </label>
+                <div class="button-row">
+                  <button class="button" type="submit">Run with Brain</button>
+                  <button class="button secondary" id="run-canvas" type="button">Run Canvas Plan</button>
+                  <button class="button ghost" id="reset-canvas" type="button">Reset Canvas</button>
+                </div>
+                <p class="inline-note" id="brain-guard" hidden>Brain required. Configure a local or hosted OpenAI-compatible endpoint in Settings before using free-text routing.</p>
+                <p class="inline-note" id="canvas-plan-status">Canvas state is stored only in this browser.</p>
+              </form>
+            </section>
+
+            <section class="panel overview-panel">
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">Control Signals</p>
+                  <h3>Operator posture, provider readiness, and approval pressure in one glance.</h3>
+                </div>
               </div>
-              <p class="inline-note" id="brain-guard" hidden>Brain required. Configure a local or hosted OpenAI-compatible endpoint in Settings before using free-text routing.</p>
-              <p class="inline-note" id="canvas-plan-status">Canvas state is stored only in this browser.</p>
-            </form>
+              <div class="signal-grid">
+                <article class="signal-card">
+                  <span class="signal-card__label">Workflow planning</span>
+                  <strong>Canvas-first</strong>
+                  <p>Structured flows remain usable even when free-text routing is disabled.</p>
+                </article>
+                <article class="signal-card">
+                  <span class="signal-card__label">Outbound safety</span>
+                  <strong>Human-gated</strong>
+                  <p>CRM, SMS, and file access actions stay visible before they can leave the workstation.</p>
+                </article>
+                <article class="signal-card">
+                  <span class="signal-card__label">Runtime model</span>
+                  <strong>Single binary</strong>
+                  <p>No Node.js toolchain, no split control plane, and no hidden frontend build step.</p>
+                </article>
+              </div>
+            </section>
           </div>
 
-          <div class="panel template-panel">
+          <section class="panel canvas-panel">
             <div class="panel-head">
               <div>
-                <p class="eyebrow">Workflow Templates</p>
-                <h3>Safe starting points for common marketing tasks.</h3>
-              </div>
-            </div>
-            <div class="template-strip" id="template-strip"></div>
-          </div>
-
-          <div class="panel canvas-panel">
-            <div class="panel-head">
-              <div>
-                <p class="eyebrow">Canvas</p>
-                <h3>Map the workflow before you execute it.</h3>
+                <p class="eyebrow">Spatial Workflow Builder</p>
+                <h3>Map the workflow before execution and keep operator review in the loop.</h3>
               </div>
               <p class="inline-note">Palette nodes auto-connect from the selected node. Use "Start link" in the inspector for manual connections.</p>
             </div>
             <div class="canvas-shell">
               <section class="canvas-palette">
+                <div class="canvas-palette__title">
+                  <span class="status-label">Node Library</span>
+                  <p>Drop structured steps onto the canvas.</p>
+                </div>
                 <button class="palette-button" type="button" data-node-type="goal">Goal</button>
                 <button class="palette-button" type="button" data-node-type="research">Research</button>
                 <button class="palette-button" type="button" data-node-type="compare">Compare</button>
@@ -106,6 +147,10 @@
                 <button class="palette-button" type="button" data-node-type="send">Send</button>
               </section>
               <section class="canvas-stage" id="canvas-stage">
+                <div class="canvas-stage__chrome">
+                  <span class="status-pill">Workflow topology</span>
+                  <span class="inline-note">Compose direct workflows or use the brain to translate the graph.</span>
+                </div>
                 <svg class="canvas-links" id="canvas-links" aria-hidden="true"></svg>
                 <div class="canvas-board" id="canvas-board"></div>
               </section>
@@ -117,27 +162,49 @@
                 </div>
               </aside>
             </div>
-          </div>
+          </section>
 
-          <div class="panel queue-panel">
-            <div class="panel-head">
-              <div>
-                <p class="eyebrow">Workflow Queue</p>
-                <h3>Recent executions and their current state.</h3>
+          <div class="workflow-grid">
+            <section class="panel template-panel">
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">Workflow Templates</p>
+                  <h3>Safe starting points for recurring marketing tasks.</h3>
+                </div>
               </div>
-            </div>
-            <div class="data-list" id="workflow-queue"></div>
-          </div>
+              <div class="template-strip" id="template-strip"></div>
+            </section>
 
-          <div class="panel approvals-panel">
-            <div class="panel-head">
-              <div>
-                <p class="eyebrow">Pending Approvals</p>
-                <h3>Outbound actions are held here until a human approves them.</h3>
+            <section class="panel queue-panel">
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">Workflow Queue</p>
+                  <h3>Recent executions and their current state.</h3>
+                </div>
               </div>
-              <button class="button secondary" id="open-approvals" type="button">Open approvals view</button>
-            </div>
-            <div class="data-list compact" id="approval-summary"></div>
+              <div class="data-list" id="workflow-queue"></div>
+            </section>
+
+            <section class="panel approvals-panel">
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">Pending Approvals</p>
+                  <h3>Outbound actions pause here until an operator decides.</h3>
+                </div>
+                <button class="button secondary" id="open-approvals" type="button">Open Review Center</button>
+              </div>
+              <div class="data-list compact" id="approval-summary"></div>
+            </section>
+
+            <section class="panel permissions-panel">
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">File Access Queue</p>
+                  <h3>Workspace reads and writes remain explicit, reviewable actions.</h3>
+                </div>
+              </div>
+              <div class="data-list compact" id="file-permission-summary"></div>
+            </section>
           </div>
         </section>
 
@@ -146,7 +213,7 @@
             <div class="panel-head">
               <div>
                 <p class="eyebrow">Direct Skills</p>
-                <h3 id="skills-heading">Run core marketing actions without asking the brain to decide.</h3>
+                <h3 id="skills-heading">Run core marketing actions directly when you do not need routing.</h3>
               </div>
             </div>
             <div class="skill-grid">
@@ -160,8 +227,9 @@
                   Campaign URL
                   <input name="url" type="url" required value="https://example.com/?utm_source=meta&utm_medium=paid_social&utm_campaign=launch">
                 </label>
-                <button class="button" type="submit">Run validation</button>
+                <button class="button" type="submit">Run Validation</button>
               </form>
+
               <form id="lead-form" class="skill-card">
                 <div>
                   <span class="skill-pill">salesmanago-lead-router</span>
@@ -190,8 +258,9 @@
                     </select>
                   </label>
                 </div>
-                <button class="button" type="submit">Prepare route</button>
+                <button class="button" type="submit">Prepare Route</button>
               </form>
+
               <form id="sms-form" class="skill-card">
                 <div>
                   <span class="skill-pill">mitto-sms-drafter</span>
@@ -212,21 +281,33 @@
                   Message
                   <textarea name="message">VIP early access is live. Tap to claim your spot.</textarea>
                 </label>
-                <button class="button" type="submit">Create SMS draft</button>
+                <button class="button" type="submit">Create SMS Draft</button>
               </form>
             </div>
           </div>
         </section>
 
         <section class="view" id="view-approvals" aria-labelledby="approvals-heading">
-          <div class="panel">
-            <div class="panel-head">
-              <div>
-                <p class="eyebrow">Approvals</p>
-                <h3 id="approvals-heading">Human-in-the-loop controls for outbound actions.</h3>
+          <div class="split-panel-grid">
+            <section class="panel">
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">Action Approvals</p>
+                  <h3 id="approvals-heading">Human-in-the-loop controls for outbound CRM and SMS operations.</h3>
+                </div>
               </div>
-            </div>
-            <div class="data-list" id="approvals-list"></div>
+              <div class="data-list" id="approvals-list"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">File Permissions</p>
+                  <h3>Operator review queue for workspace reads and writes.</h3>
+                </div>
+              </div>
+              <div class="data-list" id="file-permissions-list"></div>
+            </section>
           </div>
         </section>
 
@@ -259,6 +340,7 @@
                     </label>
                   </div>
                 </section>
+
                 <section class="vault-section">
                   <h4>Salesmanago</h4>
                   <div class="field-grid">
@@ -276,6 +358,7 @@
                     </label>
                   </div>
                 </section>
+
                 <section class="vault-section">
                   <h4>Mitto</h4>
                   <div class="field-grid">
@@ -293,8 +376,9 @@
                     </label>
                   </div>
                 </section>
+
                 <div class="button-row">
-                  <button class="button" id="save-vault" type="submit">Save settings</button>
+                  <button class="button" id="save-vault" type="submit">Save Settings</button>
                 </div>
                 <p class="inline-note" id="vault-message">Only loopback-bound instances can write the vault from the UI.</p>
               </form>
@@ -307,7 +391,8 @@
         <div class="audit-head">
           <div>
             <p class="eyebrow">Audit Trail</p>
-            <h2>Live runtime activity</h2>
+            <h2>Live operator telemetry</h2>
+            <p class="audit-note">Workflow events, approval requests, file-access decisions, and adapter activity stream here in real time.</p>
           </div>
           <span class="stream-indicator" id="stream-indicator">Connecting</span>
         </div>

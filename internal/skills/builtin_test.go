@@ -10,7 +10,7 @@ import (
 
 type noopSecrets struct{}
 
-func (noopSecrets) Get(string) (string, error) { return "", nil }
+func (noopSecrets) Get(string) (string, error)                      { return "", nil }
 func (noopSecrets) RedactMap(payload map[string]any) map[string]any { return payload }
 
 func TestParseSkillMarkdown(t *testing.T) {
