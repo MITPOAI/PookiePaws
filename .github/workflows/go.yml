@@ -34,5 +34,8 @@ jobs:
       - name: Run tests
         run: go test ./...
 
-      - name: Build runtime
+      - name: Build runtime (pookie)
+        run: go build -v ./cmd/pookie/...
+
+      - name: Build legacy entrypoint (pookiepaws)
         run: go build -v ./cmd/pookiepaws/...

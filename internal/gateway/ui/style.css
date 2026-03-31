@@ -83,41 +83,41 @@
 
 :root[data-theme="soft"] {
   color-scheme: light;
-  --bg-top: #fcf5ef;
-  --bg: #f7efe8;
-  --bg-strong: #eaded7;
-  --backdrop-a: rgba(206, 111, 93, 0.14);
-  --backdrop-b: rgba(235, 192, 171, 0.24);
-  --shell-ink: #fff4ef;
-  --shell-muted: rgba(255, 244, 239, 0.76);
-  --shell-accent: #ffc6a7;
-  --shell-start: rgba(67, 45, 40, 0.98);
-  --shell-end: rgba(79, 53, 48, 0.98);
-  --shell-card: rgba(100, 68, 61, 0.72);
-  --surface: rgba(255, 250, 246, 0.9);
-  --surface-strong: #fffaf6;
-  --surface-muted: #f9f1eb;
-  --surface-soft: rgba(255, 248, 241, 0.98);
-  --ink: #3c302c;
-  --muted: #846a62;
-  --line: rgba(97, 69, 62, 0.12);
-  --line-strong: rgba(97, 69, 62, 0.18);
-  --accent: #ce6f5d;
-  --accent-strong: #b85d4c;
-  --accent-soft: rgba(206, 111, 93, 0.14);
+  --bg-top: #fdf5f7;
+  --bg: #f9eff2;
+  --bg-strong: #f0dfe4;
+  --backdrop-a: rgba(186, 107, 128, 0.14);
+  --backdrop-b: rgba(224, 178, 192, 0.24);
+  --shell-ink: #fff5f7;
+  --shell-muted: rgba(255, 245, 247, 0.76);
+  --shell-accent: #e8a4b8;
+  --shell-start: rgba(62, 36, 46, 0.98);
+  --shell-end: rgba(72, 42, 54, 0.98);
+  --shell-card: rgba(90, 55, 68, 0.72);
+  --surface: rgba(255, 250, 252, 0.9);
+  --surface-strong: #fffafb;
+  --surface-muted: #faf1f4;
+  --surface-soft: rgba(255, 248, 250, 0.98);
+  --ink: #3a2a30;
+  --muted: #7e636c;
+  --line: rgba(90, 55, 68, 0.12);
+  --line-strong: rgba(90, 55, 68, 0.18);
+  --accent: #ba6b80;
+  --accent-strong: #a25a6e;
+  --accent-soft: rgba(186, 107, 128, 0.14);
   --success: #4e8868;
   --success-soft: rgba(78, 136, 104, 0.14);
   --warning: #bd8550;
   --warning-soft: rgba(189, 133, 80, 0.14);
   --danger: #c66d66;
   --danger-soft: rgba(198, 109, 102, 0.14);
-  --audit-card: rgba(79, 53, 47, 0.92);
-  --brand-mark-a: rgba(255, 198, 167, 0.3);
-  --brand-mark-b: rgba(206, 111, 93, 0.54);
-  --grid-line: rgba(206, 111, 93, 0.08);
-  --modal-backdrop: rgba(54, 37, 33, 0.42);
-  --shadow-lg: 0 28px 60px rgba(81, 56, 49, 0.14);
-  --shadow-md: 0 16px 36px rgba(81, 56, 49, 0.1);
+  --audit-card: rgba(72, 42, 54, 0.92);
+  --brand-mark-a: rgba(232, 164, 184, 0.3);
+  --brand-mark-b: rgba(186, 107, 128, 0.54);
+  --grid-line: rgba(186, 107, 128, 0.08);
+  --modal-backdrop: rgba(50, 30, 38, 0.42);
+  --shadow-lg: 0 28px 60px rgba(72, 42, 54, 0.14);
+  --shadow-md: 0 16px 36px rgba(72, 42, 54, 0.1);
 }
 
 * {
@@ -304,7 +304,11 @@ code {
 
 .nav-item {
   display: grid;
-  gap: 4px;
+  grid-template-columns: 18px 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  row-gap: 2px;
+  align-items: center;
   justify-items: start;
   padding: 14px 16px;
   border-radius: var(--radius-md);
@@ -313,6 +317,17 @@ code {
   color: var(--shell-ink);
   text-align: left;
   transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+
+.nav-item__icon {
+  grid-row: 1 / -1;
+  grid-column: 1;
+  align-self: center;
+  opacity: 0.7;
+}
+
+.nav-item.is-active .nav-item__icon {
+  opacity: 1;
 }
 
 .nav-item:hover,
@@ -1093,6 +1108,8 @@ select:focus-visible,
 }
 
 .modal {
+  position: relative;
+  z-index: 1;
   width: min(580px, 100%);
   background: linear-gradient(180deg, var(--surface-soft), var(--surface-strong));
 }

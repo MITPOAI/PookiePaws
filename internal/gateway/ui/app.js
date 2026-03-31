@@ -1691,8 +1691,8 @@
     }
     const fallback = document.body && document.body.dataset && document.body.dataset.defaultTheme
       ? document.body.dataset.defaultTheme
-      : "light";
-    return isValidTheme(fallback) ? fallback : "light";
+      : "dark";
+    return isValidTheme(fallback) ? fallback : "dark";
   }
 
   function setTheme(theme) {
@@ -1707,7 +1707,7 @@
   }
 
   function applyTheme(theme) {
-    const resolved = isValidTheme(theme) ? theme : "light";
+    const resolved = isValidTheme(theme) ? theme : "dark";
     document.documentElement.dataset.theme = resolved;
     document.documentElement.style.colorScheme = resolved === "dark" ? "dark" : "light";
   }

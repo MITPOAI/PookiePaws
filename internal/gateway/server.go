@@ -189,7 +189,7 @@ func NewServer(cfg Config) *Server {
 		indexTmpl:   indexTmpl,
 		indexView: IndexViewModel{
 			Title:        "PookiePaws Operator Console",
-			DefaultTheme: "light",
+			DefaultTheme: "dark",
 			ThemeOptions: []ThemeOption{
 				{ID: "light", Label: "Light", Hint: "Bright, crisp, and focused."},
 				{ID: "dark", Label: "Dark", Hint: "Low-glare for longer sessions."},
