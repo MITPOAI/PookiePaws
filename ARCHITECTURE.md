@@ -2,20 +2,25 @@
 
 ## Purpose
 
-This document defines the intended implementation shape of PookiePaws. It is an architecture contract for future contributors, not a statement that the runtime already exists.
+This document defines the intended implementation shape of PookiePaws. It is the architecture contract for future contributors and now also describes the first runnable runtime that exists in this repository.
 
 ## Current Repository State
 
-The repository is in a documentation foundation phase.
+The repository now contains a first runnable Go implementation.
 
 Current state:
 
-- No shipped runtime
-- No local web UI
-- No packaged integrations
-- No public API surface
+- Go module and command entrypoint
+- In-process event bus and subturn manager
+- Workflow coordinator with approval-aware adapter execution
+- Local gateway using `net/http` plus SSE
+- Operator console with direct workflow forms, approvals, templates, and provider status
+- Structured LLM dispatch path using an OpenAI-compatible HTTP client
+- JSON and JSONL runtime state
+- Embedded default skill manifests and built-in skill implementations
+- Live SALESmanago and Mitto HTTP adapters
 
-This document exists so implementation can start from a stable product boundary instead of redefining the project in every session.
+This document exists so implementation can continue from a stable product boundary instead of redefining the project in every session.
 
 ## Product Boundary
 
@@ -49,7 +54,7 @@ This keeps the core narrow, the UI accessible, and the integration surface exten
 
 ### 1. Core Engine
 
-The core engine should be implemented as a Go service with responsibility for:
+The current core engine is implemented as Go packages under `internal/engine` with responsibility for:
 
 - event intake and internal routing
 - workflow orchestration
@@ -57,16 +62,24 @@ The core engine should be implemented as a Go service with responsibility for:
 - policy enforcement before tool execution
 - audit event emission
 
+Key implemented components:
+
+- `EventBus` for typed, non-blocking event fan-out with drop accounting
+- `SubTurnManager` for concurrent subagent lifecycle management
+- `WorkflowCoordinator` for skill execution, approvals, adapter execution, and status snapshots
+
 The core should remain small and defensible. Integration logic belongs at the edge, not in the orchestration core.
 
 ### 2. Local Web UI
 
-The web UI should be a separate frontend application served alongside the local runtime or proxied by it.
+The current gateway is served from the same binary via `internal/gateway`. It exposes REST plus SSE endpoints and embeds a compact operator console.
 
 Primary responsibilities:
 
 - show active workflows and recent events
-- expose skill and integration configuration
+- expose current skills, workflow templates, and direct workflow actions
+- accept plain-language prompts for the LLM router when configured
+- show provider status and approval queues clearly
 - surface audit details in plain language
 - stop, resume, or approve sensitive workflow steps
 
@@ -81,7 +94,37 @@ The extensibility model should use two layers:
 
 This separation keeps behavioral intent distinct from external tool execution. Skills define workflow capability. Integrations define how the system touches outside tools.
 
-### 4. Audit And Governance
+Current built-in skills:
+
+- `utm-validator`
+- `salesmanago-lead-router`
+- `mitto-sms-drafter`
+
+Current adapter posture:
+
+- live HTTP adapters for SALESmanago and Mitto
+- approval-gated execution for all outward-facing actions
+- no MITPO-private integration in the open-source core
+
+### 4. LLM Brain
+
+The current LLM bridge is implemented as a narrow dispatch service:
+
+- it calls an OpenAI-compatible completion endpoint over `net/http`
+- it instructs the model to emit strict JSON only
+- it parses that JSON into a workflow command
+- it validates the selected skill before submission
+- it publishes brain command events before routing into the normal workflow path
+
+This keeps model output constrained and reduces the amount of free-form reasoning that can leak into tool execution.
+
+The intended provider strategy is still narrow:
+
+- one OpenAI-compatible provider boundary first
+- local LLM support as a first-class path
+- direct Claude, Gemini, and OpenRouter adapters deferred until the provider boundary and redaction model are more mature
+
+### 5. Audit And Governance
 
 Audit and governance are first-class parts of the design.
 
@@ -93,7 +136,7 @@ The intended system must support:
 - human approval checkpoints for high-risk actions
 - clear attribution of workflow, skill, and policy versions
 
-### 5. Local State And Configuration
+### 6. Local State And Configuration
 
 Implementation should keep local state explicit and inspectable.
 
@@ -108,7 +151,7 @@ Secrets must not be exposed directly to model context. Secret injection and boun
 
 ## Security Direction
 
-Security constraints are part of the intended architecture even though the runtime is not yet implemented.
+Security constraints are part of the implemented runtime and remain part of the long-term architecture contract.
 
 Planned controls:
 
@@ -119,7 +162,14 @@ Planned controls:
 - approval gates for high-risk actions
 - durable audit logging for sensitive workflow steps
 
-These are implementation requirements, not optional enhancements.
+Implemented controls in the current runtime:
+
+- runtime root at `~/.pookiepaws/`
+- workspace root at `~/.pookiepaws/workspace/`
+- `filepath.EvalSymlinks` enforcement through the workspace sandbox
+- `ExecGuard` blocking destructive patterns such as `rm -rf`, `mkfs`, `diskpart`, `shutdown`, and `reboot`
+- `.security.json` secret storage at the host boundary
+- append-only JSONL audit events
 
 ## MITPO Integration Boundary
 
@@ -137,10 +187,10 @@ When MITPO integration begins, it should be added as documented interface work t
 
 The current phase should not introduce:
 
-- speculative runtime code without matching documentation
-- fake installation or deployment instructions
 - claims of production readiness
 - bundled private assets, credentials, or proprietary MITPO internals
+- direct code fusion from OpenClaw or NemoClaw
+- live vendor coupling that would force private APIs or heavy dependencies
 
 ## Documentation Contract
 

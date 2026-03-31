@@ -1,0 +1,10 @@
+{
+  "name": "Route CRM lead",
+  "skill": "salesmanago-lead-router",
+  "input": {
+    "email": "lead@example.com",
+    "name": "Taylor Prospect",
+    "segment": "vip",
+    "priority": "high"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "Draft launch SMS",
+  "skill": "mitto-sms-drafter",
+  "input": {
+    "campaign_name": "April VIP launch",
+    "message": "VIP early access is live. Tap to claim your spot.",
+    "recipients": [
+      "+61400000000"
+    ],
+    "test": true
+  }
+}

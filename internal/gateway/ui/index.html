@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PookiePaws Operator Console</title>
+    <link rel="stylesheet" href="/ui/style.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand-block">
+          <p class="eyebrow">MITPO Operator Console</p>
+          <h1>PookiePaws</h1>
+          <p class="brand-copy">Local-first marketing operations with approval-gated execution and a visible audit trail.</p>
+        </div>
+        <nav class="sidebar-nav" aria-label="Console sections">
+          <button class="nav-item is-active" type="button" data-view="workflows">Workflows</button>
+          <button class="nav-item" type="button" data-view="skills">Skills</button>
+          <button class="nav-item" type="button" data-view="approvals">Approvals</button>
+          <button class="nav-item" type="button" data-view="settings">Settings</button>
+        </nav>
+        <section class="status-stack">
+          <div class="status-card">
+            <span class="status-label">Runtime</span>
+            <strong id="runtime-badge">Starting</strong>
+            <p id="runtime-detail">Waiting for status.</p>
+          </div>
+          <div class="status-card">
+            <span class="status-label">Brain</span>
+            <strong id="brain-badge">Disabled</strong>
+            <p id="brain-detail">No provider configured.</p>
+          </div>
+          <div class="status-card">
+            <span class="status-label">Provider Health</span>
+            <div class="provider-flags" id="provider-flags"></div>
+          </div>
+        </section>
+        <section class="sidebar-footnote">
+          <p>Templates and direct forms stay available even when the brain is disabled. Free-text routing is optional.</p>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <header class="workspace-header">
+          <div>
+            <p class="eyebrow">Spatial Workflow Builder</p>
+            <h2>Build, inspect, and approve marketing operations without leaving the local console.</h2>
+          </div>
+          <div class="header-actions">
+            <button class="button secondary" id="refresh-console" type="button">Refresh</button>
+          </div>
+        </header>
+
+        <section class="summary-strip" id="summary-strip"></section>
+
+        <section class="view is-active" id="view-workflows" aria-labelledby="workflows-heading">
+          <div class="panel prompt-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Goal Input</p>
+                <h3 id="workflows-heading">Tell the agent what outcome you want.</h3>
+              </div>
+            </div>
+            <form id="goal-form" class="prompt-form">
+              <label class="field">
+                Campaign goal
+                <textarea id="goal-input" name="prompt" placeholder="Research competitor pricing online and draft an SMS campaign for our leads."></textarea>
+              </label>
+              <div class="button-row">
+                <button class="button" type="submit">Run with brain</button>
+                <button class="button secondary" id="run-canvas" type="button">Run canvas plan</button>
+                <button class="button ghost" id="reset-canvas" type="button">Reset canvas</button>
+              </div>
+              <p class="inline-note" id="brain-guard" hidden>Brain required. Configure a local or hosted OpenAI-compatible endpoint in Settings before using free-text routing.</p>
+              <p class="inline-note" id="canvas-plan-status">Canvas state is stored only in this browser.</p>
+            </form>
+          </div>
+
+          <div class="panel template-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Workflow Templates</p>
+                <h3>Safe starting points for common marketing tasks.</h3>
+              </div>
+            </div>
+            <div class="template-strip" id="template-strip"></div>
+          </div>
+
+          <div class="panel canvas-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Canvas</p>
+                <h3>Map the workflow before you execute it.</h3>
+              </div>
+              <p class="inline-note">Palette nodes auto-connect from the selected node. Use "Start link" in the inspector for manual connections.</p>
+            </div>
+            <div class="canvas-shell">
+              <section class="canvas-palette">
+                <button class="palette-button" type="button" data-node-type="goal">Goal</button>
+                <button class="palette-button" type="button" data-node-type="research">Research</button>
+                <button class="palette-button" type="button" data-node-type="compare">Compare</button>
+                <button class="palette-button" type="button" data-node-type="validate">Validate</button>
+                <button class="palette-button" type="button" data-node-type="draft_sms">Draft SMS</button>
+                <button class="palette-button" type="button" data-node-type="approval">Approval</button>
+                <button class="palette-button" type="button" data-node-type="send">Send</button>
+              </section>
+              <section class="canvas-stage" id="canvas-stage">
+                <svg class="canvas-links" id="canvas-links" aria-hidden="true"></svg>
+                <div class="canvas-board" id="canvas-board"></div>
+              </section>
+              <aside class="canvas-inspector" id="canvas-inspector">
+                <p class="eyebrow">Inspector</p>
+                <div id="inspector-content">
+                  <h3>Select a node</h3>
+                  <p class="inline-note">Use the palette to add steps, drag nodes into place, and inspect them here.</p>
+                </div>
+              </aside>
+            </div>
+          </div>
+
+          <div class="panel queue-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Workflow Queue</p>
+                <h3>Recent executions and their current state.</h3>
+              </div>
+            </div>
+            <div class="data-list" id="workflow-queue"></div>
+          </div>
+
+          <div class="panel approvals-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Pending Approvals</p>
+                <h3>Outbound actions are held here until a human approves them.</h3>
+              </div>
+              <button class="button secondary" id="open-approvals" type="button">Open approvals view</button>
+            </div>
+            <div class="data-list compact" id="approval-summary"></div>
+          </div>
+        </section>
+
+        <section class="view" id="view-skills" aria-labelledby="skills-heading">
+          <div class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Direct Skills</p>
+                <h3 id="skills-heading">Run core marketing actions without asking the brain to decide.</h3>
+              </div>
+            </div>
+            <div class="skill-grid">
+              <form id="utm-form" class="skill-card">
+                <div>
+                  <span class="skill-pill">utm-validator</span>
+                  <h3>Validate UTM</h3>
+                  <p>Check campaign URLs for missing parameters and normalized output.</p>
+                </div>
+                <label class="field">
+                  Campaign URL
+                  <input name="url" type="url" required value="https://example.com/?utm_source=meta&utm_medium=paid_social&utm_campaign=launch">
+                </label>
+                <button class="button" type="submit">Run validation</button>
+              </form>
+              <form id="lead-form" class="skill-card">
+                <div>
+                  <span class="skill-pill">salesmanago-lead-router</span>
+                  <h3>Route Lead</h3>
+                  <p>Prepare a CRM route with approval before external delivery.</p>
+                </div>
+                <div class="field-grid">
+                  <label class="field">
+                    Email
+                    <input name="email" type="email" required value="lead@example.com">
+                  </label>
+                  <label class="field">
+                    Name
+                    <input name="name" type="text" value="Taylor Prospect">
+                  </label>
+                  <label class="field">
+                    Segment
+                    <input name="segment" type="text" value="vip">
+                  </label>
+                  <label class="field">
+                    Priority
+                    <select name="priority">
+                      <option value="high">high</option>
+                      <option value="normal" selected>normal</option>
+                      <option value="low">low</option>
+                    </select>
+                  </label>
+                </div>
+                <button class="button" type="submit">Prepare route</button>
+              </form>
+              <form id="sms-form" class="skill-card">
+                <div>
+                  <span class="skill-pill">mitto-sms-drafter</span>
+                  <h3>Draft SMS</h3>
+                  <p>Create a send intent and pause for approval before outbound delivery.</p>
+                </div>
+                <div class="field-grid">
+                  <label class="field">
+                    Campaign name
+                    <input name="campaign_name" type="text" value="April VIP launch">
+                  </label>
+                  <label class="field">
+                    Recipient
+                    <input name="recipient" type="text" value="+61400000000">
+                  </label>
+                </div>
+                <label class="field">
+                  Message
+                  <textarea name="message">VIP early access is live. Tap to claim your spot.</textarea>
+                </label>
+                <button class="button" type="submit">Create SMS draft</button>
+              </form>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-approvals" aria-labelledby="approvals-heading">
+          <div class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Approvals</p>
+                <h3 id="approvals-heading">Human-in-the-loop controls for outbound actions.</h3>
+              </div>
+            </div>
+            <div class="data-list" id="approvals-list"></div>
+          </div>
+        </section>
+
+        <section class="view" id="view-settings" aria-labelledby="settings-heading">
+          <div class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">API Vault</p>
+                <h3 id="settings-heading">Configure the brain and external providers.</h3>
+              </div>
+            </div>
+            <div class="settings-layout">
+              <div class="settings-status" id="vault-status-cards"></div>
+              <form id="vault-form" class="vault-form">
+                <section class="vault-section">
+                  <h4>Brain</h4>
+                  <p class="inline-note">The console supports local or hosted OpenAI-compatible endpoints. Keys are stored only on the host in <code>~/.pookiepaws/.security.json</code>.</p>
+                  <div class="field-grid">
+                    <label class="field">
+                      LLM base URL
+                      <input name="llm_base_url" type="url" placeholder="http://localhost:11434/v1/chat/completions">
+                    </label>
+                    <label class="field">
+                      LLM model
+                      <input name="llm_model" type="text" placeholder="gpt-oss:20b">
+                    </label>
+                    <label class="field field-span-2">
+                      LLM API key
+                      <input name="llm_api_key" type="password" placeholder="Optional for local providers">
+                    </label>
+                  </div>
+                </section>
+                <section class="vault-section">
+                  <h4>Salesmanago</h4>
+                  <div class="field-grid">
+                    <label class="field">
+                      API key
+                      <input name="salesmanago_api_key" type="password" placeholder="Salesmanago API key">
+                    </label>
+                    <label class="field">
+                      Base URL
+                      <input name="salesmanago_base_url" type="url" placeholder="https://api.salesmanago.com/v3/keyInformation/upsert">
+                    </label>
+                    <label class="field field-span-2">
+                      Owner email
+                      <input name="salesmanago_owner" type="email" placeholder="owner@example.com">
+                    </label>
+                  </div>
+                </section>
+                <section class="vault-section">
+                  <h4>Mitto</h4>
+                  <div class="field-grid">
+                    <label class="field">
+                      API key
+                      <input name="mitto_api_key" type="password" placeholder="Mitto API key">
+                    </label>
+                    <label class="field">
+                      Base URL
+                      <input name="mitto_base_url" type="url" placeholder="https://rest.mittoapi.net">
+                    </label>
+                    <label class="field field-span-2">
+                      Sender
+                      <input name="mitto_from" type="text" placeholder="PookiePaws">
+                    </label>
+                  </div>
+                </section>
+                <div class="button-row">
+                  <button class="button" id="save-vault" type="submit">Save settings</button>
+                </div>
+                <p class="inline-note" id="vault-message">Only loopback-bound instances can write the vault from the UI.</p>
+              </form>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <aside class="audit-rail">
+        <div class="audit-head">
+          <div>
+            <p class="eyebrow">Audit Trail</p>
+            <h2>Live runtime activity</h2>
+          </div>
+          <span class="stream-indicator" id="stream-indicator">Connecting</span>
+        </div>
+        <div class="audit-stream" id="audit-stream"></div>
+      </aside>
+    </div>
+
+    <div class="modal-backdrop" id="approval-modal" hidden>
+      <div class="modal">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">Human Approval Required</p>
+            <h3 id="modal-title">Approval pending</h3>
+          </div>
+        </div>
+        <div class="modal-body">
+          <p id="modal-detail"></p>
+          <div class="modal-diff" id="modal-diff"></div>
+        </div>
+        <div class="button-row">
+          <button class="button" id="modal-approve" type="button">Approve</button>
+          <button class="button danger" id="modal-reject" type="button">Reject</button>
+          <button class="button ghost" id="modal-close" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="/ui/app.js" defer></script>
+  </body>
+</html>

@@ -1,93 +1,196 @@
 # PookiePaws
 
-> Open-source AI marketing automation foundation from MITPO for research, strategy, and campaign workflows.
+![PookiePaws banner](./assets/pookiepaws.svg)
 
-PookiePaws is MITPO's open-source foundation for a lightweight marketing automation agent. The target shape is a hybrid system: a local-first agent runtime with a browser-based workspace for planning, workflow execution, audit visibility, and safe human approval on high-risk actions.
+[![Release](https://img.shields.io/github/v/release/mitpoai/pookiepaws?display_name=tag)](https://github.com/mitpoai/pookiepaws/releases)
+[![Go Version](https://img.shields.io/badge/Go-1.22%2B-00ADD8?logo=go)](https://go.dev/)
+[![License](https://img.shields.io/github/license/mitpoai/pookiepaws)](./LICENSE)
 
-## Status
+> Local-first marketing operations runtime from MITPO for research, strategy, approvals, and campaign execution.
 
-**Foundation phase.** This repository currently defines the product direction, architecture contract, contribution rules, and community policies.
+PookiePaws is a pure-Go, stdlib-first marketing automation runtime built around one binary, a local operator console, approval-aware external actions, and a strict host-side secret boundary. It is intentionally narrower than a general-purpose AI workspace: the product is optimized for marketing operators who need clarity, auditability, and predictable workflow execution.
 
-What exists today:
-
-- Open-source positioning and documentation
-- Architecture and roadmap contracts
-- Contribution, security, and governance rules
-
-What does not exist yet:
-
-- A runnable daemon or local web UI
-- MITPO API integration
-- Production integrations, skills, or deployment packages
-
-MITPO API support is planned for a later phase. It is roadmap work, not current behavior.
+![Demo placeholder](./assets/pookiepaws.svg)
 
 ## Why PookiePaws
 
-Marketing teams need more than content generation. They need a system that can move from research into strategy, then from strategy into structured execution, without losing context or removing operator control.
+- It is local-first and inspectable instead of relying on a heavy hosted control plane.
+- It keeps workflow execution visible through a compact operator console and event stream.
+- It defaults to approval-gated outbound CRM and SMS actions.
+- It supports local LLMs through an OpenAI-compatible boundary, so you can run a brain without a cloud API key.
+- It keeps secrets host-side in `.security.json` and avoids putting provider credentials into prompts.
+- It is designed as a marketing operations runtime, not a generic shell agent.
 
-PookiePaws is intended to provide that foundation:
+## What Makes It Different
 
-- Research and strategy workflows in one system
-- Safe automation for repeatable marketing operations
-- A lightweight runtime that does not require a heavy SaaS stack
-- A clear boundary between agent reasoning, tool execution, and human approval
+- Small, single-binary runtime rather than a broad multi-service agent platform
+- Operator-first console rather than a chat-only interface
+- Workflow templates and direct forms for real marketing tasks
+- Approval queue with human-readable action summaries
+- Event-driven audit trail exposed through SSE and persisted runtime state
+- OpenAI-compatible LLM boundary without forcing a specific provider
 
-## Relationship To MITPO
+## Current Capabilities
 
-MITPO is the parent product and brand at [mitpo.io](https://www.mitpo.io/). PookiePaws is not the MITPO web app. It is the open-source agent layer MITPO intends to build in public, with MITPO-specific API connectivity and product integrations added later as separate implementation work.
+- Non-blocking `EventBus` and goroutine-based `SubTurnManager`
+- Local operator console served from the same binary
+- Direct workflow forms for:
+  - UTM validation
+  - CRM lead routing
+  - SMS draft creation
+- Optional brain routing from free-text to structured workflow commands
+- Live HTTP adapters for SALESmanago and Mitto
+- Workspace sandboxing and host-side secret loading
+- Runtime state and audit records stored under `~/.pookiepaws/`
 
-## Planned System Shape
+## Quick Start
 
-The implementation contract for future work is:
+1. Build the runtime.
 
-- **Core engine:** a lightweight Go daemon responsible for agent orchestration, event handling, workflow execution, and policy enforcement
-- **Local web UI:** a browser-based workspace for monitoring workflows, configuring skills, reviewing audit events, and approving sensitive actions
-- **Skills and integrations:** modular capabilities exposed through MCP-compatible services and documented skill definitions
-- **Audit and governance:** explicit action logging, workspace restrictions, approval checkpoints, and operational guardrails
+```powershell
+go mod tidy
+go build -o pookiepaws.exe cmd/pookiepaws/main.go
+```
 
-This repository should evolve around that shape unless a future architecture decision explicitly changes it in [ARCHITECTURE.md](./ARCHITECTURE.md).
+2. Copy the example security file and fill only the values you need.
 
-## Foundation Phase Priorities
+```powershell
+Copy-Item .security.example.json "$HOME\\.pookiepaws\\.security.json"
+```
 
-The current phase is docs-first by design. The immediate goal is to make the project legible to contributors before any runtime code appears.
+For local LLM use, this is enough:
 
-Current priorities:
+```json
+{
+  "llm_base_url": "http://localhost:11434/v1/chat/completions",
+  "llm_model": "gpt-oss:20b",
+  "llm_api_key": ""
+}
+```
 
-1. Lock the public positioning of the project
-2. Define the intended architecture and phase boundaries
-3. Establish contribution, security, and documentation governance rules
-4. Prepare the repo for implementation work without overstating current capabilities
+3. Start the app.
 
-## Documentation Map
+```powershell
+.\pookiepaws.exe -addr 127.0.0.1:18800
+```
 
-- [ARCHITECTURE.md](./ARCHITECTURE.md) defines the implementation shape and system boundaries
-- [ROADMAP.md](./ROADMAP.md) defines delivery phases
-- [CONTRIBUTING.md](./CONTRIBUTING.md) defines contribution and documentation rules
-- [SECURITY.md](./SECURITY.md) defines security reporting and repository safety expectations
-- [CHANGELOG.md](./CHANGELOG.md) tracks structural changes to the project definition
+Open [http://127.0.0.1:18800/](http://127.0.0.1:18800/).
 
-## Contribution Rule
+## Run And Test
 
-Any structural, behavioral, or public-facing change must update the relevant documentation in the same pull request. At minimum, contributors should review:
+### Verify the build
 
-- [README.md](./README.md)
+```powershell
+go test ./...
+go build -o pookiepaws.exe cmd/pookiepaws/main.go
+```
+
+### Verify the console and status
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:18800/api/v1/console
+Invoke-RestMethod http://127.0.0.1:18800/api/v1/status
+Invoke-RestMethod http://127.0.0.1:18800/api/v1/skills
+```
+
+### Run sample workflows
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri http://127.0.0.1:18800/api/v1/workflows `
+  -ContentType "application/json" `
+  -InFile .\examples\workflows\utm-validation.json
+```
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri http://127.0.0.1:18800/api/v1/workflows `
+  -ContentType "application/json" `
+  -InFile .\examples\workflows\lead-route.json
+```
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri http://127.0.0.1:18800/api/v1/workflows `
+  -ContentType "application/json" `
+  -InFile .\examples\workflows\sms-draft.json
+```
+
+### Use the optional brain
+
+```powershell
+$body = @{
+  prompt = "Draft an SMS campaign for our April VIP launch and route it through the Mitto skill"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post `
+  -Uri http://127.0.0.1:18800/api/v1/brain/dispatch `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+If no LLM provider is configured, the app still starts and the direct workflow forms still work.
+
+## API Surface
+
+- `GET /`
+- `GET /api/v1/console`
+- `GET /api/v1/status`
+- `GET /api/v1/events`
+- `GET /api/v1/workflows`
+- `POST /api/v1/workflows`
+- `GET /api/v1/approvals`
+- `POST /api/v1/approvals/{id}/approve`
+- `POST /api/v1/approvals/{id}/reject`
+- `GET /api/v1/skills`
+- `POST /api/v1/skills/validate`
+- `POST /api/v1/brain/dispatch`
+
+## Runtime Layout
+
+PookiePaws uses `~/.pookiepaws/` by default.
+
+- `workspace/` local file workspace
+- `state/workflows/` workflow records
+- `state/approvals/` approval records
+- `state/runtime/status.json` latest runtime snapshot
+- `state/audits/audit.jsonl` append-only audit stream
+- `.security.json` host-side secrets and provider configuration
+
+## Security Posture
+
+- Workspace access is constrained under `~/.pookiepaws/workspace/`
+- Existing symlink path segments are rejected in the sandbox
+- Command execution is guarded by a read-only allowlist rather than a blacklist
+- Secrets are read from host-side config and are not required for the console to run
+- Adapter failures are published back into the event stream as `adapter.failed`
+
+## Current Product Direction
+
+PookiePaws is intentionally not trying to be a clone of a broader general-purpose agent product. The current direction is:
+
+- local-first
+- operator-controlled
+- marketing-native
+- approval-aware
+- lightweight enough to audit and self-host easily
+
+## Files To Start With
+
+- [cmd/pookiepaws/main.go](./cmd/pookiepaws/main.go)
+- [internal/gateway/server.go](./internal/gateway/server.go)
+- [internal/gateway/ui/index.html](./internal/gateway/ui/index.html)
+- [internal/brain/service.go](./internal/brain/service.go)
+- [internal/security/sandbox.go](./internal/security/sandbox.go)
+
+## Documentation
+
 - [ARCHITECTURE.md](./ARCHITECTURE.md)
+- [ROADMAP.md](./ROADMAP.md)
+- [CONTRIBUTING.md](./CONTRIBUTING.md)
+- [SECURITY.md](./SECURITY.md)
 - [CHANGELOG.md](./CHANGELOG.md)
-
-If a change does not require one of those files, the PR should state why.
-
-## Contributing
-
-Start with [CONTRIBUTING.md](./CONTRIBUTING.md). The current repo is best suited for:
-
-- documentation improvements
-- architecture review
-- roadmap refinement
-- governance and workflow proposals
-
-Implementation work should follow the documented architecture contract and keep the docs in sync.
 
 ## License
 
-PookiePaws is licensed under the Apache License 2.0. See [LICENSE](./LICENSE).
+Apache License 2.0. See [LICENSE](./LICENSE).

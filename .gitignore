@@ -1,0 +1,34 @@
+# Binaries and build output
+bin/
+build/
+dist/
+*.exe
+*.test
+*.out
+*.dll
+*.so
+*.dylib
+
+# Go tooling
+coverage.out
+*.coverprofile
+.cache/
+cover.out
+
+# Local runtime state
+.pookiepaws/
+workspace/
+tmp/
+*.log
+.security.json
+.security.*.json
+
+# Research and snapshots
+research/
+vendor-snapshots/
+
+# Editors and OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
