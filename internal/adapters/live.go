@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mitpoai/pookiepaws/internal/conv"
 	"github.com/mitpoai/pookiepaws/internal/engine"
 )
 
@@ -19,7 +20,7 @@ type SalesmanagoAdapter struct {
 
 func NewSalesmanagoAdapter() *SalesmanagoAdapter {
 	return &SalesmanagoAdapter{
-		client: &http.Client{Timeout: 30 * time.Second},
+		client: newAdapterClient(),
 	}
 }
 
@@ -36,10 +37,7 @@ func (a *SalesmanagoAdapter) Execute(ctx context.Context, action engine.AdapterA
 	if err != nil {
 		return engine.AdapterResult{}, fmt.Errorf("salesmanago_api_key: %w", err)
 	}
-	baseURL := "https://api.salesmanago.com/v3/keyInformation/upsert"
-	if configured, err := secrets.Get("salesmanago_base_url"); err == nil && strings.TrimSpace(configured) != "" {
-		baseURL = strings.TrimSpace(configured)
-	}
+	baseURL := secretWithFallback(secrets, "salesmanago_base_url", "https://api.salesmanago.com/v3/keyInformation/upsert")
 	owner, _ := secrets.Get("salesmanago_owner")
 
 	email, contactID := resolveSalesmanagoIdentifiers(action.Payload)
@@ -58,11 +56,11 @@ func (a *SalesmanagoAdapter) Execute(ctx context.Context, action engine.AdapterA
 			"value": value,
 		})
 	}
-	appendText("Route queue", asString(action.Payload["route_queue"]))
-	appendText("Segment", asString(action.Payload["segment"]))
-	appendText("Priority", asString(action.Payload["priority"]))
-	appendText("Lead name", asString(action.Payload["name"]))
-	appendText("Lead phone", asString(action.Payload["phone"]))
+	appendText("Route queue", conv.AsString(action.Payload["route_queue"]))
+	appendText("Segment", conv.AsString(action.Payload["segment"]))
+	appendText("Priority", conv.AsString(action.Payload["priority"]))
+	appendText("Lead name", conv.AsString(action.Payload["name"]))
+	appendText("Lead phone", conv.AsString(action.Payload["phone"]))
 
 	body := map[string]any{
 		"keyInformation": map[string]any{
@@ -97,17 +95,9 @@ func (a *SalesmanagoAdapter) Execute(ctx context.Context, action engine.AdapterA
 	}
 	defer resp.Body.Close()
 
-	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	decoded, err := readAdapterResponse(resp, "salesmanago")
 	if err != nil {
 		return engine.AdapterResult{}, err
-	}
-	if resp.StatusCode >= http.StatusBadRequest {
-		return engine.AdapterResult{}, fmt.Errorf("salesmanago API failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(responseBody)))
-	}
-
-	var decoded map[string]any
-	if len(responseBody) > 0 {
-		_ = json.Unmarshal(responseBody, &decoded)
 	}
 
 	return engine.AdapterResult{
@@ -129,7 +119,7 @@ type MittoAdapter struct {
 
 func NewMittoAdapter() *MittoAdapter {
 	return &MittoAdapter{
-		client: &http.Client{Timeout: 30 * time.Second},
+		client: newAdapterClient(),
 	}
 }
 
@@ -146,11 +136,8 @@ func (a *MittoAdapter) Execute(ctx context.Context, action engine.AdapterAction,
 	if err != nil {
 		return engine.AdapterResult{}, fmt.Errorf("mitto_api_key: %w", err)
 	}
-	baseURL := "https://rest.mittoapi.net"
-	if configured, err := secrets.Get("mitto_base_url"); err == nil && strings.TrimSpace(configured) != "" {
-		baseURL = strings.TrimRight(strings.TrimSpace(configured), "/")
-	}
-	from := strings.TrimSpace(asString(action.Payload["from"]))
+	baseURL := strings.TrimRight(secretWithFallback(secrets, "mitto_base_url", "https://rest.mittoapi.net"), "/")
+	from := strings.TrimSpace(conv.AsString(action.Payload["from"]))
 	if from == "" {
 		from, _ = secrets.Get("mitto_from")
 	}
@@ -158,11 +145,11 @@ func (a *MittoAdapter) Execute(ctx context.Context, action engine.AdapterAction,
 		return engine.AdapterResult{}, fmt.Errorf("mitto sender is required via payload.from or mitto_from secret")
 	}
 
-	recipients := asStringSlice(action.Payload["recipients"])
+	recipients := conv.AsStringSlice(action.Payload["recipients"])
 	if len(recipients) == 0 {
 		return engine.AdapterResult{}, fmt.Errorf("mitto recipients are required")
 	}
-	message := strings.TrimSpace(asString(action.Payload["message"]))
+	message := strings.TrimSpace(conv.AsString(action.Payload["message"]))
 	if message == "" {
 		return engine.AdapterResult{}, fmt.Errorf("mitto message is required")
 	}
@@ -180,7 +167,7 @@ func (a *MittoAdapter) Execute(ctx context.Context, action engine.AdapterAction,
 	if testMode, ok := action.Payload["test"].(bool); ok && testMode {
 		body["test"] = true
 	}
-	if campaign := strings.TrimSpace(asString(action.Payload["campaign_name"])); campaign != "" {
+	if campaign := strings.TrimSpace(conv.AsString(action.Payload["campaign_name"])); campaign != "" {
 		body["reference"] = campaign
 	}
 
@@ -203,17 +190,9 @@ func (a *MittoAdapter) Execute(ctx context.Context, action engine.AdapterAction,
 	}
 	defer resp.Body.Close()
 
-	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	decoded, err := readAdapterResponse(resp, "mitto")
 	if err != nil {
 		return engine.AdapterResult{}, err
-	}
-	if resp.StatusCode >= http.StatusBadRequest {
-		return engine.AdapterResult{}, fmt.Errorf("mitto API failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(responseBody)))
-	}
-
-	var decoded map[string]any
-	if len(responseBody) > 0 {
-		_ = json.Unmarshal(responseBody, &decoded)
 	}
 	return engine.AdapterResult{
 		Adapter:   a.Name(),
@@ -228,9 +207,9 @@ func (a *MittoAdapter) Execute(ctx context.Context, action engine.AdapterAction,
 }
 
 func resolveSalesmanagoIdentifiers(payload map[string]any) (string, string) {
-	email := strings.TrimSpace(asString(payload["email"]))
-	contactID := strings.TrimSpace(asString(payload["contact_id"]))
-	leadID := strings.TrimSpace(asString(payload["lead_id"]))
+	email := strings.TrimSpace(conv.AsString(payload["email"]))
+	contactID := strings.TrimSpace(conv.AsString(payload["contact_id"]))
+	leadID := strings.TrimSpace(conv.AsString(payload["lead_id"]))
 	if email == "" && strings.Contains(leadID, "@") {
 		email = leadID
 	}
@@ -240,29 +219,28 @@ func resolveSalesmanagoIdentifiers(payload map[string]any) (string, string) {
 	return email, contactID
 }
 
-func asString(value any) string {
-	if value == nil {
-		return ""
-	}
-	switch typed := value.(type) {
-	case string:
-		return typed
-	default:
-		return fmt.Sprint(typed)
-	}
+func newAdapterClient() *http.Client {
+	return &http.Client{Timeout: 30 * time.Second}
 }
 
-func asStringSlice(value any) []string {
-	switch typed := value.(type) {
-	case []string:
-		return typed
-	case []any:
-		items := make([]string, 0, len(typed))
-		for _, item := range typed {
-			items = append(items, asString(item))
-		}
-		return items
-	default:
-		return nil
+func readAdapterResponse(resp *http.Response, adapterName string) (map[string]any, error) {
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, err
 	}
+	if resp.StatusCode >= http.StatusBadRequest {
+		return nil, fmt.Errorf("%s API failed with status %d: %s", adapterName, resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var decoded map[string]any
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &decoded)
+	}
+	return decoded, nil
+}
+
+func secretWithFallback(secrets engine.SecretProvider, key, fallback string) string {
+	if configured, err := secrets.Get(key); err == nil && strings.TrimSpace(configured) != "" {
+		return strings.TrimSpace(configured)
+	}
+	return fallback
 }

@@ -64,13 +64,14 @@ type VaultStatus struct {
 }
 
 type ConsoleSnapshot struct {
-	Status    engine.StatusSnapshot    `json:"status"`
-	Brain     brain.Status             `json:"brain"`
-	Vault     VaultStatus              `json:"vault"`
-	Workflows []engine.Workflow        `json:"workflows"`
-	Approvals []engine.Approval        `json:"approvals"`
-	Skills    []engine.SkillDefinition `json:"skills"`
-	Templates []WorkflowTemplate       `json:"templates"`
+	Status          engine.StatusSnapshot    `json:"status"`
+	Brain           brain.Status             `json:"brain"`
+	Vault           VaultStatus              `json:"vault"`
+	Workflows       []engine.Workflow        `json:"workflows"`
+	Approvals       []engine.Approval        `json:"approvals"`
+	FilePermissions []engine.FilePermission  `json:"file_permissions"`
+	Skills          []engine.SkillDefinition `json:"skills"`
+	Templates       []WorkflowTemplate       `json:"templates"`
 }
 
 type VaultUpdateRequest struct {
@@ -189,6 +190,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/v1/skills", s.handleSkills)
 	s.mux.HandleFunc("/api/v1/skills/validate", s.handleValidateSkill)
 	s.mux.HandleFunc("/api/v1/brain/dispatch", s.handleBrainDispatch)
+	s.mux.HandleFunc("/api/v1/file-permissions", s.handleFilePermissions)
+	s.mux.HandleFunc("/api/v1/file-permissions/", s.handleFilePermissionAction)
 	s.mux.HandleFunc("/api/v1/settings/vault", s.handleSettingsVault)
 }
 
@@ -238,6 +241,12 @@ func (s *Server) handleConsole(writer http.ResponseWriter, request *http.Request
 		return
 	}
 
+	filePerms, err := s.coordinator.ListFilePermissions(request.Context())
+	if err != nil {
+		writeJSONError(writer, err, http.StatusInternalServerError)
+		return
+	}
+
 	brainStatus := brain.Status{
 		Enabled:  false,
 		Provider: "OpenAI-compatible",
@@ -248,13 +257,14 @@ func (s *Server) handleConsole(writer http.ResponseWriter, request *http.Request
 	}
 
 	writeJSON(writer, http.StatusOK, ConsoleSnapshot{
-		Status:    status,
-		Brain:     brainStatus,
-		Vault:     s.currentVaultStatus(),
-		Workflows: workflows,
-		Approvals: approvals,
-		Skills:    s.coordinator.SkillDefinitions(),
-		Templates: defaultWorkflowTemplates(),
+		Status:          status,
+		Brain:           brainStatus,
+		Vault:           s.currentVaultStatus(),
+		Workflows:       workflows,
+		Approvals:       approvals,
+		FilePermissions: filePerms,
+		Skills:          s.coordinator.SkillDefinitions(),
+		Templates:       defaultWorkflowTemplates(),
 	})
 }
 
@@ -391,6 +401,56 @@ func (s *Server) handleApprovalAction(writer http.ResponseWriter, request *http.
 			return
 		}
 		writeJSON(writer, http.StatusOK, approval)
+	default:
+		writer.WriteHeader(http.StatusNotFound)
+	}
+}
+
+func (s *Server) handleFilePermissions(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		writer.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	perms, err := s.coordinator.ListFilePermissions(request.Context())
+	if err != nil {
+		writeJSONError(writer, err, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(writer, http.StatusOK, perms)
+}
+
+func (s *Server) handleFilePermissionAction(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		writer.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	path := strings.TrimPrefix(request.URL.Path, "/api/v1/file-permissions/")
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) != 2 {
+		writeJSONError(writer, fmt.Errorf("file permission route not found"), http.StatusNotFound)
+		return
+	}
+
+	id := parts[0]
+	action := parts[1]
+
+	switch action {
+	case "approve":
+		perm, err := s.coordinator.ApproveFileAccess(request.Context(), id)
+		if err != nil {
+			writeJSONError(writer, err, http.StatusBadRequest)
+			return
+		}
+		writeJSON(writer, http.StatusOK, perm)
+	case "reject":
+		perm, err := s.coordinator.RejectFileAccess(request.Context(), id)
+		if err != nil {
+			writeJSONError(writer, err, http.StatusBadRequest)
+			return
+		}
+		writeJSON(writer, http.StatusOK, perm)
 	default:
 		writer.WriteHeader(http.StatusNotFound)
 	}
@@ -703,6 +763,21 @@ func summarizeEvent(event engine.Event) AuditEntryView {
 		entry.Title = "Subtask orphaned"
 		entry.Detail = "A subtask finished after its parent workflow stopped waiting."
 		entry.Severity = "warning"
+	case engine.EventFileAccessRequested:
+		entry.Title = "File access requested"
+		entry.Detail = fmt.Sprintf("Requesting %s access to %s.", firstNonEmpty(payloadString(event.Payload, "mode"), "file"), firstNonEmpty(payloadString(event.Payload, "path"), "a file"))
+		entry.Severity = "warning"
+	case engine.EventFileAccessApproved:
+		entry.Title = "File access approved"
+		entry.Detail = fmt.Sprintf("Approved %s access to %s.", firstNonEmpty(payloadString(event.Payload, "mode"), "file"), firstNonEmpty(payloadString(event.Payload, "path"), "a file"))
+	case engine.EventFileAccessRejected:
+		entry.Title = "File access rejected"
+		entry.Detail = fmt.Sprintf("Rejected %s access to %s.", firstNonEmpty(payloadString(event.Payload, "mode"), "file"), firstNonEmpty(payloadString(event.Payload, "path"), "a file"))
+		entry.Severity = "warning"
+	case engine.EventFileAccessDenied:
+		entry.Title = "File access denied"
+		entry.Detail = fmt.Sprintf("Denied %s access to %s: %s.", firstNonEmpty(payloadString(event.Payload, "mode"), "file"), firstNonEmpty(payloadString(event.Payload, "path"), "a file"), firstNonEmpty(payloadString(event.Payload, "reason"), "no reason"))
+		entry.Severity = "error"
 	}
 
 	if url := payloadString(event.Payload, "url"); url != "" {

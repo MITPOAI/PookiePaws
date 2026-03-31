@@ -75,6 +75,9 @@ func main() {
 		log.Fatalf("create workflow coordinator: %v", err)
 	}
 
+	permSandbox := security.NewPermissionedSandbox(sandbox, coord, bus)
+	coord.SetSandbox(permSandbox)
+
 	promptBrain := brain.NewDynamicService(secrets, coord, bus)
 	if !promptBrain.Available() {
 		log.Printf("brain disabled: no LLM provider configured")

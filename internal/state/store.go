@@ -27,6 +27,7 @@ func NewFileStore(root string) (*FileStore, error) {
 		root,
 		filepath.Join(root, "workflows"),
 		filepath.Join(root, "approvals"),
+		filepath.Join(root, "filepermissions"),
 		filepath.Join(root, "runtime"),
 		filepath.Join(root, "audits"),
 	} {
@@ -83,6 +84,30 @@ func (s *FileStore) ListApprovals(_ context.Context) ([]engine.Approval, error) 
 		return approvals[i].CreatedAt.After(approvals[j].CreatedAt)
 	})
 	return approvals, nil
+}
+
+func (s *FileStore) SaveFilePermission(_ context.Context, perm engine.FilePermission) error {
+	return s.writeJSON(filepath.Join(s.root, "filepermissions", perm.ID+".json"), perm)
+}
+
+func (s *FileStore) GetFilePermission(_ context.Context, id string) (engine.FilePermission, error) {
+	var perm engine.FilePermission
+	err := s.readJSON(filepath.Join(s.root, "filepermissions", id+".json"), &perm)
+	if errors.Is(err, fs.ErrNotExist) {
+		return engine.FilePermission{}, engine.ErrNotFound
+	}
+	return perm, err
+}
+
+func (s *FileStore) ListFilePermissions(_ context.Context) ([]engine.FilePermission, error) {
+	var perms []engine.FilePermission
+	if err := s.readDirJSON(filepath.Join(s.root, "filepermissions"), &perms); err != nil {
+		return nil, err
+	}
+	sort.Slice(perms, func(i, j int) bool {
+		return perms[i].CreatedAt.After(perms[j].CreatedAt)
+	})
+	return perms, nil
 }
 
 func (s *FileStore) SaveStatus(_ context.Context, status engine.StatusSnapshot) error {

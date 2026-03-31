@@ -20,13 +20,13 @@ func NewCommandExecGuard() *CommandExecGuard {
 	return &CommandExecGuard{
 		rules: map[string]commandRule{
 			"cat":     allowPathArgumentsOnly,
-			"findstr": allowSearchArguments,
+			"findstr": allowPathArgumentsOnly,
 			"git":     validateGitReadOnly,
 			"go":      validateGoReadOnly,
-			"rg":      allowSearchArguments,
+			"rg":      allowPathArgumentsOnly,
 			"type":    allowPathArgumentsOnly,
 			"where":   allowPathArgumentsOnly,
-			"whoami":  allowNoControlOperators,
+			"whoami":  denyControlOperators,
 		},
 	}
 }
@@ -61,7 +61,7 @@ func validateGitReadOnly(args []string) error {
 	}
 	switch strings.ToLower(args[0]) {
 	case "status", "diff", "log", "show", "rev-parse", "branch", "ls-files", "grep":
-		return allowNoControlOperators(args[1:])
+		return denyControlOperators(args[1:])
 	default:
 		return fmt.Errorf("git subcommand %q is not allowlisted", args[0])
 	}
@@ -73,7 +73,7 @@ func validateGoReadOnly(args []string) error {
 	}
 	switch strings.ToLower(args[0]) {
 	case "env", "list", "test", "version":
-		return allowNoControlOperators(args[1:])
+		return denyControlOperators(args[1:])
 	default:
 		return fmt.Errorf("go subcommand %q is not allowlisted", args[0])
 	}
@@ -86,19 +86,6 @@ func allowPathArgumentsOnly(args []string) error {
 		}
 	}
 	return nil
-}
-
-func allowSearchArguments(args []string) error {
-	for _, arg := range args {
-		if isUnsafeArgument(arg) {
-			return fmt.Errorf("argument %q is not allowed", arg)
-		}
-	}
-	return nil
-}
-
-func allowNoControlOperators(args []string) error {
-	return denyControlOperators(args)
 }
 
 func denyControlOperators(args []string) error {

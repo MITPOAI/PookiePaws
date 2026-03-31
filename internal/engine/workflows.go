@@ -344,14 +344,26 @@ func (c *StandardWorkflowCoordinator) Status(ctx context.Context) (StatusSnapsho
 		}
 	}
 
+	filePerms, err := c.store.ListFilePermissions(ctx)
+	if err != nil {
+		return StatusSnapshot{}, err
+	}
+	pendingFilePerms := 0
+	for _, fp := range filePerms {
+		if fp.State == ApprovalPending {
+			pendingFilePerms++
+		}
+	}
+
 	status := StatusSnapshot{
-		RuntimeRoot:      c.runtimeRoot,
-		WorkspaceRoot:    c.workspace,
-		Workflows:        len(workflows),
-		PendingApprovals: pending,
-		SubTurns:         c.subturns.Snapshot(),
-		EventBus:         c.bus.Snapshot(),
-		StartedAt:        c.startedAt,
+		RuntimeRoot:            c.runtimeRoot,
+		WorkspaceRoot:          c.workspace,
+		Workflows:              len(workflows),
+		PendingApprovals:       pending,
+		PendingFilePermissions: pendingFilePerms,
+		SubTurns:               c.subturns.Snapshot(),
+		EventBus:               c.bus.Snapshot(),
+		StartedAt:              c.startedAt,
 	}
 
 	if err := c.store.SaveStatus(ctx, status); err != nil {
@@ -441,4 +453,134 @@ func (c *StandardWorkflowCoordinator) nextWorkflowID() string {
 
 func (c *StandardWorkflowCoordinator) nextApprovalID() string {
 	return fmt.Sprintf("ap_%d", atomic.AddUint64(&c.nextID, 1))
+}
+
+func (c *StandardWorkflowCoordinator) nextFilePermID() string {
+	return fmt.Sprintf("fp_%d", atomic.AddUint64(&c.nextID, 1))
+}
+
+// SetSandbox replaces the sandbox after construction, used to inject the
+// permissioned wrapper without a circular dependency.
+func (c *StandardWorkflowCoordinator) SetSandbox(s Sandbox) {
+	c.sandbox = s
+}
+
+func (c *StandardWorkflowCoordinator) RequestFileAccess(ctx context.Context, path string, mode FileAccessMode, requester string) (FilePermission, error) {
+	now := time.Now().UTC()
+	perm := FilePermission{
+		ID:        c.nextFilePermID(),
+		Path:      path,
+		Mode:      mode,
+		State:     ApprovalPending,
+		Requester: requester,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	if err := c.store.SaveFilePermission(ctx, perm); err != nil {
+		return FilePermission{}, err
+	}
+
+	c.publishAndAudit(ctx, Event{
+		Type:   EventFileAccessRequested,
+		Source: "workflow-coordinator",
+		Payload: map[string]any{
+			"permission_id": perm.ID,
+			"path":          perm.Path,
+			"mode":          string(perm.Mode),
+			"requester":     perm.Requester,
+		},
+	})
+
+	return perm, nil
+}
+
+func (c *StandardWorkflowCoordinator) WaitForDecision(ctx context.Context, permID string) (FilePermission, error) {
+	sub := c.bus.Subscribe(16)
+	defer c.bus.Unsubscribe(sub.ID)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return FilePermission{}, ctx.Err()
+		case event, ok := <-sub.C:
+			if !ok {
+				return FilePermission{}, fmt.Errorf("event bus closed")
+			}
+			if event.Type != EventFileAccessApproved && event.Type != EventFileAccessRejected {
+				continue
+			}
+			if payloadPermID, _ := event.Payload["permission_id"].(string); payloadPermID != permID {
+				continue
+			}
+			return c.store.GetFilePermission(ctx, permID)
+		}
+	}
+}
+
+func (c *StandardWorkflowCoordinator) ApproveFileAccess(ctx context.Context, id string) (FilePermission, error) {
+	perm, err := c.store.GetFilePermission(ctx, id)
+	if err != nil {
+		return FilePermission{}, err
+	}
+	if perm.State != ApprovalPending {
+		return perm, fmt.Errorf("file permission %s is %s", id, perm.State)
+	}
+
+	perm.State = ApprovalApproved
+	perm.UpdatedAt = time.Now().UTC()
+	if err := c.store.SaveFilePermission(ctx, perm); err != nil {
+		return FilePermission{}, err
+	}
+
+	c.publishAndAudit(ctx, Event{
+		Type:   EventFileAccessApproved,
+		Source: "workflow-coordinator",
+		Payload: map[string]any{
+			"permission_id": perm.ID,
+			"path":          perm.Path,
+			"mode":          string(perm.Mode),
+		},
+	})
+
+	return perm, nil
+}
+
+func (c *StandardWorkflowCoordinator) RejectFileAccess(ctx context.Context, id string) (FilePermission, error) {
+	perm, err := c.store.GetFilePermission(ctx, id)
+	if err != nil {
+		return FilePermission{}, err
+	}
+	if perm.State != ApprovalPending {
+		return perm, fmt.Errorf("file permission %s is %s", id, perm.State)
+	}
+
+	perm.State = ApprovalRejected
+	perm.UpdatedAt = time.Now().UTC()
+	if err := c.store.SaveFilePermission(ctx, perm); err != nil {
+		return FilePermission{}, err
+	}
+
+	c.publishAndAudit(ctx, Event{
+		Type:   EventFileAccessRejected,
+		Source: "workflow-coordinator",
+		Payload: map[string]any{
+			"permission_id": perm.ID,
+			"path":          perm.Path,
+			"mode":          string(perm.Mode),
+		},
+	})
+
+	return perm, nil
+}
+
+func (c *StandardWorkflowCoordinator) ListFilePermissions(ctx context.Context) ([]FilePermission, error) {
+	perms, err := c.store.ListFilePermissions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(perms, func(i, j int) bool {
+		return perms[i].CreatedAt.After(perms[j].CreatedAt)
+	})
+	return perms, nil
 }

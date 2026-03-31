@@ -25,6 +25,11 @@ const (
 	EventSubTurnOrphaned   EventType = "subturn.orphaned"
 	EventBrainCommand      EventType = "brain.command"
 	EventBrainCommandError EventType = "brain.command.error"
+
+	EventFileAccessRequested EventType = "file.access.requested"
+	EventFileAccessApproved  EventType = "file.access.approved"
+	EventFileAccessRejected  EventType = "file.access.rejected"
+	EventFileAccessDenied    EventType = "file.access.denied"
 )
 
 type Event struct {
@@ -157,11 +162,31 @@ type Approval struct {
 	ExpiresAt  *time.Time     `json:"expires_at,omitempty"`
 }
 
+type FileAccessMode string
+
+const (
+	FileAccessRead  FileAccessMode = "read"
+	FileAccessWrite FileAccessMode = "write"
+)
+
+type FilePermission struct {
+	ID         string         `json:"id"`
+	WorkflowID string         `json:"workflow_id,omitempty"`
+	Path       string         `json:"path"`
+	Mode       FileAccessMode `json:"mode"`
+	State      ApprovalState  `json:"state"`
+	Requester  string         `json:"requester"`
+	CreatedAt  time.Time      `json:"created_at"`
+	UpdatedAt  time.Time      `json:"updated_at"`
+	ExpiresAt  *time.Time     `json:"expires_at,omitempty"`
+}
+
 type StatusSnapshot struct {
 	RuntimeRoot      string           `json:"runtime_root"`
 	WorkspaceRoot    string           `json:"workspace_root"`
 	Workflows        int              `json:"workflows"`
-	PendingApprovals int              `json:"pending_approvals"`
+	PendingApprovals       int              `json:"pending_approvals"`
+	PendingFilePermissions int              `json:"pending_file_permissions"`
 	SubTurns         []SubTurnStatus  `json:"subturns"`
 	EventBus         EventBusSnapshot `json:"event_bus"`
 	StartedAt        time.Time        `json:"started_at"`
@@ -247,6 +272,9 @@ type StateStore interface {
 	SaveApproval(ctx context.Context, approval Approval) error
 	GetApproval(ctx context.Context, id string) (Approval, error)
 	ListApprovals(ctx context.Context) ([]Approval, error)
+	SaveFilePermission(ctx context.Context, perm FilePermission) error
+	GetFilePermission(ctx context.Context, id string) (FilePermission, error)
+	ListFilePermissions(ctx context.Context) ([]FilePermission, error)
 	SaveStatus(ctx context.Context, status StatusSnapshot) error
 	AppendAudit(ctx context.Context, event Event) error
 }
@@ -260,4 +288,7 @@ type WorkflowCoordinator interface {
 	Status(ctx context.Context) (StatusSnapshot, error)
 	ValidateSkill(ctx context.Context, skillName string, input map[string]any) error
 	SkillDefinitions() []SkillDefinition
+	ApproveFileAccess(ctx context.Context, id string) (FilePermission, error)
+	RejectFileAccess(ctx context.Context, id string) (FilePermission, error)
+	ListFilePermissions(ctx context.Context) ([]FilePermission, error)
 }

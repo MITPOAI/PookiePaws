@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mitpoai/pookiepaws/internal/conv"
 	"github.com/mitpoai/pookiepaws/internal/engine"
 )
 
@@ -87,30 +88,30 @@ func NewSalesmanagoLeadRouterSkill(manifest Manifest) *SalesmanagoLeadRouterSkil
 func (s *SalesmanagoLeadRouterSkill) Definition() engine.SkillDefinition { return s.def }
 
 func (s *SalesmanagoLeadRouterSkill) Validate(input map[string]any) error {
-	identifier := strings.TrimSpace(asString(input["email"]))
+	identifier := strings.TrimSpace(conv.AsString(input["email"]))
 	if identifier == "" {
-		identifier = strings.TrimSpace(asString(input["contact_id"]))
+		identifier = strings.TrimSpace(conv.AsString(input["contact_id"]))
 	}
 	if identifier == "" {
-		identifier = strings.TrimSpace(asString(input["lead_id"]))
+		identifier = strings.TrimSpace(conv.AsString(input["lead_id"]))
 	}
 	if identifier == "" {
 		return fmt.Errorf("salesmanago-lead-router requires email, contact_id, or lead_id")
 	}
-	if strings.TrimSpace(asString(input["segment"])) == "" {
+	if strings.TrimSpace(conv.AsString(input["segment"])) == "" {
 		return fmt.Errorf("salesmanago-lead-router requires segment")
 	}
 	return nil
 }
 
 func (s *SalesmanagoLeadRouterSkill) Execute(_ context.Context, req engine.SkillRequest) (engine.SkillResult, error) {
-	email := strings.TrimSpace(asString(req.Input["email"]))
-	contactID := strings.TrimSpace(asString(req.Input["contact_id"]))
-	leadID := strings.TrimSpace(asString(req.Input["lead_id"]))
-	segment := strings.ToLower(asString(req.Input["segment"]))
-	priority := strings.ToLower(asString(req.Input["priority"]))
-	name := strings.TrimSpace(asString(req.Input["name"]))
-	phone := strings.TrimSpace(asString(req.Input["phone"]))
+	email := strings.TrimSpace(conv.AsString(req.Input["email"]))
+	contactID := strings.TrimSpace(conv.AsString(req.Input["contact_id"]))
+	leadID := strings.TrimSpace(conv.AsString(req.Input["lead_id"]))
+	segment := strings.ToLower(conv.AsString(req.Input["segment"]))
+	priority := strings.ToLower(conv.AsString(req.Input["priority"]))
+	name := strings.TrimSpace(conv.AsString(req.Input["name"]))
+	phone := strings.TrimSpace(conv.AsString(req.Input["phone"]))
 
 	queue := "nurture-default"
 	switch {
@@ -162,10 +163,10 @@ func NewMittoSMSDrafterSkill(manifest Manifest) *MittoSMSDrafterSkill {
 func (s *MittoSMSDrafterSkill) Definition() engine.SkillDefinition { return s.def }
 
 func (s *MittoSMSDrafterSkill) Validate(input map[string]any) error {
-	if strings.TrimSpace(asString(input["message"])) == "" {
+	if strings.TrimSpace(conv.AsString(input["message"])) == "" {
 		return fmt.Errorf("mitto-sms-drafter requires message")
 	}
-	recipients := asStringSlice(input["recipients"])
+	recipients := conv.AsStringSlice(input["recipients"])
 	if len(recipients) == 0 {
 		return fmt.Errorf("mitto-sms-drafter requires at least one recipient")
 	}
@@ -173,9 +174,9 @@ func (s *MittoSMSDrafterSkill) Validate(input map[string]any) error {
 }
 
 func (s *MittoSMSDrafterSkill) Execute(_ context.Context, req engine.SkillRequest) (engine.SkillResult, error) {
-	message := strings.TrimSpace(asString(req.Input["message"]))
-	recipients := asStringSlice(req.Input["recipients"])
-	campaign := asString(req.Input["campaign_name"])
+	message := strings.TrimSpace(conv.AsString(req.Input["message"]))
+	recipients := conv.AsStringSlice(req.Input["recipients"])
+	campaign := conv.AsString(req.Input["campaign_name"])
 	if campaign == "" {
 		campaign = "untitled-campaign"
 	}
@@ -189,8 +190,8 @@ func (s *MittoSMSDrafterSkill) Execute(_ context.Context, req engine.SkillReques
 		"campaign_name": campaign,
 		"message":       message,
 		"recipients":    recipients,
-		"from":          asString(req.Input["from"]),
-		"test":          asBool(req.Input["test"]),
+		"from":          conv.AsString(req.Input["from"]),
+		"test":          conv.AsBool(req.Input["test"]),
 	}
 
 	return engine.SkillResult{
@@ -220,40 +221,3 @@ func (m Manifest) toDefinition() engine.SkillDefinition {
 	}
 }
 
-func asString(value any) string {
-	if value == nil {
-		return ""
-	}
-	switch typed := value.(type) {
-	case string:
-		return typed
-	default:
-		return fmt.Sprint(typed)
-	}
-}
-
-func asStringSlice(value any) []string {
-	switch typed := value.(type) {
-	case []string:
-		return typed
-	case []any:
-		items := make([]string, 0, len(typed))
-		for _, item := range typed {
-			items = append(items, asString(item))
-		}
-		return items
-	default:
-		return nil
-	}
-}
-
-func asBool(value any) bool {
-	switch typed := value.(type) {
-	case bool:
-		return typed
-	case string:
-		return strings.EqualFold(strings.TrimSpace(typed), "true")
-	default:
-		return false
-	}
-}
