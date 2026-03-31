@@ -85,6 +85,7 @@ func newHarness(t *testing.T, address string, promptBrain PromptDispatcher) harn
 		Skills:      registry,
 		Sandbox:     sandbox,
 		Secrets:     secrets,
+		Interceptor: security.NewSkillExecutionInterceptor(),
 		CRMAdapter:  adapters.NewMockSalesmanagoAdapter(),
 		SMSAdapter:  adapters.NewMockMittoAdapter(),
 		RuntimeRoot: runtimeRoot,
@@ -286,6 +287,19 @@ func TestGatewayBrainDispatch(t *testing.T) {
 
 	h.server.Handler().ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestGatewayWorkflowBlockReturnsForbidden(t *testing.T) {
+	h := newHarness(t, "127.0.0.1:18800", nil)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflows", strings.NewReader(`{"name":"Unsafe CRM export","skill":"salesmanago-lead-router","input":{"email":"all","segment":"vip"}}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	h.server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("unexpected status %d body=%s", recorder.Code, recorder.Body.String())
 	}
 }

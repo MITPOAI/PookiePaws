@@ -4,7 +4,9 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"html/template"
 	"io/fs"
 	"net"
 	"net/http"
@@ -146,23 +148,54 @@ type AuditEntryView struct {
 	ApprovalID string    `json:"approval_id,omitempty"`
 }
 
+type ThemeOption struct {
+	ID    string
+	Label string
+	Hint  string
+}
+
+type IndexViewModel struct {
+	Title        string
+	DefaultTheme string
+	ThemeOptions []ThemeOption
+}
+
 type Server struct {
 	coordinator engine.WorkflowCoordinator
 	eventBus    engine.EventBus
 	brain       PromptDispatcher
 	vault       Vault
+	chat        *chatStore
 	address     string
 	mux         *http.ServeMux
+	indexTmpl   *template.Template
+	indexView   IndexViewModel
 }
 
 func NewServer(cfg Config) *Server {
+	indexTmpl, err := template.ParseFS(uiFS, "ui/index.html")
+	if err != nil {
+		panic(err)
+	}
+
 	server := &Server{
 		coordinator: cfg.Coordinator,
 		eventBus:    cfg.EventBus,
 		brain:       cfg.Brain,
 		vault:       cfg.Vault,
+		chat:        newChatStore(),
 		address:     cfg.Address,
 		mux:         http.NewServeMux(),
+		indexTmpl:   indexTmpl,
+		indexView: IndexViewModel{
+			Title:        "PookiePaws Operator Console",
+			DefaultTheme: "light",
+			ThemeOptions: []ThemeOption{
+				{ID: "light", Label: "Light", Hint: "Bright, crisp, and focused."},
+				{ID: "dark", Label: "Dark", Hint: "Low-glare for longer sessions."},
+				{ID: "soft", Label: "Pookie Soft", Hint: "Warm, calm, and inviting."},
+			},
+		},
 	}
 	server.routes()
 	return server
@@ -190,6 +223,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/v1/skills", s.handleSkills)
 	s.mux.HandleFunc("/api/v1/skills/validate", s.handleValidateSkill)
 	s.mux.HandleFunc("/api/v1/brain/dispatch", s.handleBrainDispatch)
+	s.mux.HandleFunc("/api/v1/chat/sessions", s.handleChatSessions)
+	s.mux.HandleFunc("/api/v1/chat/sessions/", s.handleChatSessionRoutes)
+	s.mux.HandleFunc("/api/v1/chat/ws", s.handleChatWebSocket)
 	s.mux.HandleFunc("/api/v1/file-permissions", s.handleFilePermissions)
 	s.mux.HandleFunc("/api/v1/file-permissions/", s.handleFilePermissionAction)
 	s.mux.HandleFunc("/api/v1/settings/vault", s.handleSettingsVault)
@@ -201,13 +237,10 @@ func (s *Server) handleIndex(writer http.ResponseWriter, request *http.Request) 
 		return
 	}
 
-	data, err := uiFS.ReadFile("ui/index.html")
-	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
-	}
 	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = writer.Write(data)
+	if err := s.indexTmpl.ExecuteTemplate(writer, "index.html", s.indexView); err != nil {
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func (s *Server) handleStatus(writer http.ResponseWriter, request *http.Request) {
@@ -327,6 +360,14 @@ func (s *Server) handleWorkflows(writer http.ResponseWriter, request *http.Reque
 		}
 		workflow, err := s.coordinator.SubmitWorkflow(request.Context(), definition)
 		if err != nil {
+			var blocked engine.WorkflowBlockedError
+			if errors.As(err, &blocked) {
+				writeJSON(writer, http.StatusForbidden, map[string]any{
+					"error":    err.Error(),
+					"decision": blocked.Decision,
+				})
+				return
+			}
 			writeJSONError(writer, err, http.StatusBadRequest)
 			return
 		}
@@ -753,6 +794,10 @@ func summarizeEvent(event engine.Event) AuditEntryView {
 		entry.Title = "Brain routing failed"
 		entry.Detail = fmt.Sprintf("The model response could not be used: %s.", firstNonEmpty(payloadString(event.Payload, "error"), "unknown error"))
 		entry.Severity = "error"
+	case engine.EventExecutionBlocked:
+		entry.Title = "Police layer blocked workflow"
+		entry.Detail = fmt.Sprintf("%s was blocked because %s.", firstNonEmpty(payloadString(event.Payload, "skill"), "A workflow"), firstNonEmpty(payloadString(event.Payload, "reason"), "it violated a security rule"))
+		entry.Severity = "warning"
 	case engine.EventSubTurnStarted:
 		entry.Title = "Subtask started"
 		entry.Detail = "A workflow subtask is running."

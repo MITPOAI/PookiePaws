@@ -51,36 +51,81 @@ go env -w GOTOOLCHAIN=go1.22.12+auto
 go list std > $null
 ```
 
-2. Synchronize modules and build the runtime from the repository root.
+2. Synchronize modules and build the binary.
 
 ```powershell
 go mod tidy
-go build -o pookiepaws.exe ./cmd/pookiepaws
+go build -o pookie.exe ./cmd/pookie
 ```
 
-3. Copy the example security file and fill only the values you need.
+3. Run the interactive setup wizard.
 
 ```powershell
-Copy-Item .security.example.json "$HOME\\.pookiepaws\\.security.json"
+.\pookie.exe init
 ```
 
-For local LLM use, this is enough:
+The wizard collects your LLM provider URL, model name, and API key. For a
+local Ollama setup this is enough (leave the API key blank):
 
-```json
-{
-  "llm_base_url": "http://localhost:11434/v1/chat/completions",
-  "llm_model": "gpt-oss:20b",
-  "llm_api_key": ""
-}
+```
+LLM base URL  >  http://localhost:11434/v1/chat/completions
+LLM model     >  llama3.2:latest
+LLM API key   >  [blank]
 ```
 
-4. Start the app.
+Credentials are written to `~\.pookiepaws\.security.json` with mode 0600.
+
+4. Start the agent.
 
 ```powershell
-.\pookiepaws.exe -addr 127.0.0.1:18800
+.\pookie.exe start
 ```
 
 Open [http://127.0.0.1:18800/](http://127.0.0.1:18800/).
+
+## Cross-Platform Build & Run
+
+PookiePaws compiles to a single self-contained binary with no runtime
+dependencies. Use the `GOOS` and `GOARCH` environment variables to
+cross-compile from any machine.
+
+### Windows (64-bit)
+
+```powershell
+$env:GOOS = "windows"; $env:GOARCH = "amd64"
+go build -ldflags="-s -w" -o pookie.exe ./cmd/pookie
+```
+
+### macOS — Apple Silicon (arm64)
+
+```bash
+GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o pookie-darwin-arm64 ./cmd/pookie
+```
+
+### macOS — Intel (amd64)
+
+```bash
+GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o pookie-darwin-amd64 ./cmd/pookie
+```
+
+### Linux (amd64) — for Hetzner, Fly.io, and similar hosts
+
+```bash
+GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o pookie-linux-amd64 ./cmd/pookie
+```
+
+### Linux (arm64) — for Raspberry Pi or ARM-based cloud VMs
+
+```bash
+GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o pookie-linux-arm64 ./cmd/pookie
+```
+
+The `-ldflags="-s -w"` strips the symbol table and DWARF debug info, reducing
+the binary size significantly. Drop those flags if you need a debuggable build.
+
+> **Deploying to Fly.io or Hetzner:** copy the Linux binary to your server,
+> run `pookie init` once to create the secrets file, then start the agent with
+> `./pookie-linux-amd64 start --addr 0.0.0.0:18800`.
 
 ## Format, Vet, Test, And Build
 
@@ -90,16 +135,45 @@ The repository root does not contain Go source files, so commands such as `go ve
 Get-ChildItem -Path cmd,internal -Recurse -Filter *.go | ForEach-Object { gofmt -w $_.FullName }
 go vet ./...
 go test ./...
-go build -v ./cmd/pookiepaws/...
-go build -o pookiepaws.exe ./cmd/pookiepaws
+go build -v ./cmd/pookie/...
+go build -o pookie.exe ./cmd/pookie
 ```
 
 ## Verify The Console And Status
 
 ```powershell
+# Using the CLI
+.\pookie.exe status
+
+# Or directly via the REST API
 Invoke-RestMethod http://127.0.0.1:18800/api/v1/console
 Invoke-RestMethod http://127.0.0.1:18800/api/v1/status
 Invoke-RestMethod http://127.0.0.1:18800/api/v1/skills
+```
+
+## CLI Commands
+
+```
+pookie start              Boot the agent (foreground; Ctrl+C to stop)
+pookie status             Check whether the agent is running
+pookie run <skill>        Execute a skill directly in this terminal
+pookie install <repo>     Install a skill from GitHub
+pookie init               First-run setup wizard
+pookie version            Print version
+```
+
+**Run a skill from the terminal:**
+
+```powershell
+.\pookie.exe run utm-validator --input url="https://example.com?utm_source=nl&utm_medium=email&utm_campaign=launch"
+```
+
+**Install a community skill:**
+
+```powershell
+.\pookie.exe install owner/pookiepaws-skill-ga4-audit
+# or at a specific ref:
+.\pookie.exe install owner/repo@v1.2.0
 ```
 
 ## Run Sample Workflows
@@ -194,7 +268,9 @@ PookiePaws is intentionally not trying to be a clone of a broader general-purpos
 
 ## Files To Start With
 
-- [cmd/pookiepaws/main.go](./cmd/pookiepaws/main.go)
+- [cmd/pookie/main.go](./cmd/pookie/main.go)
+- [cmd/pookie/stack.go](./cmd/pookie/stack.go)
+- [internal/cli/printer.go](./internal/cli/printer.go)
 - [internal/gateway/server.go](./internal/gateway/server.go)
 - [internal/gateway/ui/index.html](./internal/gateway/ui/index.html)
 - [internal/gateway/ui/app.js](./internal/gateway/ui/app.js)

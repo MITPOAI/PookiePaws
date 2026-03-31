@@ -54,6 +54,13 @@ func main() {
 		log.Fatalf("create state store: %v", err)
 	}
 
+	providers := brain.NewSecretBackedProviderFactory(secrets)
+	memory, err := brain.NewPersistentMemory(runtimeRoot, providers, bus)
+	if err != nil {
+		log.Fatalf("create persistent memory: %v", err)
+	}
+	interceptor := security.NewSkillExecutionInterceptor()
+
 	registry, err := skills.NewDefaultRegistry()
 	if err != nil {
 		log.Fatalf("load default skills: %v", err)
@@ -66,6 +73,8 @@ func main() {
 		Skills:      registry,
 		Sandbox:     sandbox,
 		Secrets:     secrets,
+		Memory:      memory,
+		Interceptor: interceptor,
 		CRMAdapter:  adapters.NewSalesmanagoAdapter(),
 		SMSAdapter:  adapters.NewMittoAdapter(),
 		RuntimeRoot: runtimeRoot,
@@ -78,7 +87,7 @@ func main() {
 	permSandbox := security.NewPermissionedSandbox(sandbox, coord, bus)
 	coord.SetSandbox(permSandbox)
 
-	promptBrain := brain.NewDynamicService(secrets, coord, bus)
+	promptBrain := brain.NewDynamicService(secrets, coord, bus).WithMemory(memory)
 	if !promptBrain.Available() {
 		log.Printf("brain disabled: no LLM provider configured")
 	}

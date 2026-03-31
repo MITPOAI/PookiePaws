@@ -23,26 +23,27 @@ type OpenAICompatibleClient struct {
 }
 
 func NewOpenAICompatibleClient(secrets engine.SecretProvider) (*OpenAICompatibleClient, error) {
-	baseURL, err := secrets.Get("llm_base_url")
+	cfg, err := LoadProviderConfig(secrets)
 	if err != nil {
+		return nil, err
+	}
+	if cfg.Type != providerOpenAICompatible {
 		return nil, ErrProviderNotConfigured
 	}
-	model, err := secrets.Get("llm_model")
-	if err != nil {
+	return NewOpenAICompatibleClientFromConfig(cfg)
+}
+
+func NewOpenAICompatibleClientFromConfig(cfg ProviderConfig) (*OpenAICompatibleClient, error) {
+	cfg.BaseURL = strings.TrimSpace(cfg.BaseURL)
+	cfg.Model = strings.TrimSpace(cfg.Model)
+	if cfg.BaseURL == "" || cfg.Model == "" {
 		return nil, ErrProviderNotConfigured
 	}
 
-	baseURL = strings.TrimSpace(baseURL)
-	model = strings.TrimSpace(model)
-	if baseURL == "" || model == "" {
-		return nil, ErrProviderNotConfigured
-	}
-
-	apiKey, _ := secrets.Get("llm_api_key")
 	return &OpenAICompatibleClient{
-		baseURL: baseURL,
-		model:   model,
-		apiKey:  strings.TrimSpace(apiKey),
+		baseURL: cfg.BaseURL,
+		model:   cfg.Model,
+		apiKey:  strings.TrimSpace(cfg.APIKey),
 		httpClient: &http.Client{
 			Timeout: 45 * time.Second,
 		},
@@ -54,14 +55,10 @@ func (c *OpenAICompatibleClient) Status() Status {
 		return Status{Enabled: false, Provider: "OpenAI-compatible", Mode: "disabled"}
 	}
 
-	mode := "hosted"
-	if isLocalURL(c.baseURL) {
-		mode = "local"
-	}
 	return Status{
 		Enabled:  true,
 		Provider: "OpenAI-compatible",
-		Mode:     mode,
+		Mode:     inferProviderMode(c.baseURL),
 		Model:    c.model,
 	}
 }
@@ -145,4 +142,8 @@ func (c *OpenAICompatibleClient) Complete(ctx context.Context, request Completio
 func isLocalURL(value string) bool {
 	value = strings.ToLower(strings.TrimSpace(value))
 	return strings.Contains(value, "127.0.0.1") || strings.Contains(value, "localhost")
+}
+
+func (c *OpenAICompatibleClient) Close() error {
+	return nil
 }

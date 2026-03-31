@@ -52,6 +52,30 @@ This keeps the core narrow, the UI accessible, and the integration surface exten
 
 ## Planned System Components
 
+### 0. CLI Entry Point (`cmd/pookie`)
+
+The `pookie` binary is the single distributable artefact. It implements a
+lightweight stdlib-based command router (no third-party CLI framework) and
+dispatches to five commands:
+
+| Command | Description |
+|---|---|
+| `start` | Initialises the full engine stack, starts the HTTP server, blocks until `Ctrl+C` |
+| `status` | HTTP-pings `/api/v1/status` on a running agent; prints a formatted summary box |
+| `run <skill>` | Boots the engine headlessly, submits a workflow, polls for completion, handles approval gates interactively |
+| `install <owner/repo>` | Downloads and validates a remote `SKILL.md`; saves to `workspace/skills/` |
+| `init` | Interactive wizard that writes `~/.pookiepaws/.security.json` (mode 0600) |
+
+Key design decisions:
+
+- `cmd/pookie/stack.go` extracts `buildStack` so `start` and `run` share
+  identical initialisation without duplication.
+- `cmd/pookie/roots.go` centralises OS-agnostic path resolution:
+  `--home` flag → `POOKIEPAWS_HOME` env → `os.UserHomeDir()` + `filepath.Join`.
+- `internal/cli` provides all terminal styling (ANSI colours, spinner, boxed
+  panels) with zero external dependencies. Colour is suppressed when `NO_COLOR`
+  is set or `TERM=dumb`.
+
 ### 1. Core Engine
 
 The current core engine is implemented as Go packages under `internal/engine` with responsibility for:

@@ -3,10 +3,11 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>PookiePaws Operator Console</title>
+    <meta name="color-scheme" content="light dark">
+    <title>{{ .Title }}</title>
     <link rel="stylesheet" href="/ui/style.css">
   </head>
-  <body>
+  <body data-default-theme="{{ .DefaultTheme }}">
     <div class="app-shell">
       <aside class="sidebar">
         <div class="brand-block">
@@ -37,6 +38,23 @@
           </button>
         </nav>
 
+        <section class="theme-panel" aria-label="Theme switcher">
+          <div class="theme-panel__copy">
+            <p class="eyebrow">Theme</p>
+            <h2>Choose your working tone</h2>
+            <p>Match the console to the session: bright and crisp, dark and focused, or warm and calm.</p>
+          </div>
+          <div class="theme-switcher">
+            {{ range .ThemeOptions }}
+            <button class="theme-chip" type="button" data-theme-switch="{{ .ID }}">
+              <span class="theme-chip__label">{{ .Label }}</span>
+              <span class="theme-chip__hint">{{ .Hint }}</span>
+            </button>
+            {{ end }}
+          </div>
+          <p class="inline-note" id="theme-status" aria-live="polite">Light theme is active.</p>
+        </section>
+
         <section class="status-stack">
           <div class="status-card status-card--primary">
             <span class="status-label">Runtime</span>
@@ -55,7 +73,7 @@
         </section>
 
         <section class="sidebar-footnote">
-          <p>Direct skills, templates, and approval surfaces remain available even when the brain is offline.</p>
+          <p>Direct skills, templates, and approvals stay usable even when the brain is offline. The interface keeps language calm, specific, and non-blaming so operators always know what is protected and what happens next.</p>
         </section>
       </aside>
 
@@ -92,9 +110,10 @@
                   <button class="button secondary" id="run-canvas" type="button">Run Canvas Plan</button>
                   <button class="button ghost" id="reset-canvas" type="button">Reset Canvas</button>
                 </div>
-                <p class="inline-note" id="brain-guard" hidden>Brain required. Configure a local or hosted OpenAI-compatible endpoint in Settings before using free-text routing.</p>
+                <p class="inline-note" id="brain-guard" aria-live="polite" hidden>Brain required. Configure a local or hosted OpenAI-compatible endpoint in Settings before using free-text routing.</p>
                 <p class="inline-note" id="canvas-plan-status">Canvas state is stored only in this browser.</p>
               </form>
+              <div class="response-card" id="brain-response" aria-live="polite" hidden></div>
             </section>
 
             <section class="panel overview-panel">
@@ -123,6 +142,42 @@
               </div>
             </section>
           </div>
+
+          <section class="panel chat-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Chat Control Plane</p>
+                <h3>Ask in plain language and watch the control plane break the work into visible steps.</h3>
+              </div>
+              <div class="chat-status-wrap">
+                <span class="status-pill" id="chat-connection-state">Connecting</span>
+                <span class="inline-note" id="chat-session-label">Preparing session</span>
+              </div>
+            </div>
+            <div class="chat-grid">
+              <section class="chat-feed-wrap">
+                <div class="chat-feed" id="chat-feed" aria-live="polite"></div>
+                <form class="chat-composer" id="chat-form">
+                  <label class="field">
+                    Message to Pookie
+                    <textarea id="chat-input" name="prompt" placeholder="Analyze our top competitor and draft a counter-campaign with approval before anything goes outbound."></textarea>
+                  </label>
+                  <div class="button-row">
+                    <button class="button" type="submit">Send to Pookie</button>
+                    <button class="button ghost" id="chat-clear" type="button">Clear Session View</button>
+                  </div>
+                  <p class="inline-note" id="chat-status">Messages stay in this local session so the next routing decision keeps its context.</p>
+                </form>
+              </section>
+              <aside class="chat-steps-wrap">
+                <div class="chat-steps-head">
+                  <p class="eyebrow">Observable Steps</p>
+                  <h4>EventBus timeline</h4>
+                </div>
+                <div class="chat-steps" id="chat-steps"></div>
+              </aside>
+            </div>
+          </section>
 
           <section class="panel canvas-panel">
             <div class="panel-head">
@@ -404,7 +459,7 @@
       <div class="modal">
         <div class="modal-head">
           <div>
-            <p class="eyebrow">Human Approval Required</p>
+            <p class="eyebrow">Human check-in</p>
             <h3 id="modal-title">Approval pending</h3>
           </div>
         </div>
@@ -413,9 +468,9 @@
           <div class="modal-diff" id="modal-diff"></div>
         </div>
         <div class="button-row">
-          <button class="button" id="modal-approve" type="button">Approve</button>
-          <button class="button danger" id="modal-reject" type="button">Reject</button>
-          <button class="button ghost" id="modal-close" type="button">Close</button>
+          <button class="button" id="modal-approve" type="button">Approve action</button>
+          <button class="button danger" id="modal-reject" type="button">Decline action</button>
+          <button class="button ghost" id="modal-close" type="button">Close for now</button>
         </div>
       </div>
     </div>

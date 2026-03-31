@@ -15,6 +15,8 @@ type WorkflowCoordinatorConfig struct {
 	Skills      SkillRegistry
 	Sandbox     Sandbox
 	Secrets     SecretProvider
+	Memory      MemoryCompressor
+	Interceptor ExecutionInterceptor
 	CRMAdapter  CRMAdapter
 	SMSAdapter  SMSAdapter
 	RuntimeRoot string
@@ -28,6 +30,8 @@ type StandardWorkflowCoordinator struct {
 	skills      SkillRegistry
 	sandbox     Sandbox
 	secrets     SecretProvider
+	memory      MemoryCompressor
+	interceptor ExecutionInterceptor
 	crmAdapter  CRMAdapter
 	smsAdapter  SMSAdapter
 	runtimeRoot string
@@ -59,6 +63,8 @@ func NewWorkflowCoordinator(cfg WorkflowCoordinatorConfig) (*StandardWorkflowCoo
 		skills:      cfg.Skills,
 		sandbox:     cfg.Sandbox,
 		secrets:     cfg.Secrets,
+		memory:      cfg.Memory,
+		interceptor: cfg.Interceptor,
 		crmAdapter:  cfg.CRMAdapter,
 		smsAdapter:  cfg.SMSAdapter,
 		runtimeRoot: cfg.RuntimeRoot,
@@ -71,6 +77,28 @@ func (c *StandardWorkflowCoordinator) SubmitWorkflow(ctx context.Context, def Wo
 	skill, ok := c.skills.Get(def.Skill)
 	if !ok {
 		return Workflow{}, fmt.Errorf("unknown skill %q", def.Skill)
+	}
+	if c.interceptor != nil {
+		decision, err := c.interceptor.Inspect(ctx, skill.Definition(), def.Input)
+		if err != nil {
+			return Workflow{}, err
+		}
+		if !decision.Allowed {
+			c.publishAndAudit(ctx, Event{
+				Type:   EventExecutionBlocked,
+				Source: "workflow-coordinator",
+				Payload: map[string]any{
+					"skill":     def.Skill,
+					"risk":      decision.Risk,
+					"reason":    decision.Reason,
+					"violation": decision.Violation,
+				},
+			})
+			return Workflow{}, WorkflowBlockedError{
+				Skill:    def.Skill,
+				Decision: decision,
+			}
+		}
 	}
 	if err := skill.Validate(def.Input); err != nil {
 		return Workflow{}, err
@@ -149,6 +177,7 @@ func (c *StandardWorkflowCoordinator) SubmitWorkflow(ctx context.Context, def Wo
 				"error":  workflow.Error,
 			},
 		})
+		c.recordMemory(ctx, workflow)
 		return workflow, fmt.Errorf(subturnResult.Err)
 	}
 
@@ -190,6 +219,16 @@ func (c *StandardWorkflowCoordinator) SubmitWorkflow(ctx context.Context, def Wo
 			workflow.Error = err.Error()
 			workflow.UpdatedAt = time.Now().UTC()
 			_ = c.store.SaveWorkflow(ctx, workflow)
+			c.publishAndAudit(ctx, Event{
+				Type:       EventWorkflowUpdated,
+				WorkflowID: workflow.ID,
+				Source:     "workflow-coordinator",
+				Payload: map[string]any{
+					"status": workflow.Status,
+					"error":  workflow.Error,
+				},
+			})
+			c.recordMemory(ctx, workflow)
 			return workflow, err
 		}
 	}
@@ -213,6 +252,9 @@ func (c *StandardWorkflowCoordinator) SubmitWorkflow(ctx context.Context, def Wo
 			"status": workflow.Status,
 		},
 	})
+	if workflow.Status == WorkflowCompleted {
+		c.recordMemory(ctx, workflow)
+	}
 
 	return workflow, nil
 }
@@ -287,6 +329,7 @@ func (c *StandardWorkflowCoordinator) Approve(ctx context.Context, id string) (A
 			"status": workflow.Status,
 		},
 	})
+	c.recordMemory(ctx, workflow)
 	return approval, nil
 }
 
@@ -324,6 +367,7 @@ func (c *StandardWorkflowCoordinator) Reject(ctx context.Context, id string) (Ap
 			"reason": "approval_rejected",
 		},
 	})
+	c.recordMemory(ctx, workflow)
 	return approval, nil
 }
 
@@ -445,6 +489,24 @@ func (c *StandardWorkflowCoordinator) publishAdapterFailure(ctx context.Context,
 			"error":     err.Error(),
 		},
 	})
+}
+
+func (c *StandardWorkflowCoordinator) recordMemory(ctx context.Context, workflow Workflow) {
+	if c.memory == nil {
+		return
+	}
+	if err := c.memory.RecordWorkflow(ctx, workflow); err != nil {
+		c.publishAndAudit(ctx, Event{
+			Type:       EventContextCompressFailed,
+			WorkflowID: workflow.ID,
+			Source:     "workflow-coordinator",
+			Payload: map[string]any{
+				"skill":  workflow.Skill,
+				"status": workflow.Status,
+				"error":  err.Error(),
+			},
+		})
+	}
 }
 
 func (c *StandardWorkflowCoordinator) nextWorkflowID() string {

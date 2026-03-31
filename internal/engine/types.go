@@ -14,17 +14,20 @@ var (
 type EventType string
 
 const (
-	EventWorkflowSubmitted EventType = "workflow.submitted"
-	EventWorkflowUpdated   EventType = "workflow.updated"
-	EventSkillCompleted    EventType = "skill.completed"
-	EventApprovalRequired  EventType = "approval.required"
-	EventAdapterExecuted   EventType = "adapter.executed"
-	EventAdapterFailed     EventType = "adapter.failed"
-	EventSubTurnStarted    EventType = "subturn.started"
-	EventSubTurnCompleted  EventType = "subturn.completed"
-	EventSubTurnOrphaned   EventType = "subturn.orphaned"
-	EventBrainCommand      EventType = "brain.command"
-	EventBrainCommandError EventType = "brain.command.error"
+	EventWorkflowSubmitted     EventType = "workflow.submitted"
+	EventWorkflowUpdated       EventType = "workflow.updated"
+	EventSkillCompleted        EventType = "skill.completed"
+	EventApprovalRequired      EventType = "approval.required"
+	EventAdapterExecuted       EventType = "adapter.executed"
+	EventAdapterFailed         EventType = "adapter.failed"
+	EventSubTurnStarted        EventType = "subturn.started"
+	EventSubTurnCompleted      EventType = "subturn.completed"
+	EventSubTurnOrphaned       EventType = "subturn.orphaned"
+	EventBrainCommand          EventType = "brain.command"
+	EventBrainCommandError     EventType = "brain.command.error"
+	EventContextFlush          EventType = "brain.context.flush"
+	EventContextCompressFailed EventType = "brain.context.compress_failed"
+	EventExecutionBlocked      EventType = "security.execution.blocked"
 
 	EventFileAccessRequested EventType = "file.access.requested"
 	EventFileAccessApproved  EventType = "file.access.approved"
@@ -204,9 +207,42 @@ type ExecGuard interface {
 	Validate(command []string) error
 }
 
+type InterceptionDecision struct {
+	Allowed                bool           `json:"allowed"`
+	Risk                   string         `json:"risk,omitempty"`
+	Reason                 string         `json:"reason,omitempty"`
+	Violation              string         `json:"violation,omitempty"`
+	SafeAlternativePrompt  string         `json:"safe_alternative_prompt,omitempty"`
+	SafeAlternativeContext map[string]any `json:"safe_alternative_context,omitempty"`
+}
+
+type ExecutionInterceptor interface {
+	Inspect(ctx context.Context, skill SkillDefinition, input map[string]any) (InterceptionDecision, error)
+}
+
+type WorkflowBlockedError struct {
+	Skill    string
+	Decision InterceptionDecision
+}
+
+func (e WorkflowBlockedError) Error() string {
+	reason := e.Decision.Reason
+	if reason == "" {
+		reason = "workflow blocked by security policy"
+	}
+	if e.Skill == "" {
+		return reason
+	}
+	return "workflow " + e.Skill + " blocked: " + reason
+}
+
 type SecretProvider interface {
 	Get(name string) (string, error)
 	RedactMap(payload map[string]any) map[string]any
+}
+
+type MemoryCompressor interface {
+	RecordWorkflow(ctx context.Context, workflow Workflow) error
 }
 
 type SkillDefinition struct {

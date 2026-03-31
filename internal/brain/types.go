@@ -39,11 +39,26 @@ type Command struct {
 	Explanation string         `json:"explanation,omitempty"`
 }
 
+type SafetyIntervention struct {
+	Skill     string `json:"skill"`
+	Risk      string `json:"risk,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+	Violation string `json:"violation,omitempty"`
+}
+
+type AlternativeSuggestion struct {
+	Message string   `json:"message,omitempty"`
+	Command *Command `json:"command,omitempty"`
+	Raw     string   `json:"raw,omitempty"`
+}
+
 type DispatchResult struct {
-	Command  Command          `json:"command"`
-	Workflow *engine.Workflow `json:"workflow,omitempty"`
-	Model    string           `json:"model,omitempty"`
-	Raw      string           `json:"raw,omitempty"`
+	Command     Command                `json:"command"`
+	Workflow    *engine.Workflow       `json:"workflow,omitempty"`
+	Model       string                 `json:"model,omitempty"`
+	Raw         string                 `json:"raw,omitempty"`
+	Blocked     *SafetyIntervention    `json:"blocked,omitempty"`
+	Alternative *AlternativeSuggestion `json:"alternative,omitempty"`
 }
 
 func (c Command) Validate(skillNames []string) error {
@@ -80,4 +95,30 @@ func ParseCommand(raw string) (Command, error) {
 		return Command{}, err
 	}
 	return command, nil
+}
+
+func ParseAlternativeSuggestion(raw string) (AlternativeSuggestion, error) {
+	cleaned := strings.TrimSpace(raw)
+	cleaned = strings.TrimPrefix(cleaned, "```json")
+	cleaned = strings.TrimPrefix(cleaned, "```")
+	cleaned = strings.TrimSuffix(cleaned, "```")
+	cleaned = strings.TrimSpace(cleaned)
+
+	var envelope struct {
+		Message     string  `json:"message"`
+		Alternative Command `json:"alternative"`
+	}
+	if err := json.Unmarshal([]byte(cleaned), &envelope); err != nil {
+		return AlternativeSuggestion{}, err
+	}
+
+	suggestion := AlternativeSuggestion{
+		Message: strings.TrimSpace(envelope.Message),
+		Raw:     cleaned,
+	}
+	if strings.TrimSpace(envelope.Alternative.Action) != "" {
+		command := envelope.Alternative
+		suggestion.Command = &command
+	}
+	return suggestion, nil
 }
