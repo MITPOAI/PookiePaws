@@ -42,6 +42,34 @@ PookiePaws is a pure-Go, stdlib-first marketing automation runtime built around 
 - Approval-gated workspace reads and writes through `PermissionedSandbox`
 - Runtime state and audit records stored under `~/.pookiepaws/`
 
+## Install
+
+### One-liner (recommended)
+
+**Windows** — paste into PowerShell:
+```powershell
+powershell -c "irm https://raw.githubusercontent.com/MITPOAI/PookiePaws/main/install.ps1 | iex"
+```
+
+**macOS / Linux** — paste into Terminal:
+```bash
+curl -fsSL https://raw.githubusercontent.com/MITPOAI/PookiePaws/main/install.sh | bash
+```
+
+The installer automatically detects your OS and architecture, downloads the right binary from the [latest release](https://github.com/MITPOAI/PookiePaws/releases/latest), and adds `pookie` to your PATH. No Go toolchain required.
+
+### Manual download
+
+Download the binary for your platform from the [Releases page](https://github.com/MITPOAI/PookiePaws/releases/latest):
+
+| Platform | File |
+|----------|------|
+| Windows 64-bit | `pookie_*_windows_amd64.zip` |
+| macOS Apple Silicon | `pookie_*_darwin_arm64.tar.gz` |
+| macOS Intel | `pookie_*_darwin_amd64.tar.gz` |
+| Linux 64-bit | `pookie_*_linux_amd64.tar.gz` |
+| Linux ARM | `pookie_*_linux_arm64.tar.gz` |
+
 ## Quick Start
 
 1. Ensure you are on a working Go 1.22 toolchain.
