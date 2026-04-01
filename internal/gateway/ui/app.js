@@ -16,14 +16,16 @@
       workflow: "Preparing the workflow and checking it against the police layer.",
       brain: "Pookie is mapping your request into safe, observable workflow steps.",
       vault: "Saving these settings to the local vault on this workstation.",
-      approvals: "Recording your decision and updating the workflow state."
+      approvals: "Recording your decision and updating the workflow state.",
+      channelTest: "Checking the WhatsApp provider with the current saved settings."
     },
     success: {
       workflow: "Workflow queued. You can follow each step in the audit trail on the right.",
       brain: "Workflow routed. Watch the audit trail as each step starts and finishes.",
       vault: "Settings saved to the local vault on this workstation.",
       approval: "Decision recorded. The workflow can continue from this point.",
-      rejection: "Request declined. Nothing new was sent."
+      rejection: "Request declined. Nothing new was sent.",
+      channelTest: "WhatsApp provider responded successfully."
     },
     blocked: {
       title: "That action was paused to protect your workspace",
@@ -193,6 +195,8 @@
     refs.inspectorContent = document.getElementById("inspector-content");
     refs.vaultForm = document.getElementById("vault-form");
     refs.vaultMessage = document.getElementById("vault-message");
+    refs.testWhatsApp = document.getElementById("test-whatsapp");
+    refs.downloadDiagnostics = document.getElementById("download-diagnostics");
     refs.approvalModal = document.getElementById("approval-modal");
     refs.modalTitle = document.getElementById("modal-title");
     refs.modalDetail = document.getElementById("modal-detail");
@@ -289,7 +293,26 @@
       });
     });
 
+    document.getElementById("whatsapp-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      const type = String(form.get("type") || "template").trim();
+      await postMessageRequest({
+        name: type === "text" ? "Draft WhatsApp text" : "Draft WhatsApp template",
+        channel: "whatsapp",
+        provider: "meta_cloud",
+        to: form.get("to"),
+        type,
+        text: form.get("text"),
+        template_name: form.get("template_name"),
+        template_language: form.get("template_language"),
+        test: true
+      });
+    });
+
     refs.vaultForm.addEventListener("submit", saveVault);
+    refs.testWhatsApp.addEventListener("click", testWhatsAppConnection);
+    refs.downloadDiagnostics.addEventListener("click", openDiagnostics);
 
     refs.chatForm.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -387,7 +410,8 @@
     refs.providerFlags.innerHTML = [
       renderProviderFlag("Brain", state.vault && state.vault.brain && state.vault.brain.configured),
       renderProviderFlag("Salesmanago", state.vault && state.vault.salesmanago && state.vault.salesmanago.configured),
-      renderProviderFlag("Mitto", state.vault && state.vault.mitto && state.vault.mitto.configured)
+      renderProviderFlag("Mitto", state.vault && state.vault.mitto && state.vault.mitto.configured),
+      renderProviderFlag("WhatsApp", state.vault && state.vault.whatsapp && state.vault.whatsapp.configured)
     ].join("");
   }
 
@@ -400,7 +424,7 @@
       ["Workflow queue", String(status.workflows), "Local runs and structured submissions tracked from one console."],
       ["Pending approvals", String(status.pending_approvals || 0), "Outbound steps stay paused until a person decides."],
       ["File access", String(status.pending_file_permissions || 0), "Workspace reads and writes are operator-visible actions."],
-      ["Provider health", providerHealthText(), "Brain, CRM, and SMS readiness across the current vault."],
+      ["Provider health", providerHealthText(), "Brain, CRM, SMS, and WhatsApp readiness across the current vault."],
       ["Event bus", String(status.event_bus.published), "Internal runtime events published since startup."]
     ];
     refs.summaryStrip.innerHTML = cards.map(([label, value, detail]) => `
@@ -509,13 +533,15 @@
     refs.vaultStatusCards.innerHTML = [
       vaultStatusCard("Brain", state.vault.brain && state.vault.brain.configured, state.vault.brain && state.vault.brain.mode ? `${state.vault.brain.provider} / ${state.vault.brain.mode}` : "Not configured"),
       vaultStatusCard("Salesmanago", state.vault.salesmanago && state.vault.salesmanago.configured, "CRM lead routing"),
-      vaultStatusCard("Mitto", state.vault.mitto && state.vault.mitto.configured, "SMS drafting and send intents")
+      vaultStatusCard("Mitto", state.vault.mitto && state.vault.mitto.configured, "SMS drafting and send intents"),
+      vaultStatusCard("WhatsApp", state.vault.whatsapp && state.vault.whatsapp.configured, channelStatusDetail("whatsapp"))
     ].join("");
 
     refs.vaultMessage.textContent = state.vaultNotice || (state.vault.can_write
       ? "Vault writes are available because this server is bound to loopback."
       : "To protect secrets, vault writes stay off until this server is bound to loopback.");
     document.getElementById("save-vault").disabled = !state.vault.can_write;
+    refs.testWhatsApp.disabled = !(state.vault.whatsapp && state.vault.whatsapp.configured);
   }
 
   function renderCanvas() {
@@ -971,6 +997,32 @@
     }
   }
 
+  async function postMessageRequest(payload) {
+    setCanvasMessage(MICROCOPY.loading.workflow);
+    try {
+      const result = await fetchJSON("/api/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      clearBrainResponse();
+      setCanvasMessage("WhatsApp draft queued. The approval and delivery state will stay visible in the console.");
+      pushAuditEntry({
+        type: "client.message.submitted",
+        title: "WhatsApp draft queued",
+        detail: `${payload.name || "WhatsApp draft"} is now waiting inside the approval-aware workflow runtime.`,
+        severity: "info",
+        timestamp: new Date().toISOString(),
+        workflow_id: result.workflow && result.workflow.id ? result.workflow.id : ""
+      });
+      await refreshConsoleState();
+      return result;
+    } catch (error) {
+      handleWorkflowSubmissionError(error, payload);
+      return null;
+    }
+  }
+
   async function dispatchBrain(prompt) {
     refs.brainGuard.hidden = true;
     setBrainResponse({
@@ -1101,6 +1153,31 @@
     }
   }
 
+  async function testWhatsAppConnection() {
+    state.vaultNotice = MICROCOPY.loading.channelTest;
+    renderSettings();
+    try {
+      const status = await fetchJSON("/api/v1/channels/whatsapp/test", { method: "POST" });
+      state.vaultNotice = firstNonEmpty(status.message, MICROCOPY.success.channelTest);
+      renderSettings();
+      pushAuditEntry({
+        type: "client.channel.test",
+        title: "WhatsApp connection checked",
+        detail: firstNonEmpty(status.message, MICROCOPY.success.channelTest),
+        severity: status.healthy ? "info" : "warning",
+        timestamp: new Date().toISOString()
+      });
+      await refreshConsoleState();
+    } catch (error) {
+      state.vaultNotice = humanizeError(error, MICROCOPY.errors.generic);
+      renderSettings();
+    }
+  }
+
+  function openDiagnostics() {
+    window.open("/api/v1/diagnostics", "_blank", "noopener");
+  }
+
   async function resolveApproval(id, action) {
     setCanvasMessage(MICROCOPY.loading.approvals);
     try {
@@ -1167,10 +1244,15 @@
     await resolveApproval(state.activeApprovalId, action);
   }
 
-  function openApprovalModal(id) {
-    const approval = getPendingApprovals().find((item) => item.id === id);
+  async function openApprovalModal(id) {
+    let approval = getPendingApprovals().find((item) => item.id === id);
     if (!approval) {
-      return;
+      // State may be stale — refresh once and retry before giving up.
+      await refreshConsoleState();
+      approval = getPendingApprovals().find((item) => item.id === id);
+      if (!approval) {
+        return;
+      }
     }
     state.activeApprovalId = approval.id;
     refs.modalTitle.textContent = `${approval.adapter} / ${approval.action}`;
@@ -1210,8 +1292,7 @@
         const payload = JSON.parse(event.data);
         pushAuditEntry(payload, true);
         if (payload.type === "approval.required" && payload.approval_id) {
-          await refreshConsoleState();
-          openApprovalModal(payload.approval_id);
+          await openApprovalModal(payload.approval_id);
           return;
         }
         if (typeof payload.type === "string" && payload.type.indexOf("file.access.") === 0) {
@@ -1461,6 +1542,40 @@
         ],
         edges: [{ from: "node_draft", to: "node_approval" }]
       };
+    } else if (template.skill === "whatsapp-message-drafter") {
+      state.canvas = {
+        nodes: [
+          {
+            id: "node_goal",
+            type: "goal",
+            label: "Goal",
+            config: { goal: "Prepare an approval-gated WhatsApp outbound send." },
+            position: { x: 128, y: 210 }
+          },
+          {
+            id: "node_draft",
+            type: "draft_sms",
+            label: "Draft Message",
+            config: {
+              campaign_name: template.input.template_name || "WhatsApp template",
+              message: template.input.text || "Launch update",
+              recipient: template.input.to || ""
+            },
+            position: { x: 444, y: 210 }
+          },
+          {
+            id: "node_approval",
+            type: "approval",
+            label: "Approval",
+            config: {},
+            position: { x: 760, y: 210 }
+          }
+        ],
+        edges: [
+          { from: "node_goal", to: "node_draft" },
+          { from: "node_draft", to: "node_approval" }
+        ]
+      };
     } else {
       state.canvas = defaultCanvas();
     }
@@ -1652,15 +1767,27 @@
     `;
   }
 
+  function channelStatusDetail(channelName) {
+    const channel = findChannelStatus(channelName);
+    if (!channel) {
+      return "Not configured";
+    }
+    return firstNonEmpty(channel.message, `${channel.provider} / ${channel.channel}`);
+  }
+
+  function findChannelStatus(channelName) {
+    return ((state.console && state.console.channels) || []).find((item) => item.channel === channelName) || null;
+  }
+
   function providerHealthText() {
     if (!state.vault) {
       return "waiting";
     }
-    const ready = ["brain", "salesmanago", "mitto"].filter((key) => {
+    const ready = ["brain", "salesmanago", "mitto", "whatsapp"].filter((key) => {
       const item = state.vault[key];
       return item && item.configured;
     }).length;
-    return `${ready}/3 ready`;
+    return `${ready}/4 ready`;
   }
 
   function primeTheme() {
