@@ -106,6 +106,27 @@ func NewSkillExecutionInterceptor() *SkillExecutionInterceptor {
 					return nil
 				},
 			},
+			"whatsapp-message-drafter": {
+				risk:        "high",
+				allowedKeys: setOf("provider", "to", "recipient", "type", "text", "template_name", "template_language", "template_variables", "test"),
+				altPrompt:   "Suggest a narrower WhatsApp workflow that stays approval-gated, targets a single recipient, and avoids broad sends or unsupported machine-control actions.",
+				inspectInput: func(input map[string]any) *payloadFinding {
+					recipient := strings.ToLower(strings.TrimSpace(conv.AsString(input["to"])))
+					if recipient == "" {
+						recipient = strings.ToLower(strings.TrimSpace(conv.AsString(input["recipient"])))
+					}
+					switch recipient {
+					case "*", "all", "everyone", "broadcast", "all_contacts":
+						return &payloadFinding{
+							path:      "to",
+							reason:    "bulk WhatsApp targets are blocked until a single recipient is defined",
+							violation: "bulk_target_blocked",
+							risk:      "high",
+						}
+					}
+					return nil
+				},
+			},
 		},
 	}
 }

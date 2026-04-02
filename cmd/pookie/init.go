@@ -27,6 +27,7 @@ func cmdInit(args []string) {
 	p.Dim("Your API keys stay on this machine only.")
 	p.Dim("They are written to ~/.pookiepaws/.security.json with permissions 0600.")
 	p.Dim("PookiePaws never transmits credentials to any remote service.")
+	p.Dim("You can rerun this wizard later and leave prompts blank to keep current values.")
 	p.Blank()
 
 	runtimeRoot, _, err := resolveRoots(*home)
@@ -91,7 +92,7 @@ func cmdInit(args []string) {
 	p.Rule("LLM Provider")
 	p.Blank()
 	p.Dim("PookiePaws speaks to any OpenAI-compatible endpoint, including local models")
-	p.Dim("via Ollama, LM Studio, or similar. Leave the URL blank for the OpenAI default.")
+	p.Dim("via Ollama, LM Studio, or similar.")
 	p.Blank()
 
 	ask("LLM base URL", "llm_base_url",
@@ -108,11 +109,10 @@ func cmdInit(args []string) {
 	p.Dim("SALESmanago credentials power the lead-routing skill.")
 	p.Blank()
 
-	ask("SALESmanago endpoint", "salesmanago_endpoint",
-		"  (e.g. https://app3.salesmanago.pl)", false)
+	ask("SALESmanago base URL", "salesmanago_base_url",
+		"  (e.g. https://api.salesmanago.com/v3/keyInformation/upsert)", false)
 	ask("SALESmanago API key", "salesmanago_api_key", "", true)
-	ask("SALESmanago client ID", "salesmanago_client_id", "", false)
-	ask("SALESmanago SHA1 API secret", "salesmanago_api_secret", "", true)
+	ask("SALESmanago owner email", "salesmanago_owner", "", false)
 
 	// ── SMS Integration ───────────────────────────────────────────────────────
 	p.Blank()
@@ -122,7 +122,23 @@ func cmdInit(args []string) {
 	p.Blank()
 
 	ask("Mitto API key", "mitto_api_key", "", true)
-	ask("Mitto sender ID", "mitto_sender_id", "  (the From name shown on messages)", false)
+	ask("Mitto base URL", "mitto_base_url", "  (default: https://rest.mittoapi.net)", false)
+	ask("Mitto sender ID", "mitto_from", "  (the From name shown on messages)", false)
+
+	// —— WhatsApp Integration —————————————————————————————————————————————
+	p.Blank()
+	p.Rule("WhatsApp Integration  (optional — press Enter to skip)")
+	p.Blank()
+	p.Dim("WhatsApp runs as an approval-gated outbound channel.")
+	p.Dim("The default provider mode expects Meta Cloud API-compatible endpoints.")
+	p.Blank()
+
+	ask("WhatsApp provider", "whatsapp_provider", "  (default: meta_cloud)", false)
+	ask("WhatsApp access token", "whatsapp_access_token", "", true)
+	ask("WhatsApp phone number ID", "whatsapp_phone_number_id", "", false)
+	ask("WhatsApp business account ID", "whatsapp_business_account_id", "", false)
+	ask("WhatsApp webhook verify token", "whatsapp_webhook_verify_token", "", true)
+	ask("WhatsApp base URL", "whatsapp_base_url", "  (default: https://graph.facebook.com/v23.0)", false)
 
 	// ── Write ─────────────────────────────────────────────────────────────────
 	p.Blank()

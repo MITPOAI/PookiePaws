@@ -291,6 +291,102 @@ type AdapterResult struct {
 	Details   map[string]any `json:"details,omitempty"`
 }
 
+type ChannelSendRequest struct {
+	MessageID         string            `json:"message_id,omitempty"`
+	WorkflowID        string            `json:"workflow_id,omitempty"`
+	Provider          string            `json:"provider,omitempty"`
+	Channel           string            `json:"channel"`
+	To                string            `json:"to"`
+	Type              string            `json:"type"`
+	Text              string            `json:"text,omitempty"`
+	TemplateName      string            `json:"template_name,omitempty"`
+	TemplateLanguage  string            `json:"template_language,omitempty"`
+	TemplateVariables map[string]string `json:"template_variables,omitempty"`
+	Metadata          map[string]any    `json:"metadata,omitempty"`
+	Test              bool              `json:"test,omitempty"`
+}
+
+type ChannelSendResult struct {
+	MessageID  string         `json:"message_id,omitempty"`
+	ExternalID string         `json:"external_id,omitempty"`
+	Provider   string         `json:"provider"`
+	Channel    string         `json:"channel"`
+	Status     string         `json:"status"`
+	Details    map[string]any `json:"details,omitempty"`
+}
+
+type ChannelDeliveryEvent struct {
+	Provider   string         `json:"provider"`
+	Channel    string         `json:"channel"`
+	MessageID  string         `json:"message_id,omitempty"`
+	ExternalID string         `json:"external_id,omitempty"`
+	Recipient  string         `json:"recipient,omitempty"`
+	Status     string         `json:"status"`
+	Timestamp  time.Time      `json:"timestamp"`
+	Raw        map[string]any `json:"raw,omitempty"`
+}
+
+type ChannelProviderStatus struct {
+	Provider     string   `json:"provider"`
+	Channel      string   `json:"channel"`
+	Configured   bool     `json:"configured"`
+	Healthy      bool     `json:"healthy"`
+	Message      string   `json:"message,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty"`
+}
+
+type MessageStatus string
+
+const (
+	MessageQueued          MessageStatus = "queued"
+	MessagePendingApproval MessageStatus = "pending_approval"
+	MessageApproved        MessageStatus = "approved"
+	MessageSent            MessageStatus = "sent"
+	MessageDelivered       MessageStatus = "delivered"
+	MessageRead            MessageStatus = "read"
+	MessageFailed          MessageStatus = "failed"
+	MessageRejected        MessageStatus = "rejected"
+)
+
+type Message struct {
+	ID               string                 `json:"id"`
+	WorkflowID       string                 `json:"workflow_id,omitempty"`
+	Provider         string                 `json:"provider"`
+	Channel          string                 `json:"channel"`
+	Direction        string                 `json:"direction"`
+	Recipient        string                 `json:"recipient"`
+	Type             string                 `json:"type"`
+	Text             string                 `json:"text,omitempty"`
+	TemplateName     string                 `json:"template_name,omitempty"`
+	TemplateLanguage string                 `json:"template_language,omitempty"`
+	Status           MessageStatus          `json:"status"`
+	ExternalID       string                 `json:"external_id,omitempty"`
+	Metadata         map[string]any         `json:"metadata,omitempty"`
+	Details          map[string]any         `json:"details,omitempty"`
+	LastError        string                 `json:"last_error,omitempty"`
+	DeliveryEvents   []ChannelDeliveryEvent `json:"delivery_events,omitempty"`
+	CreatedAt        time.Time              `json:"created_at"`
+	UpdatedAt        time.Time              `json:"updated_at"`
+}
+
+type MessageRequest struct {
+	Name              string            `json:"name,omitempty"`
+	Provider          string            `json:"provider,omitempty"`
+	Channel           string            `json:"channel"`
+	To                string            `json:"to"`
+	Type              string            `json:"type"`
+	Text              string            `json:"text,omitempty"`
+	TemplateName      string            `json:"template_name,omitempty"`
+	TemplateLanguage  string            `json:"template_language,omitempty"`
+	TemplateVariables map[string]string `json:"template_variables,omitempty"`
+	Test              bool              `json:"test,omitempty"`
+}
+
+type MessageSubmitResult struct {
+	Message  Message  `json:"message"`
+	Workflow Workflow `json:"workflow"`
+}
+
 type CRMAdapter interface {
 	Name() string
 	Execute(ctx context.Context, action AdapterAction, secrets SecretProvider) (AdapterResult, error)
@@ -299,6 +395,15 @@ type CRMAdapter interface {
 type SMSAdapter interface {
 	Name() string
 	Execute(ctx context.Context, action AdapterAction, secrets SecretProvider) (AdapterResult, error)
+}
+
+type ChannelAdapter interface {
+	Name() string
+	Channel() string
+	Status(secrets SecretProvider) ChannelProviderStatus
+	Test(ctx context.Context, secrets SecretProvider) (ChannelProviderStatus, error)
+	Send(ctx context.Context, req ChannelSendRequest, secrets SecretProvider) (ChannelSendResult, error)
+	ParseDeliveryEvents(payload map[string]any) []ChannelDeliveryEvent
 }
 
 type StateStore interface {
@@ -311,6 +416,9 @@ type StateStore interface {
 	SaveFilePermission(ctx context.Context, perm FilePermission) error
 	GetFilePermission(ctx context.Context, id string) (FilePermission, error)
 	ListFilePermissions(ctx context.Context) ([]FilePermission, error)
+	SaveMessage(ctx context.Context, message Message) error
+	GetMessage(ctx context.Context, id string) (Message, error)
+	ListMessages(ctx context.Context) ([]Message, error)
 	SaveStatus(ctx context.Context, status StatusSnapshot) error
 	AppendAudit(ctx context.Context, event Event) error
 }
@@ -327,4 +435,9 @@ type WorkflowCoordinator interface {
 	ApproveFileAccess(ctx context.Context, id string) (FilePermission, error)
 	RejectFileAccess(ctx context.Context, id string) (FilePermission, error)
 	ListFilePermissions(ctx context.Context) ([]FilePermission, error)
+	Channels(ctx context.Context) ([]ChannelProviderStatus, error)
+	TestChannel(ctx context.Context, channel string) (ChannelProviderStatus, error)
+	SubmitMessage(ctx context.Context, req MessageRequest) (MessageSubmitResult, error)
+	GetMessage(ctx context.Context, id string) (Message, error)
+	ProcessChannelDelivery(ctx context.Context, event ChannelDeliveryEvent) (Message, error)
 }

@@ -77,6 +77,7 @@ func main() {
 		Interceptor: interceptor,
 		CRMAdapter:  adapters.NewSalesmanagoAdapter(),
 		SMSAdapter:  adapters.NewMittoAdapter(),
+		WhatsApp:    adapters.NewWhatsAppAdapter(),
 		RuntimeRoot: runtimeRoot,
 		Workspace:   workspaceRoot,
 	})
@@ -97,6 +98,7 @@ func main() {
 		EventBus:    bus,
 		Brain:       promptBrain,
 		Vault:       secrets,
+		WhatsApp:    adapters.NewWhatsAppAdapter(),
 		Address:     *addr,
 	})
 

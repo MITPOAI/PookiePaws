@@ -28,6 +28,7 @@ func NewFileStore(root string) (*FileStore, error) {
 		filepath.Join(root, "workflows"),
 		filepath.Join(root, "approvals"),
 		filepath.Join(root, "filepermissions"),
+		filepath.Join(root, "messages"),
 		filepath.Join(root, "runtime"),
 		filepath.Join(root, "audits"),
 	} {
@@ -112,6 +113,30 @@ func (s *FileStore) ListFilePermissions(_ context.Context) ([]engine.FilePermiss
 
 func (s *FileStore) SaveStatus(_ context.Context, status engine.StatusSnapshot) error {
 	return s.writeJSON(filepath.Join(s.root, "runtime", "status.json"), status)
+}
+
+func (s *FileStore) SaveMessage(_ context.Context, message engine.Message) error {
+	return s.writeJSON(filepath.Join(s.root, "messages", message.ID+".json"), message)
+}
+
+func (s *FileStore) GetMessage(_ context.Context, id string) (engine.Message, error) {
+	var message engine.Message
+	err := s.readJSON(filepath.Join(s.root, "messages", id+".json"), &message)
+	if errors.Is(err, fs.ErrNotExist) {
+		return engine.Message{}, engine.ErrNotFound
+	}
+	return message, err
+}
+
+func (s *FileStore) ListMessages(_ context.Context) ([]engine.Message, error) {
+	var messages []engine.Message
+	if err := s.readDirJSON(filepath.Join(s.root, "messages"), &messages); err != nil {
+		return nil, err
+	}
+	sort.Slice(messages, func(i, j int) bool {
+		return messages[i].CreatedAt.After(messages[j].CreatedAt)
+	})
+	return messages, nil
 }
 
 func (s *FileStore) AppendAudit(_ context.Context, event engine.Event) error {

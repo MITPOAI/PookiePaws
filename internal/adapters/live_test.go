@@ -103,3 +103,92 @@ func TestMittoAdapterExecute(t *testing.T) {
 		t.Fatalf("unexpected status %q", result.Status)
 	}
 }
+
+func TestWhatsAppAdapterSendAndParseDelivery(t *testing.T) {
+	var seenAuth string
+	var seenBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.Method {
+		case http.MethodGet:
+			seenAuth = request.Header.Get("Authorization")
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = writer.Write([]byte(`{"display_phone_number":"+61400000000","verified_name":"Pookie"}`))
+		case http.MethodPost:
+			seenAuth = request.Header.Get("Authorization")
+			if err := json.NewDecoder(request.Body).Decode(&seenBody); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = writer.Write([]byte(`{"messages":[{"id":"wamid.test.123"}]}`))
+		default:
+			writer.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}))
+	defer server.Close()
+
+	adapter := NewWhatsAppAdapter()
+	adapter.client = server.Client()
+
+	status, err := adapter.Test(context.Background(), stubSecrets{
+		"whatsapp_access_token":    "wa-token",
+		"whatsapp_phone_number_id": "123456",
+		"whatsapp_base_url":        server.URL,
+	})
+	if err != nil {
+		t.Fatalf("test failed: %v", err)
+	}
+	if !status.Healthy {
+		t.Fatalf("expected healthy status")
+	}
+
+	result, err := adapter.Send(context.Background(), engine.ChannelSendRequest{
+		MessageID:         "msg_1",
+		Provider:          "meta_cloud",
+		Channel:           "whatsapp",
+		To:                "+61400000000",
+		Type:              "template",
+		TemplateName:      "launch_update",
+		TemplateLanguage:  "en",
+		TemplateVariables: map[string]string{"1": "Launch", "2": "https://example.com"},
+	}, stubSecrets{
+		"whatsapp_access_token":    "wa-token",
+		"whatsapp_phone_number_id": "123456",
+		"whatsapp_base_url":        server.URL,
+	})
+	if err != nil {
+		t.Fatalf("send failed: %v", err)
+	}
+	if seenAuth != "Bearer wa-token" {
+		t.Fatalf("expected bearer token header")
+	}
+	if seenBody["type"] != "template" {
+		t.Fatalf("expected template send body")
+	}
+	if result.ExternalID != "wamid.test.123" {
+		t.Fatalf("unexpected external id %q", result.ExternalID)
+	}
+
+	events := adapter.ParseDeliveryEvents(map[string]any{
+		"entry": []any{
+			map[string]any{
+				"changes": []any{
+					map[string]any{
+						"value": map[string]any{
+							"statuses": []any{
+								map[string]any{
+									"id":           "wamid.test.123",
+									"recipient_id": "+61400000000",
+									"status":       "delivered",
+									"timestamp":    "1711962120",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+	if len(events) != 1 || events[0].Status != "delivered" {
+		t.Fatalf("unexpected delivery events %+v", events)
+	}
+}

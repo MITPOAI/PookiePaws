@@ -49,6 +49,9 @@ func Stdout() *Printer { return New(os.Stdout) }
 // Stderr returns a Printer writing to os.Stderr.
 func Stderr() *Printer { return New(os.Stderr) }
 
+// IsColor reports whether the printer uses colour output.
+func (p *Printer) IsColor() bool { return p.color }
+
 func (p *Printer) paint(code, s string) string {
 	if !p.color {
 		return s

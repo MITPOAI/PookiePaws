@@ -37,8 +37,10 @@ PookiePaws is a pure-Go, stdlib-first marketing automation runtime built around 
   - UTM validation
   - CRM lead routing
   - SMS draft creation
+  - WhatsApp draft creation
 - Optional brain routing from free-text to structured workflow commands
 - Live HTTP adapters for SALESmanago and Mitto
+- WhatsApp outbound channel adapter with approval-gated sends and delivery receipts
 - Approval-gated workspace reads and writes through `PermissionedSandbox`
 - Runtime state and audit records stored under `~/.pookiepaws/`
 
@@ -86,14 +88,16 @@ go mod tidy
 go build -o pookie.exe ./cmd/pookie
 ```
 
+Or use a prebuilt release binary from the project releases page and skip the Go toolchain entirely.
+
 3. Run the interactive setup wizard.
 
 ```powershell
 .\pookie.exe init
 ```
 
-The wizard collects your LLM provider URL, model name, and API key. For a
-local Ollama setup this is enough (leave the API key blank):
+The wizard collects your LLM provider settings plus optional SALESmanago, Mitto,
+and WhatsApp credentials. For a local Ollama setup this is enough (leave the API key blank):
 
 ```
 LLM base URL  >  http://localhost:11434/v1/chat/completions
@@ -176,19 +180,34 @@ go build -o pookie.exe ./cmd/pookie
 # Or directly via the REST API
 Invoke-RestMethod http://127.0.0.1:18800/api/v1/console
 Invoke-RestMethod http://127.0.0.1:18800/api/v1/status
+Invoke-RestMethod http://127.0.0.1:18800/healthz
+Invoke-RestMethod http://127.0.0.1:18800/readyz
 Invoke-RestMethod http://127.0.0.1:18800/api/v1/skills
+Invoke-RestMethod http://127.0.0.1:18800/api/v1/diagnostics
 ```
 
 ## CLI Commands
 
 ```
+pookie                    Launch the interactive menu (arrow keys + Enter)
 pookie start              Boot the agent (foreground; Ctrl+C to stop)
-pookie status             Check whether the agent is running
+pookie chat               Talk to Pookie in your terminal (AI mode)
+pookie list               Show all installed marketing skills
 pookie run <skill>        Execute a skill directly in this terminal
+pookie status             Check whether the agent is running
 pookie install <repo>     Install a skill from GitHub
 pookie init               First-run setup wizard
-pookie version            Print version
+pookie -v, --version      Print version with OS/arch and Go build info
+pookie -h, --help         Show help
 ```
+
+**Interactive menu:** Running `pookie` with no arguments opens an arrow-key
+selection menu where you can start the daemon, chat with Pookie, list skills,
+or run a specific skill — no command memorisation required.
+
+**Chat REPL:** `pookie chat` opens a conversational terminal session. Type
+marketing goals in plain English and Pookie picks the best skill. Built-in
+commands: `/skills`, `/clear`, `/exit`.
 
 **Run a skill from the terminal:**
 
@@ -245,9 +264,19 @@ If no LLM provider is configured, the app still starts and the direct workflow f
 ## API Surface
 
 - `GET /`
+- `GET /healthz`
+- `GET /readyz`
 - `GET /api/v1/console`
+- `GET /api/v1/diagnostics`
 - `GET /api/v1/status`
+- `GET /api/v1/channels`
+- `GET /api/v1/channels/status`
+- `POST /api/v1/channels/whatsapp/test`
+- `GET /api/v1/channels/whatsapp/webhook`
+- `POST /api/v1/channels/whatsapp/webhook`
 - `GET /api/v1/events`
+- `POST /api/v1/messages`
+- `GET /api/v1/messages/{id}`
 - `GET /api/v1/workflows`
 - `POST /api/v1/workflows`
 - `POST /api/v1/workflows/plan`
@@ -273,6 +302,7 @@ PookiePaws uses `~/.pookiepaws/` by default.
 - `state/filepermissions/` file permission records
 - `state/runtime/status.json` latest runtime snapshot
 - `state/audits/audit.jsonl` append-only audit stream
+- `state/messages/` outbound channel message state and delivery updates
 - `.security.json` host-side secrets and provider configuration
 
 ## Security Posture
@@ -297,8 +327,11 @@ PookiePaws is intentionally not trying to be a clone of a broader general-purpos
 ## Files To Start With
 
 - [cmd/pookie/main.go](./cmd/pookie/main.go)
+- [cmd/pookie/chat.go](./cmd/pookie/chat.go)
+- [cmd/pookie/list.go](./cmd/pookie/list.go)
 - [cmd/pookie/stack.go](./cmd/pookie/stack.go)
 - [internal/cli/printer.go](./internal/cli/printer.go)
+- [internal/cli/menu.go](./internal/cli/menu.go)
 - [internal/gateway/server.go](./internal/gateway/server.go)
 - [internal/gateway/ui/index.html](./internal/gateway/ui/index.html)
 - [internal/gateway/ui/app.js](./internal/gateway/ui/app.js)

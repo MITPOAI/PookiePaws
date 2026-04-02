@@ -88,6 +88,7 @@ func newHarness(t *testing.T, address string, promptBrain PromptDispatcher) harn
 		Interceptor: security.NewSkillExecutionInterceptor(),
 		CRMAdapter:  adapters.NewMockSalesmanagoAdapter(),
 		SMSAdapter:  adapters.NewMockMittoAdapter(),
+		WhatsApp:    adapters.NewMockWhatsAppAdapter(),
 		RuntimeRoot: runtimeRoot,
 		Workspace:   workspaceRoot,
 	})
@@ -101,6 +102,7 @@ func newHarness(t *testing.T, address string, promptBrain PromptDispatcher) harn
 			EventBus:    bus,
 			Brain:       promptBrain,
 			Vault:       secrets,
+			WhatsApp:    adapters.NewMockWhatsAppAdapter(),
 			Address:     address,
 		}),
 		bus:     bus,
@@ -159,7 +161,7 @@ func TestGatewayConsoleSnapshot(t *testing.T) {
 func TestGatewayStaticAssets(t *testing.T) {
 	h := newHarness(t, "127.0.0.1:18800", nil)
 
-	for _, route := range []string{"/", "/ui/style.css", "/ui/app.js"} {
+	for _, route := range []string{"/", "/ui/style.css", "/ui/app.js", "/healthz", "/readyz"} {
 		request := httptest.NewRequest(http.MethodGet, route, nil)
 		recorder := httptest.NewRecorder()
 		h.server.Handler().ServeHTTP(recorder, request)
@@ -300,6 +302,74 @@ func TestGatewayWorkflowBlockReturnsForbidden(t *testing.T) {
 
 	h.server.Handler().ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("unexpected status %d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestGatewayChannelsStatus(t *testing.T) {
+	h := newHarness(t, "127.0.0.1:18800", nil)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/channels", nil)
+	recorder := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var channels []engine.ChannelProviderStatus
+	if err := json.Unmarshal(recorder.Body.Bytes(), &channels); err != nil {
+		t.Fatalf("decode channels: %v", err)
+	}
+	if len(channels) == 0 || channels[0].Channel != "whatsapp" {
+		t.Fatalf("expected whatsapp channel status, got %+v", channels)
+	}
+}
+
+func TestGatewayMessagesLifecycle(t *testing.T) {
+	h := newHarness(t, "127.0.0.1:18800", nil)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/messages", strings.NewReader(`{"channel":"whatsapp","provider":"meta_cloud","to":"+61400000000","type":"text","text":"Hello from Pookie"}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("unexpected status %d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var result engine.MessageSubmitResult
+	if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode message submit result: %v", err)
+	}
+	if result.Message.Status != engine.MessagePendingApproval {
+		t.Fatalf("expected message pending approval, got %q", result.Message.Status)
+	}
+
+	messageRequest := httptest.NewRequest(http.MethodGet, "/api/v1/messages/"+result.Message.ID, nil)
+	messageRecorder := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(messageRecorder, messageRequest)
+	if messageRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected get status %d body=%s", messageRecorder.Code, messageRecorder.Body.String())
+	}
+
+	var message engine.Message
+	if err := json.Unmarshal(messageRecorder.Body.Bytes(), &message); err != nil {
+		t.Fatalf("decode message: %v", err)
+	}
+	if message.Channel != "whatsapp" {
+		t.Fatalf("expected whatsapp message, got %+v", message)
+	}
+}
+
+func TestGatewayWhatsAppConnectionTest(t *testing.T) {
+	h := newHarness(t, "127.0.0.1:18800", nil)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/channels/whatsapp/test", nil)
+	recorder := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
 		t.Fatalf("unexpected status %d body=%s", recorder.Code, recorder.Body.String())
 	}
 }

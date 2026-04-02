@@ -19,6 +19,7 @@ Current state:
 - JSON and JSONL runtime state
 - Embedded default skill manifests and built-in skill implementations
 - Live SALESmanago and Mitto HTTP adapters
+- Approval-gated WhatsApp outbound adapter plus delivery-status ingestion
 
 This document exists so implementation can continue from a stable product boundary instead of redefining the project in every session.
 
@@ -61,10 +62,18 @@ dispatches to five commands:
 | Command | Description |
 |---|---|
 | `start` | Initialises the full engine stack, starts the HTTP server, blocks until `Ctrl+C` |
+| `chat` | Terminal AI REPL — routes plain-English prompts through the brain service |
+| `list` | Tabular listing of all installed marketing skills (built-in and workspace) |
 | `status` | HTTP-pings `/api/v1/status` on a running agent; prints a formatted summary box |
 | `run <skill>` | Boots the engine headlessly, submits a workflow, polls for completion, handles approval gates interactively |
 | `install <owner/repo>` | Downloads and validates a remote `SKILL.md`; saves to `workspace/skills/` |
 | `init` | Interactive wizard that writes `~/.pookiepaws/.security.json` (mode 0600) |
+
+When invoked with no arguments, `pookie` presents an interactive arrow-key
+selection menu instead of printing help text. The menu is implemented using
+raw ANSI escape sequences and cross-platform raw terminal mode (Unix
+`tcsetattr` via `SYS_IOCTL`, Windows `kernel32.dll` console APIs). No
+third-party TUI libraries are used.
 
 Key design decisions:
 
@@ -73,8 +82,11 @@ Key design decisions:
 - `cmd/pookie/roots.go` centralises OS-agnostic path resolution:
   `--home` flag → `POOKIEPAWS_HOME` env → `os.UserHomeDir()` + `filepath.Join`.
 - `internal/cli` provides all terminal styling (ANSI colours, spinner, boxed
-  panels) with zero external dependencies. Colour is suppressed when `NO_COLOR`
-  is set or `TERM=dumb`.
+  panels, interactive menus) with zero external dependencies. Colour is
+  suppressed when `NO_COLOR` is set or `TERM=dumb`. Raw terminal mode for
+  the interactive menu uses platform-specific files (`rawmode_unix.go`,
+  `rawmode_windows.go`) following the same `kernel32.dll`/`syscall` pattern
+  used by `ReadSecret`.
 
 ### 1. Core Engine
 
@@ -123,10 +135,12 @@ Current built-in skills:
 - `utm-validator`
 - `salesmanago-lead-router`
 - `mitto-sms-drafter`
+- `whatsapp-message-drafter`
 
 Current adapter posture:
 
 - live HTTP adapters for SALESmanago and Mitto
+- outbound WhatsApp channel adapter behind a provider-facing abstraction
 - approval-gated execution for all outward-facing actions
 - no MITPO-private integration in the open-source core
 
@@ -194,6 +208,7 @@ Implemented controls in the current runtime:
 - `ExecGuard` blocking destructive patterns such as `rm -rf`, `mkfs`, `diskpart`, `shutdown`, and `reboot`
 - `.security.json` secret storage at the host boundary
 - append-only JSONL audit events
+- provider health/readiness endpoints and exportable diagnostics
 
 ## MITPO Integration Boundary
 

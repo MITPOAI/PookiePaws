@@ -57,3 +57,62 @@ func (a *MockMittoAdapter) Execute(_ context.Context, action engine.AdapterActio
 		},
 	}, nil
 }
+
+type MockWhatsAppAdapter struct{}
+
+func NewMockWhatsAppAdapter() *MockWhatsAppAdapter {
+	return &MockWhatsAppAdapter{}
+}
+
+func (a *MockWhatsAppAdapter) Name() string {
+	return "meta_cloud"
+}
+
+func (a *MockWhatsAppAdapter) Channel() string {
+	return "whatsapp"
+}
+
+func (a *MockWhatsAppAdapter) Status(_ engine.SecretProvider) engine.ChannelProviderStatus {
+	return engine.ChannelProviderStatus{
+		Provider:     a.Name(),
+		Channel:      a.Channel(),
+		Configured:   true,
+		Healthy:      true,
+		Message:      "Mock WhatsApp adapter ready.",
+		Capabilities: []string{"text", "template", "delivery_status"},
+	}
+}
+
+func (a *MockWhatsAppAdapter) Test(_ context.Context, _ engine.SecretProvider) (engine.ChannelProviderStatus, error) {
+	return a.Status(nil), nil
+}
+
+func (a *MockWhatsAppAdapter) Send(_ context.Context, req engine.ChannelSendRequest, _ engine.SecretProvider) (engine.ChannelSendResult, error) {
+	if req.Type != "text" && req.Type != "template" {
+		return engine.ChannelSendResult{}, fmt.Errorf("unsupported WhatsApp operation %q", req.Type)
+	}
+	return engine.ChannelSendResult{
+		MessageID:  req.MessageID,
+		ExternalID: fmt.Sprintf("wamid.mock.%d", time.Now().UTC().UnixNano()),
+		Provider:   a.Name(),
+		Channel:    a.Channel(),
+		Status:     "sent",
+		Details: map[string]any{
+			"executed_at": time.Now().UTC(),
+			"payload":     req,
+		},
+	}, nil
+}
+
+func (a *MockWhatsAppAdapter) ParseDeliveryEvents(payload map[string]any) []engine.ChannelDeliveryEvent {
+	if payload == nil {
+		return nil
+	}
+	return []engine.ChannelDeliveryEvent{{
+		Provider:  a.Name(),
+		Channel:   a.Channel(),
+		Status:    "delivered",
+		Timestamp: time.Now().UTC(),
+		Raw:       payload,
+	}}
+}

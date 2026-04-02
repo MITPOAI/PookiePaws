@@ -78,6 +78,26 @@ func (c blockingCoordinator) ListFilePermissions(context.Context) ([]engine.File
 	return nil, nil
 }
 
+func (c blockingCoordinator) Channels(context.Context) ([]engine.ChannelProviderStatus, error) {
+	return nil, nil
+}
+
+func (c blockingCoordinator) TestChannel(context.Context, string) (engine.ChannelProviderStatus, error) {
+	return engine.ChannelProviderStatus{}, nil
+}
+
+func (c blockingCoordinator) SubmitMessage(context.Context, engine.MessageRequest) (engine.MessageSubmitResult, error) {
+	return engine.MessageSubmitResult{}, nil
+}
+
+func (c blockingCoordinator) GetMessage(context.Context, string) (engine.Message, error) {
+	return engine.Message{}, nil
+}
+
+func (c blockingCoordinator) ProcessChannelDelivery(context.Context, engine.ChannelDeliveryEvent) (engine.Message, error) {
+	return engine.Message{}, nil
+}
+
 func TestDispatchPromptReturnsSafeAlternativeOnSecurityBlock(t *testing.T) {
 	client := &sequenceClient{
 		responses: []CompletionResponse{

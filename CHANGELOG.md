@@ -2,6 +2,24 @@
 
 All notable changes to PookiePaws should be documented in this file.
 
+## [0.4.0] — Unreleased
+
+### Added
+
+- Interactive arrow-key menu when `pookie` is invoked with no arguments — pure ANSI, zero dependencies
+- `pookie chat` — terminal AI REPL for conversing with Pookie in plain English; routes prompts to the brain service and displays workflow results inline
+- `pookie list` — tabular listing of all installed marketing skills (built-in and workspace)
+- `pookie --version` / `pookie -v` now prints OS, architecture, and Go version alongside the release string
+- `internal/cli.RunMenu` — cross-platform interactive menu using raw terminal mode (Unix `tcsetattr`, Windows `kernel32.dll`)
+- `internal/cli.Printer.IsColor` accessor for external colour-aware formatting
+- Chat REPL slash commands: `/skills`, `/clear`, `/exit`, `/help`
+
+### Changed
+
+- `pookie --help` / `pookie -h` now shows `chat` and `list` in the command table
+- Graceful shutdown in `pookie start` now explicitly closes the engine stack and prints a farewell message
+- Version bumped to 0.4.0
+
 ## [0.3.0] — Unreleased
 
 ### Added

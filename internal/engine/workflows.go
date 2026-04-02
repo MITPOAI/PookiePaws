@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -19,6 +20,7 @@ type WorkflowCoordinatorConfig struct {
 	Interceptor ExecutionInterceptor
 	CRMAdapter  CRMAdapter
 	SMSAdapter  SMSAdapter
+	WhatsApp    ChannelAdapter
 	RuntimeRoot string
 	Workspace   string
 }
@@ -34,6 +36,7 @@ type StandardWorkflowCoordinator struct {
 	interceptor ExecutionInterceptor
 	crmAdapter  CRMAdapter
 	smsAdapter  SMSAdapter
+	whatsApp    ChannelAdapter
 	runtimeRoot string
 	workspace   string
 	startedAt   time.Time
@@ -67,6 +70,7 @@ func NewWorkflowCoordinator(cfg WorkflowCoordinatorConfig) (*StandardWorkflowCoo
 		interceptor: cfg.Interceptor,
 		crmAdapter:  cfg.CRMAdapter,
 		smsAdapter:  cfg.SMSAdapter,
+		whatsApp:    cfg.WhatsApp,
 		runtimeRoot: cfg.RuntimeRoot,
 		workspace:   cfg.Workspace,
 		startedAt:   time.Now().UTC(),
@@ -185,6 +189,34 @@ func (c *StandardWorkflowCoordinator) SubmitWorkflow(ctx context.Context, def Wo
 	pendingApproval := false
 
 	for _, action := range result.Actions {
+		if action.Adapter == "whatsapp" {
+			var prepareErr error
+			action, prepareErr = c.prepareMessageAction(ctx, workflow, action)
+			if prepareErr != nil {
+				workflow.Status = WorkflowFailed
+				workflow.Error = prepareErr.Error()
+				workflow.UpdatedAt = time.Now().UTC()
+				_ = c.store.SaveWorkflow(ctx, workflow)
+				c.publishAndAudit(ctx, Event{
+					Type:       EventWorkflowUpdated,
+					WorkflowID: workflow.ID,
+					Source:     "workflow-coordinator",
+					Payload: map[string]any{
+						"status": workflow.Status,
+						"error":  workflow.Error,
+					},
+				})
+				c.recordMemory(ctx, workflow)
+				return workflow, prepareErr
+			}
+			if messageID, _ := action.Payload["message_id"].(string); messageID != "" {
+				if workflow.Output == nil {
+					workflow.Output = map[string]any{}
+				}
+				workflow.Output["message_id"] = messageID
+			}
+		}
+
 		if action.RequiresApproval {
 			pendingApproval = true
 			approval := Approval{
@@ -295,6 +327,13 @@ func (c *StandardWorkflowCoordinator) Approve(ctx context.Context, id string) (A
 		return Approval{}, err
 	}
 
+	if approval.Adapter == "whatsapp" {
+		_ = c.updateMessageState(ctx, approval.Payload, func(message *Message) {
+			message.Status = MessageApproved
+			message.LastError = ""
+		})
+	}
+
 	result, err := c.executeAction(ctx, workflow, AdapterAction{
 		Adapter:          approval.Adapter,
 		Operation:        approval.Action,
@@ -356,6 +395,12 @@ func (c *StandardWorkflowCoordinator) Reject(ctx context.Context, id string) (Ap
 	workflow.UpdatedAt = time.Now().UTC()
 	if err := c.store.SaveWorkflow(ctx, workflow); err != nil {
 		return Approval{}, err
+	}
+	if approval.Adapter == "whatsapp" {
+		_ = c.updateMessageState(ctx, approval.Payload, func(message *Message) {
+			message.Status = MessageRejected
+			message.LastError = "approval rejected"
+		})
 	}
 
 	c.publishAndAudit(ctx, Event{
@@ -449,6 +494,43 @@ func (c *StandardWorkflowCoordinator) executeAction(ctx context.Context, workflo
 			return AdapterResult{}, err
 		}
 		result, err = c.smsAdapter.Execute(ctx, action, c.secrets)
+	case "whatsapp":
+		if c.whatsApp == nil {
+			err = fmt.Errorf("whatsapp adapter not configured")
+			c.publishAdapterFailure(ctx, workflow, action, err)
+			return AdapterResult{}, err
+		}
+		sendResult, sendErr := c.whatsApp.Send(ctx, c.buildChannelSendRequest(workflow, action), c.secrets)
+		if sendErr != nil {
+			err = sendErr
+			c.publishAdapterFailure(ctx, workflow, action, err)
+			_ = c.updateMessageState(ctx, action.Payload, func(message *Message) {
+				message.Status = MessageFailed
+				message.LastError = err.Error()
+			})
+			return AdapterResult{}, err
+		}
+		result = AdapterResult{
+			Adapter:   action.Adapter,
+			Operation: action.Operation,
+			Status:    sendResult.Status,
+			Details: map[string]any{
+				"message_id":   sendResult.MessageID,
+				"external_id":  sendResult.ExternalID,
+				"provider":     sendResult.Provider,
+				"channel":      sendResult.Channel,
+				"send_details": sendResult.Details,
+			},
+		}
+		_ = c.updateMessageState(ctx, action.Payload, func(message *Message) {
+			message.Status = MessageSent
+			message.ExternalID = sendResult.ExternalID
+			if message.Details == nil {
+				message.Details = map[string]any{}
+			}
+			message.Details["send_result"] = sendResult.Details
+			message.LastError = ""
+		})
 	default:
 		err = fmt.Errorf("unknown adapter %q", action.Adapter)
 		c.publishAdapterFailure(ctx, workflow, action, err)
@@ -519,6 +601,10 @@ func (c *StandardWorkflowCoordinator) nextApprovalID() string {
 
 func (c *StandardWorkflowCoordinator) nextFilePermID() string {
 	return fmt.Sprintf("fp_%d", atomic.AddUint64(&c.nextID, 1))
+}
+
+func (c *StandardWorkflowCoordinator) nextMessageID() string {
+	return fmt.Sprintf("msg_%d", atomic.AddUint64(&c.nextID, 1))
 }
 
 // SetSandbox replaces the sandbox after construction, used to inject the
@@ -645,4 +731,224 @@ func (c *StandardWorkflowCoordinator) ListFilePermissions(ctx context.Context) (
 		return perms[i].CreatedAt.After(perms[j].CreatedAt)
 	})
 	return perms, nil
+}
+
+func (c *StandardWorkflowCoordinator) Channels(_ context.Context) ([]ChannelProviderStatus, error) {
+	channels := make([]ChannelProviderStatus, 0, 1)
+	if c.whatsApp != nil {
+		channels = append(channels, c.whatsApp.Status(c.secrets))
+	}
+	return channels, nil
+}
+
+func (c *StandardWorkflowCoordinator) TestChannel(ctx context.Context, channel string) (ChannelProviderStatus, error) {
+	switch channel {
+	case "whatsapp":
+		if c.whatsApp == nil {
+			return ChannelProviderStatus{}, fmt.Errorf("channel %q is not configured", channel)
+		}
+		return c.whatsApp.Test(ctx, c.secrets)
+	default:
+		return ChannelProviderStatus{}, fmt.Errorf("unknown channel %q", channel)
+	}
+}
+
+func (c *StandardWorkflowCoordinator) SubmitMessage(ctx context.Context, req MessageRequest) (MessageSubmitResult, error) {
+	if req.Channel == "" {
+		req.Channel = "whatsapp"
+	}
+	if req.Provider == "" {
+		req.Provider = "meta_cloud"
+	}
+	workflow, err := c.SubmitWorkflow(ctx, WorkflowDefinition{
+		Name:  firstWorkflowName(req.Name, "Send WhatsApp message"),
+		Skill: "whatsapp-message-drafter",
+		Input: map[string]any{
+			"provider":           req.Provider,
+			"to":                 req.To,
+			"type":               firstWorkflowName(req.Type, "text"),
+			"text":               req.Text,
+			"template_name":      req.TemplateName,
+			"template_language":  req.TemplateLanguage,
+			"template_variables": req.TemplateVariables,
+			"test":               req.Test,
+		},
+	})
+	if err != nil {
+		return MessageSubmitResult{}, err
+	}
+
+	messageID, _ := workflow.Output["message_id"].(string)
+	if messageID == "" {
+		return MessageSubmitResult{}, fmt.Errorf("workflow %s did not produce a message record", workflow.ID)
+	}
+	message, err := c.store.GetMessage(ctx, messageID)
+	if err != nil {
+		return MessageSubmitResult{}, err
+	}
+	return MessageSubmitResult{Message: message, Workflow: workflow}, nil
+}
+
+func (c *StandardWorkflowCoordinator) GetMessage(ctx context.Context, id string) (Message, error) {
+	return c.store.GetMessage(ctx, id)
+}
+
+func (c *StandardWorkflowCoordinator) ProcessChannelDelivery(ctx context.Context, event ChannelDeliveryEvent) (Message, error) {
+	message, err := c.findMessageByEvent(ctx, event)
+	if err != nil {
+		return Message{}, err
+	}
+
+	if event.Timestamp.IsZero() {
+		event.Timestamp = time.Now().UTC()
+	}
+	message.UpdatedAt = time.Now().UTC()
+	message.DeliveryEvents = append(message.DeliveryEvents, event)
+	message.ExternalID = firstWorkflowName(message.ExternalID, event.ExternalID)
+	message.Status = messageStatusFromDelivery(event.Status)
+	if message.Details == nil {
+		message.Details = map[string]any{}
+	}
+	message.Details["last_delivery_status"] = event.Status
+	if err := c.store.SaveMessage(ctx, message); err != nil {
+		return Message{}, err
+	}
+
+	c.publishAndAudit(ctx, Event{
+		Type:   EventAdapterExecuted,
+		Source: "channel-delivery",
+		Payload: map[string]any{
+			"adapter":      event.Provider,
+			"operation":    "delivery_status",
+			"status":       event.Status,
+			"message_id":   message.ID,
+			"external_id":  event.ExternalID,
+			"channel":      event.Channel,
+			"recipient":    event.Recipient,
+			"delivery_raw": event.Raw,
+		},
+	})
+	return message, nil
+}
+
+func (c *StandardWorkflowCoordinator) prepareMessageAction(ctx context.Context, workflow Workflow, action AdapterAction) (AdapterAction, error) {
+	if action.Payload == nil {
+		action.Payload = map[string]any{}
+	}
+	if existing, _ := action.Payload["message_id"].(string); existing != "" {
+		return action, nil
+	}
+
+	recipient := fmt.Sprint(action.Payload["to"])
+	if strings.TrimSpace(recipient) == "" {
+		recipient = fmt.Sprint(action.Payload["recipient"])
+	}
+	message := Message{
+		ID:               c.nextMessageID(),
+		WorkflowID:       workflow.ID,
+		Provider:         firstWorkflowName(fmt.Sprint(action.Payload["provider"]), "meta_cloud"),
+		Channel:          "whatsapp",
+		Direction:        "outbound",
+		Recipient:        strings.TrimSpace(recipient),
+		Type:             firstWorkflowName(fmt.Sprint(action.Payload["type"]), "text"),
+		Text:             strings.TrimSpace(fmt.Sprint(action.Payload["text"])),
+		TemplateName:     strings.TrimSpace(fmt.Sprint(action.Payload["template_name"])),
+		TemplateLanguage: firstWorkflowName(strings.TrimSpace(fmt.Sprint(action.Payload["template_language"])), "en"),
+		Status:           MessageQueued,
+		Metadata:         c.secrets.RedactMap(action.Payload),
+		CreatedAt:        time.Now().UTC(),
+		UpdatedAt:        time.Now().UTC(),
+	}
+	if action.RequiresApproval {
+		message.Status = MessagePendingApproval
+	}
+	if err := c.store.SaveMessage(ctx, message); err != nil {
+		return action, err
+	}
+
+	action.Payload["message_id"] = message.ID
+	action.Payload["workflow_id"] = workflow.ID
+	return action, nil
+}
+
+func (c *StandardWorkflowCoordinator) buildChannelSendRequest(workflow Workflow, action AdapterAction) ChannelSendRequest {
+	req := ChannelSendRequest{
+		MessageID:        strings.TrimSpace(fmt.Sprint(action.Payload["message_id"])),
+		WorkflowID:       workflow.ID,
+		Provider:         strings.TrimSpace(fmt.Sprint(action.Payload["provider"])),
+		Channel:          "whatsapp",
+		To:               strings.TrimSpace(fmt.Sprint(action.Payload["to"])),
+		Type:             firstWorkflowName(strings.TrimSpace(fmt.Sprint(action.Payload["type"])), "text"),
+		Text:             strings.TrimSpace(fmt.Sprint(action.Payload["text"])),
+		TemplateName:     strings.TrimSpace(fmt.Sprint(action.Payload["template_name"])),
+		TemplateLanguage: firstWorkflowName(strings.TrimSpace(fmt.Sprint(action.Payload["template_language"])), "en"),
+		Test:             false,
+	}
+	if value, ok := action.Payload["test"].(bool); ok {
+		req.Test = value
+	}
+	if raw, ok := action.Payload["template_variables"].(map[string]string); ok {
+		req.TemplateVariables = raw
+	} else if rawAny, ok := action.Payload["template_variables"].(map[string]any); ok {
+		req.TemplateVariables = make(map[string]string, len(rawAny))
+		for key, value := range rawAny {
+			req.TemplateVariables[key] = strings.TrimSpace(fmt.Sprint(value))
+		}
+	}
+	return req
+}
+
+func (c *StandardWorkflowCoordinator) updateMessageState(ctx context.Context, payload map[string]any, mutate func(message *Message)) error {
+	messageID := strings.TrimSpace(fmt.Sprint(payload["message_id"]))
+	if messageID == "" {
+		return nil
+	}
+	message, err := c.store.GetMessage(ctx, messageID)
+	if err != nil {
+		return err
+	}
+	mutate(&message)
+	message.UpdatedAt = time.Now().UTC()
+	return c.store.SaveMessage(ctx, message)
+}
+
+func (c *StandardWorkflowCoordinator) findMessageByEvent(ctx context.Context, event ChannelDeliveryEvent) (Message, error) {
+	if strings.TrimSpace(event.MessageID) != "" {
+		return c.store.GetMessage(ctx, strings.TrimSpace(event.MessageID))
+	}
+
+	messages, err := c.store.ListMessages(ctx)
+	if err != nil {
+		return Message{}, err
+	}
+	for _, message := range messages {
+		if strings.TrimSpace(event.ExternalID) != "" && message.ExternalID == strings.TrimSpace(event.ExternalID) {
+			return message, nil
+		}
+	}
+	return Message{}, ErrNotFound
+}
+
+func messageStatusFromDelivery(status string) MessageStatus {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "sent":
+		return MessageSent
+	case "delivered":
+		return MessageDelivered
+	case "read":
+		return MessageRead
+	case "failed":
+		return MessageFailed
+	default:
+		return MessageSent
+	}
+}
+
+func firstWorkflowName(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }

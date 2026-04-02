@@ -220,3 +220,126 @@ func (m Manifest) toDefinition() engine.SkillDefinition {
 		Prompt:      m.Prompt,
 	}
 }
+
+type WhatsAppMessageDrafterSkill struct {
+	def engine.SkillDefinition
+}
+
+func NewWhatsAppMessageDrafterSkill(manifest Manifest) *WhatsAppMessageDrafterSkill {
+	return &WhatsAppMessageDrafterSkill{def: manifest.toDefinition()}
+}
+
+func (s *WhatsAppMessageDrafterSkill) Definition() engine.SkillDefinition { return s.def }
+
+func (s *WhatsAppMessageDrafterSkill) Validate(input map[string]any) error {
+	recipient := strings.TrimSpace(conv.AsString(input["to"]))
+	if recipient == "" {
+		recipient = strings.TrimSpace(conv.AsString(input["recipient"]))
+	}
+	if recipient == "" {
+		return fmt.Errorf("whatsapp-message-drafter requires a recipient")
+	}
+
+	messageType := strings.ToLower(strings.TrimSpace(conv.AsString(input["type"])))
+	if messageType == "" {
+		messageType = "text"
+	}
+	switch messageType {
+	case "text":
+		if strings.TrimSpace(conv.AsString(input["text"])) == "" {
+			return fmt.Errorf("whatsapp-message-drafter requires text for text messages")
+		}
+	case "template":
+		if strings.TrimSpace(conv.AsString(input["template_name"])) == "" {
+			return fmt.Errorf("whatsapp-message-drafter requires template_name for template sends")
+		}
+	default:
+		return fmt.Errorf("whatsapp-message-drafter type must be text or template")
+	}
+	return nil
+}
+
+func (s *WhatsAppMessageDrafterSkill) Execute(_ context.Context, req engine.SkillRequest) (engine.SkillResult, error) {
+	recipient := strings.TrimSpace(conv.AsString(req.Input["to"]))
+	if recipient == "" {
+		recipient = strings.TrimSpace(conv.AsString(req.Input["recipient"]))
+	}
+	messageType := strings.ToLower(strings.TrimSpace(conv.AsString(req.Input["type"])))
+	if messageType == "" {
+		messageType = "text"
+	}
+
+	provider := strings.TrimSpace(conv.AsString(req.Input["provider"]))
+	if provider == "" {
+		provider = "meta_cloud"
+	}
+
+	payload := map[string]any{
+		"provider":          provider,
+		"channel":           "whatsapp",
+		"to":                recipient,
+		"type":              messageType,
+		"text":              strings.TrimSpace(conv.AsString(req.Input["text"])),
+		"template_name":     strings.TrimSpace(conv.AsString(req.Input["template_name"])),
+		"template_language": firstNonEmptyString(strings.TrimSpace(conv.AsString(req.Input["template_language"])), "en"),
+		"test":              conv.AsBool(req.Input["test"]),
+	}
+	if variables := normalizeTemplateVariables(req.Input["template_variables"]); len(variables) > 0 {
+		payload["template_variables"] = variables
+	}
+
+	output := map[string]any{
+		"provider": provider,
+		"channel":  "whatsapp",
+		"to":       recipient,
+		"type":     messageType,
+	}
+	if messageType == "text" {
+		output["text_preview"] = strings.TrimSpace(conv.AsString(req.Input["text"]))
+	}
+	if templateName := strings.TrimSpace(conv.AsString(req.Input["template_name"])); templateName != "" {
+		output["template_name"] = templateName
+	}
+
+	return engine.SkillResult{
+		Output: output,
+		Actions: []engine.AdapterAction{{
+			Adapter:          "whatsapp",
+			Operation:        "send_message",
+			Payload:          payload,
+			RequiresApproval: true,
+		}},
+	}, nil
+}
+
+func normalizeTemplateVariables(value any) map[string]string {
+	vars := map[string]string{}
+	switch cast := value.(type) {
+	case map[string]string:
+		for key, item := range cast {
+			key = strings.TrimSpace(key)
+			item = strings.TrimSpace(item)
+			if key != "" && item != "" {
+				vars[key] = item
+			}
+		}
+	case map[string]any:
+		for key, item := range cast {
+			key = strings.TrimSpace(key)
+			itemValue := strings.TrimSpace(conv.AsString(item))
+			if key != "" && itemValue != "" {
+				vars[key] = itemValue
+			}
+		}
+	}
+	return vars
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}

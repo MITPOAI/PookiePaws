@@ -8,19 +8,23 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/mitpoai/pookiepaws/internal/adapters"
 	"github.com/mitpoai/pookiepaws/internal/cli"
 	"github.com/mitpoai/pookiepaws/internal/gateway"
 )
 
-const version = "0.3.0"
+const version = "0.4.0"
 
 func main() {
+	// No arguments → launch interactive menu.
 	if len(os.Args) < 2 {
-		printUsage()
-		os.Exit(1)
+		launchInteractiveMenu()
+		return
 	}
 
 	switch os.Args[1] {
@@ -34,8 +38,12 @@ func main() {
 		cmdInstall(os.Args[2:])
 	case "init":
 		cmdInit(os.Args[2:])
+	case "chat":
+		cmdChat(os.Args[2:])
+	case "list":
+		cmdList(os.Args[2:])
 	case "version", "--version", "-v":
-		fmt.Printf("pookie %s\n", version)
+		printVersion()
 	case "help", "--help", "-h":
 		printUsage()
 	default:
@@ -45,25 +53,63 @@ func main() {
 	}
 }
 
+func printVersion() {
+	fmt.Printf("pookie v%s %s/%s %s\n", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
+}
+
+func launchInteractiveMenu() {
+	p := cli.Stdout()
+	p.Banner()
+
+	items := []string{
+		"Start Web UI & Daemon",
+		"Chat with Pookie (AI Mode)",
+		"List Marketing Skills",
+		"Run Specific Skill",
+		"Exit",
+	}
+
+	choice := cli.RunMenu(p, "What would you like to do?", items)
+	p.Blank()
+
+	switch choice {
+	case 0:
+		cmdStart(nil)
+	case 1:
+		cmdChat(nil)
+	case 2:
+		cmdList(nil)
+	case 3:
+		cmdRun(nil)
+	case 4:
+		p.Dim("Goodbye! \u2014 Pookie")
+		p.Blank()
+	}
+}
+
 func printUsage() {
 	p := cli.Stdout()
 	p.Banner()
-	p.Plain("Usage:  pookie <command> [flags]")
+	p.Plain("Usage:  pookie [command] [flags]")
 	p.Blank()
-	p.Plain("Commands:")
+	p.Accent("Commands:")
 	p.Blank()
 	p.Plain("  start              Boot the local agent and open the web console")
-	p.Plain("  status             Check whether the agent is running")
+	p.Plain("  chat               Talk to Pookie in your terminal (AI mode)")
+	p.Plain("  list               Show all installed marketing skills")
 	p.Plain("  run <skill>        Execute a marketing skill in this terminal")
+	p.Plain("  status             Check whether the agent is running")
 	p.Plain("  install <repo>     Install a skill from a GitHub repository")
 	p.Plain("  init               Interactive first-run setup wizard")
-	p.Plain("  version            Print version and exit")
 	p.Blank()
-	p.Plain("Global flags:")
+	p.Accent("Flags:")
 	p.Blank()
-	p.Plain("  --addr  host:port   Listen address for start/status (default 127.0.0.1:18800)")
-	p.Plain("  --home  path        Override runtime home directory")
+	p.Plain("  -v, --version       Print version and build info")
+	p.Plain("  -h, --help          Show this help message")
+	p.Plain("      --addr          Listen address for start/status (default 127.0.0.1:18800)")
+	p.Plain("      --home          Override runtime home directory")
 	p.Blank()
+	p.Dim("Run pookie with no arguments for an interactive menu.")
 	p.Dim("Source:  github.com/mitpoai/pookiepaws")
 	p.Blank()
 }
@@ -105,12 +151,16 @@ func cmdStart(args []string) {
 	if !stack.brainSvc.Available() {
 		p.Warning("No LLM provider configured — run  pookie init  to set one up")
 	}
+	for _, warning := range startupWarnings(stack.secrets) {
+		p.Warning(warning)
+	}
 
 	api := gateway.NewServer(gateway.Config{
 		Coordinator: stack.coord,
 		EventBus:    stack.bus,
 		Brain:       stack.brainSvc,
 		Vault:       stack.secrets,
+		WhatsApp:    adapters.NewWhatsAppAdapter(),
 		Address:     *addr,
 	})
 
@@ -134,15 +184,19 @@ func cmdStart(args []string) {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop
+	signal.Stop(stop)
 
 	p.Blank()
-	p.Info("Shutting down…")
+	p.Info("Shutting down gracefully…")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := httpServer.Shutdown(ctx); err != nil {
 		p.Warning("HTTP shutdown: %v", err)
 	}
+	stack.Close()
+	p.Success("Stopped cleanly. See you next time!")
+	p.Blank()
 }
 
 // ── pookie status ────────────────────────────────────────────────────────────
@@ -191,4 +245,41 @@ func cmdStatus(args []string) {
 		{"workspace", snap.WorkspaceRoot},
 	})
 	p.Blank()
+}
+
+func startupWarnings(secrets interface {
+	Get(name string) (string, error)
+}) []string {
+	if secrets == nil {
+		return nil
+	}
+
+	checks := []struct {
+		label    string
+		required []string
+	}{
+		{label: "brain", required: []string{"llm_base_url", "llm_model"}},
+		{label: "salesmanago", required: []string{"salesmanago_api_key", "salesmanago_base_url"}},
+		{label: "mitto", required: []string{"mitto_api_key", "mitto_base_url", "mitto_from"}},
+		{label: "whatsapp", required: []string{"whatsapp_access_token", "whatsapp_phone_number_id"}},
+	}
+
+	warnings := make([]string, 0, len(checks))
+	for _, check := range checks {
+		present := 0
+		missing := make([]string, 0, len(check.required))
+		for _, key := range check.required {
+			value, err := secrets.Get(key)
+			if err == nil && strings.TrimSpace(value) != "" {
+				present++
+				continue
+			}
+			missing = append(missing, key)
+		}
+		if present == 0 || len(missing) == 0 {
+			continue
+		}
+		warnings = append(warnings, fmt.Sprintf("%s configuration is incomplete — missing %s", check.label, strings.Join(missing, ", ")))
+	}
+	return warnings
 }

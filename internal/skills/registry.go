@@ -35,6 +35,8 @@ func NewDefaultRegistry() (*Registry, error) {
 			registry.Register(NewSalesmanagoLeadRouterSkill(manifest))
 		case "mitto-sms-drafter":
 			registry.Register(NewMittoSMSDrafterSkill(manifest))
+		case "whatsapp-message-drafter":
+			registry.Register(NewWhatsAppMessageDrafterSkill(manifest))
 		}
 	}
 	return registry, nil

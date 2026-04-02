@@ -535,7 +535,8 @@ code {
 .data-card,
 .vault-status-card,
 .signal-card,
-.response-card {
+.response-card,
+.install-guide {
   border-radius: var(--radius-lg);
   border: 1px solid var(--line);
   background: var(--surface-strong);
@@ -599,9 +600,25 @@ code {
 .response-card,
 .canvas-palette,
 .canvas-inspector,
-.vault-section {
+.vault-section,
+.install-guide {
   display: grid;
   gap: 14px;
+}
+
+.install-guide pre {
+  margin: 0;
+  padding: 14px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  border: 1px solid var(--line);
+  overflow: auto;
+}
+
+.install-guide code {
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.9rem;
+  white-space: pre-wrap;
 }
 
 .field,

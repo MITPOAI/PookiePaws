@@ -77,6 +77,7 @@ func buildStack(runtimeRoot, workspaceRoot string) (*appStack, error) {
 		Interceptor: interceptor,
 		CRMAdapter:  adapters.NewSalesmanagoAdapter(),
 		SMSAdapter:  adapters.NewMittoAdapter(),
+		WhatsApp:    adapters.NewWhatsAppAdapter(),
 		RuntimeRoot: runtimeRoot,
 		Workspace:   workspaceRoot,
 	})

@@ -25,6 +25,7 @@ type Config struct {
 	EventBus    engine.EventBus
 	Brain       PromptDispatcher
 	Vault       Vault
+	WhatsApp    engine.ChannelAdapter
 	Address     string
 }
 
@@ -63,29 +64,37 @@ type VaultStatus struct {
 	Brain        ProviderVaultStatus    `json:"brain"`
 	Salesmanago  IntegrationVaultStatus `json:"salesmanago"`
 	Mitto        IntegrationVaultStatus `json:"mitto"`
+	WhatsApp     IntegrationVaultStatus `json:"whatsapp"`
 }
 
 type ConsoleSnapshot struct {
-	Status          engine.StatusSnapshot    `json:"status"`
-	Brain           brain.Status             `json:"brain"`
-	Vault           VaultStatus              `json:"vault"`
-	Workflows       []engine.Workflow        `json:"workflows"`
-	Approvals       []engine.Approval        `json:"approvals"`
-	FilePermissions []engine.FilePermission  `json:"file_permissions"`
-	Skills          []engine.SkillDefinition `json:"skills"`
-	Templates       []WorkflowTemplate       `json:"templates"`
+	Status          engine.StatusSnapshot          `json:"status"`
+	Brain           brain.Status                   `json:"brain"`
+	Vault           VaultStatus                    `json:"vault"`
+	Channels        []engine.ChannelProviderStatus `json:"channels"`
+	Workflows       []engine.Workflow              `json:"workflows"`
+	Approvals       []engine.Approval              `json:"approvals"`
+	FilePermissions []engine.FilePermission        `json:"file_permissions"`
+	Skills          []engine.SkillDefinition       `json:"skills"`
+	Templates       []WorkflowTemplate             `json:"templates"`
 }
 
 type VaultUpdateRequest struct {
-	LLMBaseURL         string `json:"llm_base_url,omitempty"`
-	LLMModel           string `json:"llm_model,omitempty"`
-	LLMAPIKey          string `json:"llm_api_key,omitempty"`
-	SalesmanagoAPIKey  string `json:"salesmanago_api_key,omitempty"`
-	SalesmanagoBaseURL string `json:"salesmanago_base_url,omitempty"`
-	SalesmanagoOwner   string `json:"salesmanago_owner,omitempty"`
-	MittoAPIKey        string `json:"mitto_api_key,omitempty"`
-	MittoBaseURL       string `json:"mitto_base_url,omitempty"`
-	MittoFrom          string `json:"mitto_from,omitempty"`
+	LLMBaseURL                 string `json:"llm_base_url,omitempty"`
+	LLMModel                   string `json:"llm_model,omitempty"`
+	LLMAPIKey                  string `json:"llm_api_key,omitempty"`
+	SalesmanagoAPIKey          string `json:"salesmanago_api_key,omitempty"`
+	SalesmanagoBaseURL         string `json:"salesmanago_base_url,omitempty"`
+	SalesmanagoOwner           string `json:"salesmanago_owner,omitempty"`
+	MittoAPIKey                string `json:"mitto_api_key,omitempty"`
+	MittoBaseURL               string `json:"mitto_base_url,omitempty"`
+	MittoFrom                  string `json:"mitto_from,omitempty"`
+	WhatsAppProvider           string `json:"whatsapp_provider,omitempty"`
+	WhatsAppAccessToken        string `json:"whatsapp_access_token,omitempty"`
+	WhatsAppPhoneNumberID      string `json:"whatsapp_phone_number_id,omitempty"`
+	WhatsAppBusinessAccountID  string `json:"whatsapp_business_account_id,omitempty"`
+	WhatsAppWebhookVerifyToken string `json:"whatsapp_webhook_verify_token,omitempty"`
+	WhatsAppBaseURL            string `json:"whatsapp_base_url,omitempty"`
 }
 
 func (r VaultUpdateRequest) ToMap() map[string]string {
@@ -99,7 +108,33 @@ func (r VaultUpdateRequest) ToMap() map[string]string {
 	appendIfValue(values, "mitto_api_key", r.MittoAPIKey)
 	appendIfValue(values, "mitto_base_url", r.MittoBaseURL)
 	appendIfValue(values, "mitto_from", r.MittoFrom)
+	appendIfValue(values, "whatsapp_provider", r.WhatsAppProvider)
+	appendIfValue(values, "whatsapp_access_token", r.WhatsAppAccessToken)
+	appendIfValue(values, "whatsapp_phone_number_id", r.WhatsAppPhoneNumberID)
+	appendIfValue(values, "whatsapp_business_account_id", r.WhatsAppBusinessAccountID)
+	appendIfValue(values, "whatsapp_webhook_verify_token", r.WhatsAppWebhookVerifyToken)
+	appendIfValue(values, "whatsapp_base_url", r.WhatsAppBaseURL)
 	return values
+}
+
+type HealthCheck struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Detail string `json:"detail"`
+}
+
+type HealthResponse struct {
+	Status    string        `json:"status"`
+	Timestamp time.Time     `json:"timestamp"`
+	Checks    []HealthCheck `json:"checks"`
+}
+
+type DiagnosticsResponse struct {
+	Health   HealthResponse                 `json:"health"`
+	Status   engine.StatusSnapshot          `json:"status"`
+	Vault    VaultStatus                    `json:"vault"`
+	Channels []engine.ChannelProviderStatus `json:"channels"`
+	Install  map[string]string              `json:"install"`
 }
 
 type CanvasPosition struct {
@@ -165,6 +200,7 @@ type Server struct {
 	eventBus    engine.EventBus
 	brain       PromptDispatcher
 	vault       Vault
+	whatsApp    engine.ChannelAdapter
 	chat        *chatStore
 	address     string
 	mux         *http.ServeMux
@@ -183,6 +219,7 @@ func NewServer(cfg Config) *Server {
 		eventBus:    cfg.EventBus,
 		brain:       cfg.Brain,
 		vault:       cfg.Vault,
+		whatsApp:    cfg.WhatsApp,
 		chat:        newChatStore(),
 		address:     cfg.Address,
 		mux:         http.NewServeMux(),
@@ -212,10 +249,19 @@ func (s *Server) routes() {
 	}
 
 	s.mux.HandleFunc("/", s.handleIndex)
+	s.mux.HandleFunc("/healthz", s.handleHealth)
+	s.mux.HandleFunc("/readyz", s.handleReadiness)
 	s.mux.Handle("/ui/", http.StripPrefix("/ui/", http.FileServer(http.FS(uiAssets))))
 	s.mux.HandleFunc("/api/v1/console", s.handleConsole)
+	s.mux.HandleFunc("/api/v1/diagnostics", s.handleDiagnostics)
 	s.mux.HandleFunc("/api/v1/status", s.handleStatus)
+	s.mux.HandleFunc("/api/v1/channels", s.handleChannels)
+	s.mux.HandleFunc("/api/v1/channels/status", s.handleChannels)
+	s.mux.HandleFunc("/api/v1/channels/whatsapp/test", s.handleWhatsAppTest)
+	s.mux.HandleFunc("/api/v1/channels/whatsapp/webhook", s.handleWhatsAppWebhook)
 	s.mux.HandleFunc("/api/v1/events", s.handleEvents)
+	s.mux.HandleFunc("/api/v1/messages", s.handleMessages)
+	s.mux.HandleFunc("/api/v1/messages/", s.handleMessageRoutes)
 	s.mux.HandleFunc("/api/v1/workflows", s.handleWorkflows)
 	s.mux.HandleFunc("/api/v1/workflows/plan", s.handleWorkflowPlan)
 	s.mux.HandleFunc("/api/v1/approvals", s.handleApprovals)
@@ -252,6 +298,27 @@ func (s *Server) handleStatus(writer http.ResponseWriter, request *http.Request)
 	writeJSON(writer, http.StatusOK, status)
 }
 
+func (s *Server) handleHealth(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		writer.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(writer, http.StatusOK, s.healthResponse(request.Context(), false))
+}
+
+func (s *Server) handleReadiness(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		writer.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	response := s.healthResponse(request.Context(), true)
+	statusCode := http.StatusOK
+	if response.Status != "ok" {
+		statusCode = http.StatusServiceUnavailable
+	}
+	writeJSON(writer, statusCode, response)
+}
+
 func (s *Server) handleConsole(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodGet {
 		writer.WriteHeader(http.StatusMethodNotAllowed)
@@ -279,6 +346,11 @@ func (s *Server) handleConsole(writer http.ResponseWriter, request *http.Request
 		writeJSONError(writer, err, http.StatusInternalServerError)
 		return
 	}
+	channels, err := s.coordinator.Channels(request.Context())
+	if err != nil {
+		writeJSONError(writer, err, http.StatusInternalServerError)
+		return
+	}
 
 	brainStatus := brain.Status{
 		Enabled:  false,
@@ -293,11 +365,42 @@ func (s *Server) handleConsole(writer http.ResponseWriter, request *http.Request
 		Status:          status,
 		Brain:           brainStatus,
 		Vault:           s.currentVaultStatus(),
+		Channels:        channels,
 		Workflows:       workflows,
 		Approvals:       approvals,
 		FilePermissions: filePerms,
 		Skills:          s.coordinator.SkillDefinitions(),
 		Templates:       defaultWorkflowTemplates(),
+	})
+}
+
+func (s *Server) handleDiagnostics(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		writer.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	status, err := s.coordinator.Status(request.Context())
+	if err != nil {
+		writeJSONError(writer, err, http.StatusInternalServerError)
+		return
+	}
+	channels, err := s.coordinator.Channels(request.Context())
+	if err != nil {
+		writeJSONError(writer, err, http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(writer, http.StatusOK, DiagnosticsResponse{
+		Health:   s.healthResponse(request.Context(), false),
+		Status:   status,
+		Vault:    s.currentVaultStatus(),
+		Channels: channels,
+		Install: map[string]string{
+			"windows": ".\\pookie.exe init && .\\pookie.exe start",
+			"macos":   "./pookie init && ./pookie start",
+			"linux":   "./pookie init && ./pookie start --addr 0.0.0.0:18800",
+		},
 	})
 }
 
@@ -341,6 +444,126 @@ func (s *Server) handleEvents(writer http.ResponseWriter, request *http.Request)
 			flusher.Flush()
 		}
 	}
+}
+
+func (s *Server) handleChannels(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		writer.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	channels, err := s.coordinator.Channels(request.Context())
+	if err != nil {
+		writeJSONError(writer, err, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(writer, http.StatusOK, channels)
+}
+
+func (s *Server) handleWhatsAppTest(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		writer.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	status, err := s.coordinator.TestChannel(request.Context(), "whatsapp")
+	if err != nil {
+		writeJSONError(writer, err, http.StatusBadRequest)
+		return
+	}
+	writeJSON(writer, http.StatusOK, status)
+}
+
+func (s *Server) handleWhatsAppWebhook(writer http.ResponseWriter, request *http.Request) {
+	if s.whatsApp == nil {
+		writeJSONError(writer, fmt.Errorf("whatsapp adapter is not configured"), http.StatusServiceUnavailable)
+		return
+	}
+
+	switch request.Method {
+	case http.MethodGet:
+		mode := strings.TrimSpace(request.URL.Query().Get("hub.mode"))
+		token := strings.TrimSpace(request.URL.Query().Get("hub.verify_token"))
+		challenge := request.URL.Query().Get("hub.challenge")
+		expected := s.vaultValue("whatsapp_webhook_verify_token")
+		if mode != "subscribe" || expected == "" || token != expected {
+			writeJSONError(writer, fmt.Errorf("webhook verification failed"), http.StatusForbidden)
+			return
+		}
+		writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = writer.Write([]byte(challenge))
+	case http.MethodPost:
+		var payload map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			writeJSONError(writer, err, http.StatusBadRequest)
+			return
+		}
+		events := s.whatsApp.ParseDeliveryEvents(payload)
+		updated := make([]engine.Message, 0, len(events))
+		for _, event := range events {
+			message, err := s.coordinator.ProcessChannelDelivery(request.Context(), event)
+			if err == nil {
+				updated = append(updated, message)
+			}
+		}
+		writeJSON(writer, http.StatusOK, map[string]any{
+			"accepted": len(events),
+			"updated":  len(updated),
+		})
+	default:
+		writer.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleMessages(writer http.ResponseWriter, request *http.Request) {
+	switch request.Method {
+	case http.MethodPost:
+		var payload engine.MessageRequest
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			writeJSONError(writer, err, http.StatusBadRequest)
+			return
+		}
+		if strings.TrimSpace(payload.Channel) == "" {
+			payload.Channel = "whatsapp"
+		}
+		result, err := s.coordinator.SubmitMessage(request.Context(), payload)
+		if err != nil {
+			var blocked engine.WorkflowBlockedError
+			if errors.As(err, &blocked) {
+				writeJSON(writer, http.StatusForbidden, map[string]any{
+					"error":    err.Error(),
+					"decision": blocked.Decision,
+				})
+				return
+			}
+			writeJSONError(writer, err, http.StatusBadRequest)
+			return
+		}
+		writeJSON(writer, http.StatusCreated, result)
+	default:
+		writer.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleMessageRoutes(writer http.ResponseWriter, request *http.Request) {
+	id := strings.Trim(strings.TrimPrefix(request.URL.Path, "/api/v1/messages/"), "/")
+	if id == "" {
+		writeJSONError(writer, fmt.Errorf("message route not found"), http.StatusNotFound)
+		return
+	}
+	if request.Method != http.MethodGet {
+		writer.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	message, err := s.coordinator.GetMessage(request.Context(), id)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, engine.ErrNotFound) {
+			status = http.StatusNotFound
+		}
+		writeJSONError(writer, err, status)
+		return
+	}
+	writeJSON(writer, http.StatusOK, message)
 }
 
 func (s *Server) handleWorkflows(writer http.ResponseWriter, request *http.Request) {
@@ -624,6 +847,7 @@ func (s *Server) currentVaultStatus() VaultStatus {
 	}
 	status.Salesmanago.Configured = s.hasVaultValue("salesmanago_api_key") && s.hasVaultValue("salesmanago_base_url")
 	status.Mitto.Configured = s.hasVaultValue("mitto_api_key") && s.hasVaultValue("mitto_base_url") && s.hasVaultValue("mitto_from")
+	status.WhatsApp.Configured = s.hasVaultValue("whatsapp_access_token") && s.hasVaultValue("whatsapp_phone_number_id")
 	return status
 }
 
@@ -870,6 +1094,66 @@ func inferBrainModeFromURL(value string) string {
 	}
 }
 
+func (s *Server) healthResponse(ctx context.Context, strict bool) HealthResponse {
+	checks := []HealthCheck{
+		{
+			Name:   "http",
+			Status: "ok",
+			Detail: fmt.Sprintf("Serving on %s.", s.address),
+		},
+		{
+			Name:   "vault",
+			Status: map[bool]string{true: "ok", false: "warn"}[s.currentVaultStatus().CanWrite],
+			Detail: map[bool]string{true: "Vault writes enabled on loopback.", false: "Vault writes disabled because the server is not loopback-bound."}[s.currentVaultStatus().CanWrite],
+		},
+	}
+
+	statusCode := "ok"
+	if _, err := s.coordinator.Status(ctx); err != nil {
+		checks = append(checks, HealthCheck{
+			Name:   "runtime",
+			Status: "fail",
+			Detail: err.Error(),
+		})
+		statusCode = "degraded"
+	} else {
+		checks = append(checks, HealthCheck{
+			Name:   "runtime",
+			Status: "ok",
+			Detail: "Coordinator status is readable.",
+		})
+	}
+
+	for _, channel := range s.channelStatuses(ctx) {
+		level := "warn"
+		if channel.Configured && channel.Healthy {
+			level = "ok"
+		}
+		checks = append(checks, HealthCheck{
+			Name:   channel.Channel,
+			Status: level,
+			Detail: firstNonEmpty(channel.Message, "No status detail available."),
+		})
+		if strict && channel.Configured && !channel.Healthy {
+			statusCode = "degraded"
+		}
+	}
+
+	return HealthResponse{
+		Status:    statusCode,
+		Timestamp: time.Now().UTC(),
+		Checks:    checks,
+	}
+}
+
+func (s *Server) channelStatuses(ctx context.Context) []engine.ChannelProviderStatus {
+	channels, err := s.coordinator.Channels(ctx)
+	if err != nil {
+		return nil
+	}
+	return channels
+}
+
 func appendIfValue(dest map[string]string, key string, value string) {
 	value = strings.TrimSpace(value)
 	if value != "" {
@@ -1003,6 +1287,23 @@ func defaultWorkflowTemplates() []WorkflowTemplate {
 				"message":       "VIP early access is live. Tap to claim your spot.",
 				"recipients":    []string{"+61400000000"},
 				"test":          true,
+			},
+		},
+		{
+			Name:        "Send WhatsApp template",
+			Skill:       "whatsapp-message-drafter",
+			Description: "Prepare a WhatsApp template send for approval before outbound delivery.",
+			Input: map[string]any{
+				"provider":          "meta_cloud",
+				"to":                "+61400000000",
+				"type":              "template",
+				"template_name":     "launch_update",
+				"template_language": "en",
+				"template_variables": map[string]string{
+					"1": "VIP early access",
+					"2": "https://example.com/vip",
+				},
+				"test": true,
 			},
 		},
 	}
