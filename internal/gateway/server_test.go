@@ -174,6 +174,32 @@ func TestGatewayStaticAssets(t *testing.T) {
 	}
 }
 
+func TestGatewaySystemStop(t *testing.T) {
+	h := newHarness(t, "127.0.0.1:18800", nil)
+	stopped := make(chan struct{}, 1)
+	h.server.requestShutdown = func() {
+		select {
+		case stopped <- struct{}{}:
+		default:
+		}
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/system/stop", nil)
+	request.RemoteAddr = "127.0.0.1:40123"
+	recorder := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("unexpected status %d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("expected shutdown callback to be invoked")
+	}
+}
+
 func TestGatewayVaultUpdate(t *testing.T) {
 	h := newHarness(t, "127.0.0.1:18800", nil)
 

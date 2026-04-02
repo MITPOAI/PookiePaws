@@ -5,544 +5,491 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light dark">
     <title>{{ .Title }}</title>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+    <link rel="shortcut icon" href="/favicon.ico">
     <link rel="stylesheet" href="/ui/style.css">
   </head>
   <body data-default-theme="{{ .DefaultTheme }}">
+    <a href="#main-content" class="skip-link">Skip to content</a>
+
     <div class="app-shell">
-      <aside class="sidebar">
+      <aside class="sidebar" id="primary-sidebar">
         <div class="brand-block">
-          <div class="brand-mark"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg></div>
+          <div class="brand-mark" aria-hidden="true">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5.5 9.5c0-1.5.8-2.9 2.1-3.7l1-.6 1.3 1.8a2.9 2.9 0 0 1 4.2 0l1.3-1.8 1 .6A4.3 4.3 0 0 1 18.5 9.5c0 1.7-.8 3.3-2.2 4.3L12 17l-4.3-3.2A5.3 5.3 0 0 1 5.5 9.5Z"/>
+              <circle cx="8" cy="4.5" r="1.5"/>
+              <circle cx="16" cy="4.5" r="1.5"/>
+            </svg>
+          </div>
           <div class="brand-copy-wrap">
-            <p class="eyebrow">MITPO Spatial Console</p>
             <h1>PookiePaws</h1>
-            <p class="brand-copy">Pure-Go marketing operations with approval-gated execution, workspace controls, and a live audit surface.</p>
+            <p class="brand-copy">Marketing operations runtime</p>
           </div>
         </div>
 
-        <nav class="sidebar-nav" aria-label="Console sections">
-          <button class="nav-item is-active" type="button" data-view="workflows">
-            <svg class="nav-item__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        <nav class="sidebar-nav" aria-label="Primary navigation">
+          <button class="nav-item is-active" type="button" data-view="dashboard">
+            <svg class="nav-item__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="7" height="7" rx="1.5"/>
+              <rect x="14" y="3" width="7" height="5" rx="1.5"/>
+              <rect x="14" y="12" width="7" height="9" rx="1.5"/>
+              <rect x="3" y="14" width="7" height="7" rx="1.5"/>
+            </svg>
+            <span class="nav-item__label">Dashboard</span>
+          </button>
+          <button class="nav-item" type="button" data-view="workflows">
+            <svg class="nav-item__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 6h7"/>
+              <path d="M4 12h11"/>
+              <path d="M4 18h15"/>
+              <circle cx="15" cy="6" r="2"/>
+              <circle cx="19" cy="12" r="2"/>
+              <circle cx="11" cy="18" r="2"/>
+            </svg>
             <span class="nav-item__label">Workflows</span>
-            <span class="nav-item__hint">Canvas and queue</span>
-          </button>
-          <button class="nav-item" type="button" data-view="skills">
-            <svg class="nav-item__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-            <span class="nav-item__label">Skills</span>
-            <span class="nav-item__hint">Direct execution</span>
-          </button>
-          <button class="nav-item" type="button" data-view="approvals">
-            <svg class="nav-item__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-            <span class="nav-item__label">Approvals</span>
-            <span class="nav-item__hint">Human review</span>
           </button>
           <button class="nav-item" type="button" data-view="settings">
-            <svg class="nav-item__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-            <span class="nav-item__label">Setup</span>
-            <span class="nav-item__hint">Providers and install</span>
+            <svg class="nav-item__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+            <span class="nav-item__label">Vault / Settings</span>
+          </button>
+          <button class="nav-item" type="button" data-view="audit">
+            <svg class="nav-item__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 3v18h18"/>
+              <path d="M7 14l3-3 3 2 4-5"/>
+            </svg>
+            <span class="nav-item__label">Audit Log</span>
           </button>
         </nav>
-
-        <section class="theme-panel" aria-label="Theme switcher">
-          <div class="theme-panel__copy">
-            <p class="eyebrow">Theme</p>
-            <h2>Choose your working tone</h2>
-            <p>Match the console to the session: bright and crisp, dark and focused, or warm and calm.</p>
-          </div>
-          <div class="theme-switcher">
-            {{ range .ThemeOptions }}
-            <button class="theme-chip" type="button" data-theme-switch="{{ .ID }}">
-              <span class="theme-chip__label">{{ .Label }}</span>
-              <span class="theme-chip__hint">{{ .Hint }}</span>
-            </button>
-            {{ end }}
-          </div>
-          <p class="inline-note" id="theme-status" aria-live="polite">Dark theme is active.</p>
-        </section>
-
-        <section class="status-stack">
-          <div class="status-card status-card--primary">
-            <span class="status-label">Runtime</span>
-            <strong id="runtime-badge">Starting</strong>
-            <p id="runtime-detail">Waiting for status.</p>
-          </div>
-          <div class="status-card">
-            <span class="status-label">Brain</span>
-            <strong id="brain-badge">Disabled</strong>
-            <p id="brain-detail">No provider configured.</p>
-          </div>
-          <div class="status-card">
-            <span class="status-label">Provider Health</span>
-            <div class="provider-flags" id="provider-flags"></div>
-          </div>
-        </section>
-
-        <section class="sidebar-footnote">
-          <p>Direct skills, templates, approvals, and WhatsApp drafts stay usable even when the brain is offline. The interface keeps language calm, specific, and non-blaming so operators always know what is protected and what happens next.</p>
-        </section>
       </aside>
 
-      <main class="workspace">
-        <header class="workspace-header">
-          <div class="workspace-header__copy">
-            <p class="eyebrow">Operations Canvas</p>
-            <h2>Build, inspect, and approve campaign workflows from a single local control plane.</h2>
-            <p>The canvas, approvals queue, and setup guidance stay visible so you can move from draft to outbound send without guessing what is configured.</p>
+      <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+      <div class="app-frame">
+        <header class="top-header">
+          <div class="top-header__left">
+            <button class="hamburger-btn" id="hamburger-btn" type="button" aria-label="Toggle navigation" aria-controls="primary-sidebar" aria-expanded="false">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="3" y1="6" x2="21" y2="6"/>
+                <line x1="3" y1="12" x2="21" y2="12"/>
+                <line x1="3" y1="18" x2="21" y2="18"/>
+              </svg>
+            </button>
+            <div class="header-context">
+              <p class="eyebrow" id="header-breadcrumb">Dashboard / Overview</p>
+              <h2 id="header-title">Dashboard</h2>
+            </div>
           </div>
-          <div class="header-actions">
-            <button class="button secondary" id="refresh-console" type="button">Refresh Console</button>
+
+          <div class="top-header__right">
+            <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Cycle theme">
+              <span class="theme-toggle__icon" id="theme-toggle-icon" aria-hidden="true"></span>
+              <span class="sr-only" id="theme-status">Dark theme is active.</span>
+            </button>
+
+            <div class="agent-status" aria-live="polite">
+              <span class="agent-status__dot" id="agent-status-dot"></span>
+              <span class="agent-status__label" id="agent-status-label">Connecting</span>
+            </div>
+
+            <button class="kill-switch" id="stop-agent" type="button">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+              </svg>
+              Kill Switch
+            </button>
           </div>
         </header>
 
-        <section class="summary-strip" id="summary-strip"></section>
-
-        <section class="view is-active" id="view-workflows" aria-labelledby="workflows-heading">
-          <div class="hero-grid">
-            <section class="panel prompt-panel">
-              <div class="panel-head">
-                <div>
-                  <p class="eyebrow">Mission Input</p>
-                  <h3 id="workflows-heading">Describe the marketing outcome and route it through the local operator flow.</h3>
+        <main class="workspace" id="main-content">
+          <section class="view is-active" id="view-dashboard" aria-labelledby="dashboard-heading">
+            <div class="dashboard-grid">
+              <section class="panel panel-span-12">
+                <div class="panel-head">
+                  <div>
+                    <p class="eyebrow">Dashboard</p>
+                    <h3 id="dashboard-heading">System health, queue pressure, and pending reviews.</h3>
+                  </div>
+                  <button class="button secondary" id="refresh-console" type="button">Refresh</button>
                 </div>
-              </div>
-              <form id="goal-form" class="prompt-form">
-                <label class="field">
-                  Campaign goal
-                  <textarea id="goal-input" name="prompt" placeholder="Research competitor pricing online and draft an SMS campaign for our VIP leads with approval before send."></textarea>
-                </label>
-                <div class="button-row">
-                  <button class="button" type="submit">Run with Brain</button>
-                  <button class="button secondary" id="run-canvas" type="button">Run Canvas Plan</button>
-                  <button class="button ghost" id="reset-canvas" type="button">Reset Canvas</button>
-                </div>
-                <p class="inline-note" id="brain-guard" aria-live="polite" hidden>Brain required. Configure a local or hosted OpenAI-compatible endpoint in Settings before using free-text routing.</p>
-                <p class="inline-note" id="canvas-plan-status">Canvas state is stored only in this browser.</p>
-              </form>
-              <div class="response-card" id="brain-response" aria-live="polite" hidden></div>
-            </section>
+                <section class="summary-strip" id="summary-strip"></section>
+              </section>
 
-            <section class="panel overview-panel">
-              <div class="panel-head">
-                <div>
-                  <p class="eyebrow">Control Signals</p>
-                  <h3>Operator posture, provider readiness, and approval pressure in one glance.</h3>
+              <section class="panel panel-span-4">
+                <div class="panel-head">
+                  <div>
+                    <p class="eyebrow">Runtime</p>
+                    <h3>Agent footprint and workspace posture.</h3>
+                  </div>
                 </div>
-              </div>
-              <div class="signal-grid">
-                <article class="signal-card">
-                  <span class="signal-card__label">Workflow planning</span>
-                  <strong>Canvas-first</strong>
-                  <p>Structured flows remain usable even when free-text routing is disabled.</p>
+                <article class="status-card status-card--feature">
+                  <span class="status-label">Runtime</span>
+                  <strong id="runtime-badge">Starting</strong>
+                  <p id="runtime-detail">Waiting for status.</p>
                 </article>
-                <article class="signal-card">
-                  <span class="signal-card__label">Outbound safety</span>
-                  <strong>Human-gated</strong>
-                  <p>CRM, SMS, and file access actions stay visible before they can leave the workstation.</p>
-                </article>
-                <article class="signal-card">
-                  <span class="signal-card__label">Runtime model</span>
-                  <strong>Single binary</strong>
-                  <p>No Node.js toolchain, no split control plane, and no hidden frontend build step.</p>
-                </article>
-              </div>
-            </section>
-          </div>
+              </section>
 
-          <section class="panel chat-panel">
-            <div class="panel-head">
-              <div>
-                <p class="eyebrow">Chat Control Plane</p>
-                <h3>Ask in plain language and watch the control plane break the work into visible steps.</h3>
-              </div>
-              <div class="chat-status-wrap">
-                <span class="status-pill" id="chat-connection-state">Connecting</span>
-                <span class="inline-note" id="chat-session-label">Preparing session</span>
-              </div>
+              <section class="panel panel-span-4">
+                <div class="panel-head">
+                  <div>
+                    <p class="eyebrow">Brain</p>
+                    <h3>Model routing and provider readiness.</h3>
+                  </div>
+                </div>
+                <article class="status-card status-card--feature">
+                  <span class="status-label">Brain</span>
+                  <strong id="brain-badge">Disabled</strong>
+                  <p id="brain-detail">No provider configured.</p>
+                </article>
+              </section>
+
+              <section class="panel panel-span-4">
+                <div class="panel-head">
+                  <div>
+                    <p class="eyebrow">Providers</p>
+                    <h3>External channels and integrations.</h3>
+                  </div>
+                </div>
+                <article class="status-card status-card--feature">
+                  <span class="status-label">Connections</span>
+                  <div class="provider-flags" id="provider-flags"></div>
+                </article>
+              </section>
+
+              <section class="panel panel-span-8">
+                <div class="panel-head">
+                  <div>
+                    <p class="eyebrow">Workflow Queue</p>
+                    <h3>Recent workflow executions.</h3>
+                  </div>
+                </div>
+                <div class="data-list" id="workflow-queue"></div>
+              </section>
+
+              <section class="panel panel-span-4">
+                <div class="panel-head">
+                  <div>
+                    <p class="eyebrow">Pending Approvals</p>
+                    <h3>Actions waiting on a human decision.</h3>
+                  </div>
+                  <button class="button secondary" id="open-approvals" type="button">Open Audit</button>
+                </div>
+                <div class="data-list compact" id="approval-summary"></div>
+              </section>
+
+              <section class="panel panel-span-12">
+                <div class="panel-head">
+                  <div>
+                    <p class="eyebrow">File Access</p>
+                    <h3>Workspace read and write requests.</h3>
+                  </div>
+                </div>
+                <div class="data-list compact" id="file-permission-summary"></div>
+              </section>
             </div>
-            <div class="chat-grid">
-              <section class="chat-feed-wrap">
-                <div class="chat-feed" id="chat-feed" aria-live="polite"></div>
-                <form class="chat-composer" id="chat-form">
+          </section>
+
+          <section class="view" id="view-workflows" aria-labelledby="workflows-heading">
+            <div class="hero-grid">
+              <section class="panel">
+                <div class="panel-head">
+                  <div>
+                    <p class="eyebrow">Mission Input</p>
+                    <h3 id="workflows-heading">Describe the marketing goal.</h3>
+                  </div>
+                </div>
+                <form id="goal-form" class="prompt-form">
                   <label class="field">
-                    Message to Pookie
-                    <textarea id="chat-input" name="prompt" placeholder="Analyze our top competitor and draft a counter-campaign with approval before anything goes outbound."></textarea>
+                    Campaign goal
+                    <textarea id="goal-input" name="prompt" placeholder="Research competitor pricing and draft an SMS campaign for VIP leads."></textarea>
                   </label>
                   <div class="button-row">
-                    <button class="button" type="submit">Send to Pookie</button>
-                    <button class="button ghost" id="chat-clear" type="button">Clear Session View</button>
+                    <button class="button" type="submit">Run with Brain</button>
+                    <button class="button secondary" id="run-canvas" type="button">Run Canvas</button>
+                    <button class="button ghost" id="reset-canvas" type="button">Reset</button>
                   </div>
-                  <p class="inline-note" id="chat-status">Messages stay in this local session so the next routing decision keeps its context.</p>
+                  <p class="inline-note" id="brain-guard" aria-live="polite" hidden>Configure an LLM provider in Vault / Settings before using free-text routing.</p>
+                  <p class="inline-note" id="canvas-plan-status"></p>
                 </form>
+                <div class="response-card" id="brain-response" aria-live="polite" hidden></div>
               </section>
-              <aside class="chat-steps-wrap">
-                <div class="chat-steps-head">
-                  <p class="eyebrow">Observable Steps</p>
-                  <h4>EventBus timeline</h4>
-                </div>
-                <div class="chat-steps" id="chat-steps"></div>
-              </aside>
-            </div>
-          </section>
 
-          <section class="panel canvas-panel">
-            <div class="panel-head">
-              <div>
-                <p class="eyebrow">Spatial Workflow Builder</p>
-                <h3>Map the workflow before execution and keep operator review in the loop.</h3>
-              </div>
-              <p class="inline-note">Palette nodes auto-connect from the selected node. Use "Start link" in the inspector for manual connections.</p>
-            </div>
-            <div class="canvas-shell">
-              <section class="canvas-palette">
-                <div class="canvas-palette__title">
-                  <span class="status-label">Node Library</span>
-                  <p>Drop structured steps onto the canvas.</p>
+              <section class="panel">
+                <div class="panel-head">
+                  <div>
+                    <p class="eyebrow">Templates</p>
+                    <h3>Prebuilt workflow starting points.</h3>
+                  </div>
                 </div>
-                <button class="palette-button" type="button" data-node-type="goal">Goal</button>
-                <button class="palette-button" type="button" data-node-type="research">Research</button>
-                <button class="palette-button" type="button" data-node-type="compare">Compare</button>
-                <button class="palette-button" type="button" data-node-type="validate">Validate</button>
-                <button class="palette-button" type="button" data-node-type="draft_sms">Draft SMS</button>
-                <button class="palette-button" type="button" data-node-type="approval">Approval</button>
-                <button class="palette-button" type="button" data-node-type="send">Send</button>
+                <div class="template-strip" id="template-strip"></div>
               </section>
-              <section class="canvas-stage" id="canvas-stage">
-                <div class="canvas-stage__chrome">
-                  <span class="status-pill">Workflow topology</span>
-                  <span class="inline-note">Compose direct workflows or use the brain to translate the graph.</span>
-                </div>
-                <svg class="canvas-links" id="canvas-links" aria-hidden="true"></svg>
-                <div class="canvas-board" id="canvas-board"></div>
-              </section>
-              <aside class="canvas-inspector" id="canvas-inspector">
-                <p class="eyebrow">Inspector</p>
-                <div id="inspector-content">
-                  <h3>Select a node</h3>
-                  <p class="inline-note">Use the palette to add steps, drag nodes into place, and inspect them here.</p>
-                </div>
-              </aside>
             </div>
-          </section>
 
-          <div class="workflow-grid">
-            <section class="panel template-panel">
-              <div class="panel-head">
-                <div>
-                  <p class="eyebrow">Workflow Templates</p>
-                  <h3>Safe starting points for recurring marketing tasks.</h3>
-                </div>
-              </div>
-              <div class="template-strip" id="template-strip"></div>
-            </section>
-
-            <section class="panel queue-panel">
-              <div class="panel-head">
-                <div>
-                  <p class="eyebrow">Workflow Queue</p>
-                  <h3>Recent executions and their current state.</h3>
-                </div>
-              </div>
-              <div class="data-list" id="workflow-queue"></div>
-            </section>
-
-            <section class="panel approvals-panel">
-              <div class="panel-head">
-                <div>
-                  <p class="eyebrow">Pending Approvals</p>
-                  <h3>Outbound actions pause here first, before anything leaves the workstation.</h3>
-                </div>
-                <button class="button secondary" id="open-approvals" type="button">Open Review Center</button>
-              </div>
-              <div class="data-list compact" id="approval-summary"></div>
-            </section>
-
-            <section class="panel permissions-panel">
-              <div class="panel-head">
-                <div>
-                  <p class="eyebrow">File Access Queue</p>
-                  <h3>Workspace reads and writes remain explicit, reviewable actions.</h3>
-                </div>
-              </div>
-              <div class="data-list compact" id="file-permission-summary"></div>
-            </section>
-          </div>
-        </section>
-
-        <section class="view" id="view-skills" aria-labelledby="skills-heading">
-          <div class="panel">
-            <div class="panel-head">
-              <div>
-                <p class="eyebrow">Direct Skills</p>
-                <h3 id="skills-heading">Run core marketing actions directly when you do not need routing.</h3>
-              </div>
-            </div>
-            <div class="skill-grid">
-              <form id="utm-form" class="skill-card">
-                <div>
-                  <span class="skill-pill">utm-validator</span>
-                  <h3>Validate UTM</h3>
-                  <p>Check campaign URLs for missing parameters and normalized output.</p>
-                </div>
-                <label class="field">
-                  Campaign URL
-                  <input name="url" type="url" required value="https://example.com/?utm_source=meta&utm_medium=paid_social&utm_campaign=launch">
-                </label>
-                <button class="button" type="submit">Run Validation</button>
-              </form>
-
-              <form id="lead-form" class="skill-card">
-                <div>
-                  <span class="skill-pill">salesmanago-lead-router</span>
-                  <h3>Route Lead</h3>
-                  <p>Prepare a CRM route with approval before external delivery.</p>
-                </div>
-                <div class="field-grid">
-                  <label class="field">
-                    Email
-                    <input name="email" type="email" required value="lead@example.com">
-                  </label>
-                  <label class="field">
-                    Name
-                    <input name="name" type="text" value="Taylor Prospect">
-                  </label>
-                  <label class="field">
-                    Segment
-                    <input name="segment" type="text" value="vip">
-                  </label>
-                  <label class="field">
-                    Priority
-                    <select name="priority">
-                      <option value="high">high</option>
-                      <option value="normal" selected>normal</option>
-                      <option value="low">low</option>
-                    </select>
-                  </label>
-                </div>
-                <button class="button" type="submit">Prepare Route</button>
-              </form>
-
-              <form id="sms-form" class="skill-card">
-                <div>
-                  <span class="skill-pill">mitto-sms-drafter</span>
-                  <h3>Draft SMS</h3>
-                  <p>Create a send intent and pause for approval before outbound delivery.</p>
-                </div>
-                <div class="field-grid">
-                  <label class="field">
-                    Campaign name
-                    <input name="campaign_name" type="text" value="April VIP launch">
-                  </label>
-                  <label class="field">
-                    Recipient
-                    <input name="recipient" type="text" value="+61400000000">
-                  </label>
-                </div>
-                <label class="field">
-                  Message
-                  <textarea name="message">VIP early access is live. Tap to claim your spot.</textarea>
-                </label>
-                <button class="button" type="submit">Create SMS Draft</button>
-              </form>
-
-              <form id="whatsapp-form" class="skill-card">
-                <div>
-                  <span class="skill-pill">whatsapp-message-drafter</span>
-                  <h3>Draft WhatsApp</h3>
-                  <p>Create an approval-gated outbound WhatsApp send and track delivery state in the local runtime.</p>
-                </div>
-                <div class="field-grid">
-                  <label class="field">
-                    Recipient
-                    <input name="to" type="text" value="+61400000000">
-                  </label>
-                  <label class="field">
-                    Send type
-                    <select name="type">
-                      <option value="template" selected>template</option>
-                      <option value="text">text</option>
-                    </select>
-                  </label>
-                  <label class="field">
-                    Template name
-                    <input name="template_name" type="text" value="launch_update">
-                  </label>
-                  <label class="field">
-                    Language
-                    <input name="template_language" type="text" value="en">
-                  </label>
-                </div>
-                <label class="field">
-                  Text or template note
-                  <textarea name="text">VIP early access is live. Tap to claim your spot.</textarea>
-                </label>
-                <button class="button" type="submit">Create WhatsApp Draft</button>
-              </form>
-            </div>
-          </div>
-        </section>
-
-        <section class="view" id="view-approvals" aria-labelledby="approvals-heading">
-          <div class="split-panel-grid">
             <section class="panel">
               <div class="panel-head">
                 <div>
-                  <p class="eyebrow">Action Approvals</p>
-                  <h3 id="approvals-heading">Human-in-the-loop controls for outbound CRM and SMS operations.</h3>
+                  <p class="eyebrow">Canvas</p>
+                  <h3>Map workflows visually before execution.</h3>
                 </div>
               </div>
-              <div class="data-list" id="approvals-list"></div>
+              <div class="canvas-shell">
+                <section class="canvas-palette">
+                  <div class="canvas-palette__title">
+                    <span class="status-label">Nodes</span>
+                  </div>
+                  <button class="palette-button" type="button" data-node-type="goal">Goal</button>
+                  <button class="palette-button" type="button" data-node-type="research">Research</button>
+                  <button class="palette-button" type="button" data-node-type="compare">Compare</button>
+                  <button class="palette-button" type="button" data-node-type="validate">Validate</button>
+                  <button class="palette-button" type="button" data-node-type="draft_sms">Draft SMS</button>
+                  <button class="palette-button" type="button" data-node-type="approval">Approval</button>
+                  <button class="palette-button" type="button" data-node-type="send">Send</button>
+                </section>
+
+                <section class="canvas-stage" id="canvas-stage">
+                  <div class="canvas-stage__chrome">
+                    <span class="status-pill">Topology</span>
+                  </div>
+                  <svg class="canvas-links" id="canvas-links" aria-hidden="true"></svg>
+                  <div class="canvas-board" id="canvas-board"></div>
+                </section>
+
+                <aside class="canvas-inspector" id="canvas-inspector">
+                  <p class="eyebrow">Inspector</p>
+                  <div id="inspector-content">
+                    <h3>Select a node</h3>
+                    <p class="inline-note">Add steps from the palette, then inspect here.</p>
+                  </div>
+                </aside>
+              </div>
             </section>
 
             <section class="panel">
               <div class="panel-head">
                 <div>
-                  <p class="eyebrow">File Permissions</p>
-                  <h3>Operator review queue for workspace reads and writes.</h3>
+                  <p class="eyebrow">Chat</p>
+                  <h3>Plain-language routing with observable steps.</h3>
+                </div>
+                <div class="chat-status-wrap">
+                  <span class="status-pill" id="chat-connection-state">Connecting</span>
+                  <span class="inline-note" id="chat-session-label"></span>
                 </div>
               </div>
-              <div class="data-list" id="file-permissions-list"></div>
-            </section>
-          </div>
-        </section>
-
-        <section class="view" id="view-settings" aria-labelledby="settings-heading">
-          <div class="panel">
-            <div class="panel-head">
-              <div>
-                <p class="eyebrow">Setup Flow</p>
-                <h3 id="settings-heading">Configure the brain, outbound providers, and install flow from one place.</h3>
-              </div>
-            </div>
-            <div class="settings-layout">
-              <div class="settings-status" id="vault-status-cards"></div>
-              <form id="vault-form" class="vault-form">
-                <section class="vault-section">
-                  <h4>Brain</h4>
-                  <p class="inline-note">The console supports local or hosted OpenAI-compatible endpoints. Keys are stored only on the host in <code>~/.pookiepaws/.security.json</code>.</p>
-                  <div class="field-grid">
+              <div class="chat-grid">
+                <section class="chat-feed-wrap">
+                  <div class="chat-feed" id="chat-feed" aria-live="polite"></div>
+                  <form class="chat-composer" id="chat-form">
                     <label class="field">
-                      LLM base URL
-                      <input name="llm_base_url" type="url" placeholder="http://localhost:11434/v1/chat/completions">
+                      Message
+                      <textarea id="chat-input" name="prompt" placeholder="Analyze our top competitor and draft a counter-campaign."></textarea>
                     </label>
-                    <label class="field">
-                      LLM model
-                      <input name="llm_model" type="text" placeholder="gpt-oss:20b">
-                    </label>
-                    <label class="field field-span-2">
-                      LLM API key
-                      <input name="llm_api_key" type="password" placeholder="Optional for local providers">
-                    </label>
-                  </div>
-                </section>
-
-                <section class="vault-section">
-                  <h4>Salesmanago</h4>
-                  <div class="field-grid">
-                    <label class="field">
-                      API key
-                      <input name="salesmanago_api_key" type="password" placeholder="Salesmanago API key">
-                    </label>
-                    <label class="field">
-                      Base URL
-                      <input name="salesmanago_base_url" type="url" placeholder="https://api.salesmanago.com/v3/keyInformation/upsert">
-                    </label>
-                    <label class="field field-span-2">
-                      Owner email
-                      <input name="salesmanago_owner" type="email" placeholder="owner@example.com">
-                    </label>
-                  </div>
-                </section>
-
-                <section class="vault-section">
-                  <h4>Mitto</h4>
-                  <div class="field-grid">
-                    <label class="field">
-                      API key
-                      <input name="mitto_api_key" type="password" placeholder="Mitto API key">
-                    </label>
-                    <label class="field">
-                      Base URL
-                      <input name="mitto_base_url" type="url" placeholder="https://rest.mittoapi.net">
-                    </label>
-                    <label class="field field-span-2">
-                      Sender
-                      <input name="mitto_from" type="text" placeholder="PookiePaws">
-                    </label>
-                  </div>
-                </section>
-
-                <section class="vault-section">
-                  <h4>WhatsApp</h4>
-                  <p class="inline-note">Outbound-only in this release. Drafts stay approval-gated and delivery updates feed back into the local audit trail.</p>
-                  <div class="field-grid">
-                    <label class="field">
-                      Provider
-                      <input name="whatsapp_provider" type="text" placeholder="meta_cloud">
-                    </label>
-                    <label class="field">
-                      Base URL
-                      <input name="whatsapp_base_url" type="url" placeholder="https://graph.facebook.com/v23.0">
-                    </label>
-                    <label class="field">
-                      Access token
-                      <input name="whatsapp_access_token" type="password" placeholder="WhatsApp access token">
-                    </label>
-                    <label class="field">
-                      Phone number ID
-                      <input name="whatsapp_phone_number_id" type="text" placeholder="123456789">
-                    </label>
-                    <label class="field">
-                      Business account ID
-                      <input name="whatsapp_business_account_id" type="text" placeholder="Optional business account ID">
-                    </label>
-                    <label class="field">
-                      Webhook verify token
-                      <input name="whatsapp_webhook_verify_token" type="password" placeholder="Used for webhook verification">
-                    </label>
-                  </div>
-                </section>
-
-                <section class="vault-section">
-                  <h4>Install And Diagnostics</h4>
-                  <div class="install-guide">
-                    <p class="inline-note">Fast local start</p>
-                    <pre><code>.\pookie.exe init
-.\pookie.exe start</code></pre>
-                    <p class="inline-note">Build from source</p>
-                    <pre><code>go build -o pookie.exe ./cmd/pookie
-.\pookie.exe init
-.\pookie.exe start</code></pre>
                     <div class="button-row">
-                      <button class="button secondary" id="test-whatsapp" type="button">Test WhatsApp Connection</button>
-                      <button class="button ghost" id="download-diagnostics" type="button">Open Diagnostics JSON</button>
+                      <button class="button" type="submit">Send</button>
+                      <button class="button ghost" id="chat-clear" type="button">Clear</button>
                     </div>
-                  </div>
+                    <p class="inline-note" id="chat-status"></p>
+                  </form>
                 </section>
+                <aside class="chat-steps-wrap">
+                  <div class="chat-steps-head">
+                    <p class="eyebrow">Steps</p>
+                    <h4>EventBus timeline</h4>
+                  </div>
+                  <div class="chat-steps" id="chat-steps"></div>
+                </aside>
+              </div>
+            </section>
 
-                <div class="button-row">
-                  <button class="button" id="save-vault" type="submit">Save Settings</button>
+            <section class="panel">
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">Direct Skills</p>
+                  <h3>Run built-in marketing skills without brain routing.</h3>
                 </div>
-                <p class="inline-note" id="vault-message">Only loopback-bound instances can write the vault from the UI.</p>
-              </form>
-            </div>
-          </div>
-        </section>
-      </main>
+              </div>
+              <div class="skill-grid">
+                <form id="utm-form" class="skill-card">
+                  <div>
+                    <span class="skill-pill">utm-validator</span>
+                    <h3>Validate UTM</h3>
+                    <p class="inline-note">Check campaign URLs for missing parameters.</p>
+                  </div>
+                  <label class="field">Campaign URL<input name="url" type="url" required value="https://example.com/?utm_source=meta&utm_medium=paid_social&utm_campaign=launch"></label>
+                  <button class="button" type="submit">Validate</button>
+                </form>
 
-      <aside class="audit-rail">
-        <div class="audit-head">
-          <div>
-            <p class="eyebrow">Audit Trail</p>
-            <h2>Live operator telemetry</h2>
-            <p class="audit-note">Workflow events, approval requests, file-access decisions, and adapter activity stream here in real time.</p>
-          </div>
-          <span class="stream-indicator" id="stream-indicator">Connecting</span>
-        </div>
-        <div class="audit-stream" id="audit-stream"></div>
-      </aside>
+                <form id="lead-form" class="skill-card">
+                  <div>
+                    <span class="skill-pill">salesmanago-lead-router</span>
+                    <h3>Route Lead</h3>
+                    <p class="inline-note">Prepare a CRM route with approval before delivery.</p>
+                  </div>
+                  <div class="field-grid">
+                    <label class="field">Email<input name="email" type="email" required value="lead@example.com"></label>
+                    <label class="field">Name<input name="name" type="text" value="Taylor Prospect"></label>
+                    <label class="field">Segment<input name="segment" type="text" value="vip"></label>
+                    <label class="field">Priority<select name="priority"><option value="high">high</option><option value="normal" selected>normal</option><option value="low">low</option></select></label>
+                  </div>
+                  <button class="button" type="submit">Prepare Route</button>
+                </form>
+
+                <form id="sms-form" class="skill-card">
+                  <div>
+                    <span class="skill-pill">mitto-sms-drafter</span>
+                    <h3>Draft SMS</h3>
+                    <p class="inline-note">Create a send intent with approval before outbound.</p>
+                  </div>
+                  <div class="field-grid">
+                    <label class="field">Campaign<input name="campaign_name" type="text" value="April VIP launch"></label>
+                    <label class="field">Recipient<input name="recipient" type="text" value="+61400000000"></label>
+                  </div>
+                  <label class="field">Message<textarea name="message">VIP early access is live. Tap to claim your spot.</textarea></label>
+                  <button class="button" type="submit">Create Draft</button>
+                </form>
+
+                <form id="whatsapp-form" class="skill-card">
+                  <div>
+                    <span class="skill-pill">whatsapp-message-drafter</span>
+                    <h3>Draft WhatsApp</h3>
+                    <p class="inline-note">Approval-gated outbound with delivery tracking.</p>
+                  </div>
+                  <div class="field-grid">
+                    <label class="field">Recipient<input name="to" type="text" value="+61400000000"></label>
+                    <label class="field">Type<select name="type"><option value="template" selected>template</option><option value="text">text</option></select></label>
+                    <label class="field">Template<input name="template_name" type="text" value="launch_update"></label>
+                    <label class="field">Language<input name="template_language" type="text" value="en"></label>
+                  </div>
+                  <label class="field">Text<textarea name="text">VIP early access is live. Tap to claim your spot.</textarea></label>
+                  <button class="button" type="submit">Create Draft</button>
+                </form>
+              </div>
+            </section>
+          </section>
+
+          <section class="view" id="view-settings" aria-labelledby="settings-heading">
+            <section class="panel">
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">Vault / Settings</p>
+                  <h3 id="settings-heading">Provider configuration and diagnostics.</h3>
+                </div>
+              </div>
+              <div class="settings-layout">
+                <div class="settings-status" id="vault-status-cards"></div>
+                <form id="vault-form" class="vault-form">
+                  <section class="vault-section">
+                    <h4><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> Smart Sandbox</h4>
+                    <p class="inline-note">Low-risk read-only actions run silently. High-risk sends pause for approval.</p>
+                    <label class="toggle-field">
+                      <input type="checkbox" id="auto-approve-toggle"> Auto-approve low-risk actions
+                    </label>
+                  </section>
+
+                  <section class="vault-section">
+                    <h4><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg> Brain (LLM)</h4>
+                    <p class="inline-note">OpenAI-compatible endpoints. Keys stored in <code>~/.pookiepaws/.security.json</code>.</p>
+                    <div class="field-grid">
+                      <label class="field">Base URL<input name="llm_base_url" type="url" placeholder="http://localhost:11434/v1/chat/completions"></label>
+                      <label class="field">Model<input name="llm_model" type="text" placeholder="llama3.2:latest"></label>
+                      <label class="field field-span-2">API key<input name="llm_api_key" type="password" placeholder="Optional for local providers"></label>
+                    </div>
+                  </section>
+
+                  <section class="vault-section">
+                    <h4><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg> Salesmanago</h4>
+                    <div class="field-grid">
+                      <label class="field">API key<input name="salesmanago_api_key" type="password" placeholder="API key"></label>
+                      <label class="field">Base URL<input name="salesmanago_base_url" type="url" placeholder="https://api.salesmanago.com/v3/keyInformation/upsert"></label>
+                      <label class="field field-span-2">Owner email<input name="salesmanago_owner" type="email" placeholder="owner@example.com"></label>
+                    </div>
+                  </section>
+
+                  <section class="vault-section">
+                    <h4><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Mitto</h4>
+                    <div class="field-grid">
+                      <label class="field">API key<input name="mitto_api_key" type="password" placeholder="Mitto API key"></label>
+                      <label class="field">Base URL<input name="mitto_base_url" type="url" placeholder="https://rest.mittoapi.net"></label>
+                      <label class="field field-span-2">Sender<input name="mitto_from" type="text" placeholder="PookiePaws"></label>
+                    </div>
+                  </section>
+
+                  <section class="vault-section">
+                    <h4><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg> WhatsApp</h4>
+                    <div class="field-grid">
+                      <label class="field">Provider<input name="whatsapp_provider" type="text" placeholder="meta_cloud"></label>
+                      <label class="field">Base URL<input name="whatsapp_base_url" type="url" placeholder="https://graph.facebook.com/v23.0"></label>
+                      <label class="field">Access token<input name="whatsapp_access_token" type="password" placeholder="Access token"></label>
+                      <label class="field">Phone ID<input name="whatsapp_phone_number_id" type="text" placeholder="123456789"></label>
+                      <label class="field">Business ID<input name="whatsapp_business_account_id" type="text" placeholder="Optional"></label>
+                      <label class="field">Webhook token<input name="whatsapp_webhook_verify_token" type="password" placeholder="Verification token"></label>
+                    </div>
+                  </section>
+
+                  <section class="vault-section">
+                    <h4><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg> Diagnostics</h4>
+                    <div class="install-guide">
+                      <pre><code>pookie init
+pookie start</code></pre>
+                      <div class="button-row">
+                        <button class="button secondary" id="test-whatsapp" type="button">Test WhatsApp</button>
+                        <button class="button ghost" id="download-diagnostics" type="button">Diagnostics JSON</button>
+                      </div>
+                    </div>
+                  </section>
+
+                  <div class="button-row">
+                    <button class="button" id="save-vault" type="submit">Save Settings</button>
+                  </div>
+                  <p class="inline-note" id="vault-message">Only loopback-bound instances can write settings from the UI.</p>
+                </form>
+              </div>
+            </section>
+          </section>
+
+          <section class="view" id="view-audit" aria-labelledby="audit-heading">
+            <div class="split-panel-grid">
+              <section class="panel">
+                <div class="panel-head">
+                  <div>
+                    <p class="eyebrow">Action Approvals</p>
+                    <h3 id="audit-heading">Human-in-the-loop review for outbound operations.</h3>
+                  </div>
+                </div>
+                <div class="data-list" id="approvals-list"></div>
+              </section>
+
+              <section class="panel">
+                <div class="panel-head">
+                  <div>
+                    <p class="eyebrow">File Permissions</p>
+                    <h3>Workspace read/write review queue.</h3>
+                  </div>
+                </div>
+                <div class="data-list" id="file-permissions-list"></div>
+              </section>
+            </div>
+
+            <section class="panel panel-audit">
+              <div class="audit-head">
+                <div>
+                  <p class="eyebrow">Audit Log</p>
+                  <h2>Live telemetry</h2>
+                  <p class="audit-note">Events, approvals, and adapter activity stream in real time.</p>
+                </div>
+                <span class="stream-indicator" id="stream-indicator">Connecting</span>
+              </div>
+              <div class="audit-stream" id="audit-stream"></div>
+            </section>
+          </section>
+        </main>
+      </div>
     </div>
 
     <div class="modal-backdrop" id="approval-modal" hidden>
-      <div class="modal">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <div class="modal-head">
           <div>
             <p class="eyebrow">Human check-in</p>
@@ -554,9 +501,9 @@
           <div class="modal-diff" id="modal-diff"></div>
         </div>
         <div class="button-row">
-          <button class="button" id="modal-approve" type="button">Approve action</button>
-          <button class="button danger" id="modal-reject" type="button">Decline action</button>
-          <button class="button ghost" id="modal-close" type="button">Close for now</button>
+          <button class="button" id="modal-approve" type="button">Approve</button>
+          <button class="button danger" id="modal-reject" type="button">Decline</button>
+          <button class="button ghost" id="modal-close" type="button">Close</button>
         </div>
       </div>
     </div>

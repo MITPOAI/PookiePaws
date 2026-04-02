@@ -127,6 +127,41 @@ func NewSkillExecutionInterceptor() *SkillExecutionInterceptor {
 					return nil
 				},
 			},
+			"mitpo-ba-researcher": {
+				risk:        "low",
+				allowedKeys: setOf("company", "domains", "focus_areas", "market"),
+				altPrompt:   "Suggest a read-only research workflow limited to public data.",
+			},
+			"mitpo-creative-director": {
+				risk:        "low",
+				allowedKeys: setOf("brand_name", "tone", "audience", "content_type", "guidelines"),
+				altPrompt:   "Suggest a creative workflow that generates copy without external sends.",
+			},
+			"mitpo-seo-auditor": {
+				risk:        "low",
+				allowedKeys: setOf("url", "keywords", "crawl_limit", "check_mobile"),
+				altPrompt:   "Suggest a read-only SEO audit limited to public URLs.",
+				inspectInput: func(input map[string]any) *payloadFinding {
+					rawURL := strings.TrimSpace(conv.AsString(input["url"]))
+					if rawURL == "" {
+						return nil
+					}
+					parsed, err := url.Parse(rawURL)
+					if err != nil {
+						return nil
+					}
+					host := strings.ToLower(strings.TrimSpace(parsed.Hostname()))
+					if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+						return &payloadFinding{
+							path:      "url",
+							reason:    "local addresses are blocked from SEO audits",
+							violation: "local_target_blocked",
+							risk:      "medium",
+						}
+					}
+					return nil
+				},
+			},
 		},
 	}
 }

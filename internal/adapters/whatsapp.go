@@ -269,6 +269,86 @@ func (a *WhatsAppAdapter) ParseDeliveryEvents(payload map[string]any) []engine.C
 	return events
 }
 
+func (a *WhatsAppAdapter) ParseIncomingMessages(payload map[string]any) []engine.ChannelIncomingMessage {
+	var messages []engine.ChannelIncomingMessage
+	entries, ok := payload["entry"].([]any)
+	if !ok {
+		return messages
+	}
+
+	for _, entry := range entries {
+		entryMap, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		changes, ok := entryMap["changes"].([]any)
+		if !ok {
+			continue
+		}
+		for _, rawChange := range changes {
+			change, ok := rawChange.(map[string]any)
+			if !ok {
+				continue
+			}
+			value, ok := change["value"].(map[string]any)
+			if !ok {
+				continue
+			}
+
+			// Build contacts lookup: wa_id → profile name.
+			contactNames := map[string]string{}
+			if contacts, ok := value["contacts"].([]any); ok {
+				for _, rawContact := range contacts {
+					contact, ok := rawContact.(map[string]any)
+					if !ok {
+						continue
+					}
+					waID := strings.TrimSpace(fmt.Sprint(contact["wa_id"]))
+					if profile, ok := contact["profile"].(map[string]any); ok {
+						contactNames[waID] = strings.TrimSpace(fmt.Sprint(profile["name"]))
+					}
+				}
+			}
+
+			// Extract incoming messages.
+			rawMessages, ok := value["messages"].([]any)
+			if !ok {
+				continue
+			}
+			for _, rawMsg := range rawMessages {
+				msgMap, ok := rawMsg.(map[string]any)
+				if !ok {
+					continue
+				}
+				msgType := strings.TrimSpace(fmt.Sprint(msgMap["type"]))
+				from := strings.TrimSpace(fmt.Sprint(msgMap["from"]))
+				msgID := strings.TrimSpace(fmt.Sprint(msgMap["id"]))
+
+				msg := engine.ChannelIncomingMessage{
+					Provider:  whatsAppProviderMetaCloud,
+					Channel:   whatsAppChannel,
+					MessageID: msgID,
+					From:      from,
+					FromName:  contactNames[from],
+					Type:      msgType,
+					Timestamp: parseWhatsAppTimestamp(msgMap["timestamp"]),
+					Raw:       msgMap,
+				}
+
+				// Extract text body for text messages.
+				if msgType == "text" {
+					if textObj, ok := msgMap["text"].(map[string]any); ok {
+						msg.Text = strings.TrimSpace(fmt.Sprint(textObj["body"]))
+					}
+				}
+
+				messages = append(messages, msg)
+			}
+		}
+	}
+	return messages
+}
+
 func validateWhatsAppRequest(req engine.ChannelSendRequest) error {
 	switch req.Type {
 	case "text":

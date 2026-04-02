@@ -33,6 +33,9 @@ const (
 	EventFileAccessApproved  EventType = "file.access.approved"
 	EventFileAccessRejected  EventType = "file.access.rejected"
 	EventFileAccessDenied    EventType = "file.access.denied"
+
+	EventChannelIncoming EventType = "channel.incoming"
+	EventAutoApproved    EventType = "approval.auto_approved"
 )
 
 type Event struct {
@@ -182,6 +185,13 @@ type FilePermission struct {
 	CreatedAt  time.Time      `json:"created_at"`
 	UpdatedAt  time.Time      `json:"updated_at"`
 	ExpiresAt  *time.Time     `json:"expires_at,omitempty"`
+}
+
+// AutoApprovalPolicy controls whether low-risk adapter actions bypass the
+// human approval modal and execute silently with an audit log entry.
+type AutoApprovalPolicy struct {
+	Enabled bool   `json:"enabled"`
+	MaxRisk string `json:"max_risk"` // "low" or "medium"
 }
 
 type StatusSnapshot struct {
@@ -397,6 +407,20 @@ type SMSAdapter interface {
 	Execute(ctx context.Context, action AdapterAction, secrets SecretProvider) (AdapterResult, error)
 }
 
+// ChannelIncomingMessage represents an inbound message received from a channel
+// provider webhook (e.g. WhatsApp incoming text from a customer).
+type ChannelIncomingMessage struct {
+	Provider  string         `json:"provider"`
+	Channel   string         `json:"channel"`
+	MessageID string         `json:"message_id"`
+	From      string         `json:"from"`
+	FromName  string         `json:"from_name,omitempty"`
+	Type      string         `json:"type"`
+	Text      string         `json:"text,omitempty"`
+	Timestamp time.Time      `json:"timestamp"`
+	Raw       map[string]any `json:"raw,omitempty"`
+}
+
 type ChannelAdapter interface {
 	Name() string
 	Channel() string
@@ -404,6 +428,7 @@ type ChannelAdapter interface {
 	Test(ctx context.Context, secrets SecretProvider) (ChannelProviderStatus, error)
 	Send(ctx context.Context, req ChannelSendRequest, secrets SecretProvider) (ChannelSendResult, error)
 	ParseDeliveryEvents(payload map[string]any) []ChannelDeliveryEvent
+	ParseIncomingMessages(payload map[string]any) []ChannelIncomingMessage
 }
 
 type StateStore interface {

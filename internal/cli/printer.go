@@ -14,14 +14,17 @@ import (
 // ── Colour constants ────────────────────────────────────────────────────────
 
 const (
-	ansiReset       = "\033[0m"
-	ansiDim         = "\033[2m"
-	ansiBoldGreen   = "\033[1;32m"
-	ansiBoldRed     = "\033[1;31m"
-	ansiBoldYellow  = "\033[1;33m"
-	ansiBoldCyan    = "\033[1;36m"
-	ansiBoldMagenta = "\033[1;35m" // mitpo.io accent
-	ansiBoldWhite   = "\033[1;37m"
+	ansiReset     = "\033[0m"
+	ansiDim       = "\033[2m"
+	ansiPrimary   = "\033[1;38;5;255m"
+	ansiSlate     = "\033[38;5;252m"
+	ansiMuted     = "\033[38;5;244m"
+	ansiSuccess   = "\033[1;38;5;78m"
+	ansiDanger    = "\033[1;38;5;203m"
+	ansiWarning   = "\033[1;38;5;221m"
+	ansiInfo      = "\033[1;38;5;117m"
+	ansiAccent    = "\033[1;38;5;218m"
+	ansiSelection = "\033[1;38;5;218m"
 )
 
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -64,17 +67,17 @@ func (p *Printer) emit(code, prefix, format string, args []any) {
 	fmt.Fprintln(p.out, p.paint(code, "  "+prefix)+" "+msg)
 }
 
-// Success prints a green "✓" line.
-func (p *Printer) Success(format string, args ...any) { p.emit(ansiBoldGreen, "✓", format, args) }
+// Success prints a green "[✔]" line.
+func (p *Printer) Success(format string, args ...any) { p.emit(ansiSuccess, "[✔]", format, args) }
 
-// Error prints a red "✗" line.
-func (p *Printer) Error(format string, args ...any) { p.emit(ansiBoldRed, "✗", format, args) }
+// Error prints a red "[x]" line.
+func (p *Printer) Error(format string, args ...any) { p.emit(ansiDanger, "[x]", format, args) }
 
-// Warning prints a yellow "⚠" line.
-func (p *Printer) Warning(format string, args ...any) { p.emit(ansiBoldYellow, "⚠", format, args) }
+// Warning prints a yellow "[!]" line.
+func (p *Printer) Warning(format string, args ...any) { p.emit(ansiWarning, "[!]", format, args) }
 
-// Info prints a cyan "→" line.
-func (p *Printer) Info(format string, args ...any) { p.emit(ansiBoldCyan, "→", format, args) }
+// Info prints a blue "[i]" line.
+func (p *Printer) Info(format string, args ...any) { p.emit(ansiInfo, "[i]", format, args) }
 
 // Blank prints an empty line.
 func (p *Printer) Blank() { fmt.Fprintln(p.out) }
@@ -84,14 +87,14 @@ func (p *Printer) Plain(format string, args ...any) {
 	fmt.Fprintf(p.out, "  "+format+"\n", args...)
 }
 
-// Accent prints text in the mitpo.io accent colour (bold magenta).
+// Accent prints text in the soft pink Pookie accent.
 func (p *Printer) Accent(format string, args ...any) {
-	fmt.Fprintln(p.out, p.paint(ansiBoldMagenta, fmt.Sprintf("  "+format, args...)))
+	fmt.Fprintln(p.out, p.paint(ansiAccent, fmt.Sprintf("  "+format, args...)))
 }
 
 // Dim prints faded text.
 func (p *Printer) Dim(format string, args ...any) {
-	fmt.Fprintln(p.out, p.paint(ansiDim, fmt.Sprintf("  "+format, args...)))
+	fmt.Fprintln(p.out, p.paint(ansiMuted, fmt.Sprintf("  "+format, args...)))
 }
 
 // Rule prints a horizontal divider with an optional label.
@@ -108,14 +111,16 @@ func (p *Printer) Rule(label string) {
 		}
 		s = prefix + strings.Repeat("─", n)
 	}
-	fmt.Fprintln(p.out, p.paint(ansiDim, s))
+	fmt.Fprintln(p.out, p.paint(ansiMuted, s))
 }
 
 // Banner prints the PookiePaws identity header.
 func (p *Printer) Banner() {
 	fmt.Fprintln(p.out)
-	fmt.Fprintln(p.out, p.paint(ansiBoldMagenta, "  PookiePaws"))
-	fmt.Fprintln(p.out, p.paint(ansiDim, "  Local-first marketing operations runtime · mitpo.io"))
+	fmt.Fprintln(p.out, p.paint(ansiAccent, "      /\\_/\\\\"))
+	fmt.Fprintln(p.out, p.paint(ansiPrimary, "     ( o.o )   PookiePaws"))
+	fmt.Fprintln(p.out, p.paint(ansiSlate, "      > ^ <    local-first marketing runtime"))
+	fmt.Fprintln(p.out, p.paint(ansiMuted, "               mitpo.io"))
 	fmt.Fprintln(p.out)
 }
 
@@ -151,14 +156,18 @@ func (p *Printer) Box(title string, rows [][2]string) {
 		trailing := boxW - 2 - maxKey - 2 - len(val)
 		if trailing < 0 {
 			avail := boxW - 4 - maxKey
-			if avail > 1 && len(val) > avail {
-				val = val[:avail-1] + "…"
+			if avail > 0 && len(val) > avail {
+				if avail > 3 {
+					val = val[:avail-3] + "..."
+				} else {
+					val = val[:avail]
+				}
 			}
 			trailing = 0
 		}
 		if p.color {
 			fmt.Fprintf(p.out, "  │  %s%s%s%s%s%s│\n",
-				ansiBoldWhite, key, ansiReset,
+				ansiPrimary, key, ansiReset,
 				strings.Repeat(" ", gap), val,
 				strings.Repeat(" ", trailing),
 			)
@@ -176,7 +185,7 @@ func (p *Printer) Box(title string, rows [][2]string) {
 
 func (p *Printer) emitDim(s string) {
 	if p.color {
-		fmt.Fprintln(p.out, ansiDim+s+ansiReset)
+		fmt.Fprintln(p.out, ansiMuted+s+ansiReset)
 	} else {
 		fmt.Fprintln(p.out, s)
 	}
@@ -231,7 +240,7 @@ func (s *Spinner) Start() {
 				frame := spinnerFrames[i%len(spinnerFrames)]
 				if s.p.color {
 					fmt.Fprintf(s.p.out, "\r  %s%s%s  %s",
-						ansiBoldMagenta, frame, ansiReset, lbl)
+						ansiAccent, frame, ansiReset, lbl)
 				} else {
 					fmt.Fprintf(s.p.out, "\r  %s  %s", frame, lbl)
 				}

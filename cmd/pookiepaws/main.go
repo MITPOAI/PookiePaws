@@ -93,6 +93,7 @@ func main() {
 		log.Printf("brain disabled: no LLM provider configured")
 	}
 
+	shutdown := make(chan struct{}, 1)
 	api := gateway.NewServer(gateway.Config{
 		Coordinator: coord,
 		EventBus:    bus,
@@ -100,6 +101,12 @@ func main() {
 		Vault:       secrets,
 		WhatsApp:    adapters.NewWhatsAppAdapter(),
 		Address:     *addr,
+		RequestShutdown: func() {
+			select {
+			case shutdown <- struct{}{}:
+			default:
+			}
+		},
 	})
 
 	httpServer := &http.Server{
@@ -118,7 +125,10 @@ func main() {
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-	<-stop
+	select {
+	case <-stop:
+	case <-shutdown:
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

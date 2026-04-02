@@ -26,21 +26,22 @@ type WorkflowCoordinatorConfig struct {
 }
 
 type StandardWorkflowCoordinator struct {
-	bus         EventBus
-	subturns    SubTurnManager
-	store       StateStore
-	skills      SkillRegistry
-	sandbox     Sandbox
-	secrets     SecretProvider
-	memory      MemoryCompressor
-	interceptor ExecutionInterceptor
-	crmAdapter  CRMAdapter
-	smsAdapter  SMSAdapter
-	whatsApp    ChannelAdapter
-	runtimeRoot string
-	workspace   string
-	startedAt   time.Time
-	nextID      uint64
+	bus          EventBus
+	subturns     SubTurnManager
+	store        StateStore
+	skills       SkillRegistry
+	sandbox      Sandbox
+	secrets      SecretProvider
+	memory       MemoryCompressor
+	interceptor  ExecutionInterceptor
+	crmAdapter   CRMAdapter
+	smsAdapter   SMSAdapter
+	whatsApp     ChannelAdapter
+	runtimeRoot  string
+	workspace    string
+	startedAt    time.Time
+	nextID       uint64
+	autoApproval atomic.Value // stores *AutoApprovalPolicy
 }
 
 func NewWorkflowCoordinator(cfg WorkflowCoordinatorConfig) (*StandardWorkflowCoordinator, error) {
@@ -82,11 +83,13 @@ func (c *StandardWorkflowCoordinator) SubmitWorkflow(ctx context.Context, def Wo
 	if !ok {
 		return Workflow{}, fmt.Errorf("unknown skill %q", def.Skill)
 	}
+	var skillRisk string
 	if c.interceptor != nil {
 		decision, err := c.interceptor.Inspect(ctx, skill.Definition(), def.Input)
 		if err != nil {
 			return Workflow{}, err
 		}
+		skillRisk = decision.Risk
 		if !decision.Allowed {
 			c.publishAndAudit(ctx, Event{
 				Type:   EventExecutionBlocked,
@@ -215,6 +218,23 @@ func (c *StandardWorkflowCoordinator) SubmitWorkflow(ctx context.Context, def Wo
 				}
 				workflow.Output["message_id"] = messageID
 			}
+		}
+
+		// Smart Sandbox: auto-approve low-risk actions when the policy permits.
+		if action.RequiresApproval && c.shouldAutoApprove(skillRisk) {
+			action.RequiresApproval = false
+			c.publishAndAudit(ctx, Event{
+				Type:       EventAutoApproved,
+				WorkflowID: workflow.ID,
+				Source:     "auto-approval",
+				Payload: map[string]any{
+					"skill":     workflow.Skill,
+					"adapter":   action.Adapter,
+					"operation": action.Operation,
+					"risk":      skillRisk,
+					"reason":    "auto-approved by smart sandbox policy",
+				},
+			})
 		}
 
 		if action.RequiresApproval {
@@ -611,6 +631,47 @@ func (c *StandardWorkflowCoordinator) nextMessageID() string {
 // permissioned wrapper without a circular dependency.
 func (c *StandardWorkflowCoordinator) SetSandbox(s Sandbox) {
 	c.sandbox = s
+}
+
+// SetAutoApprovalPolicy updates the auto-approval policy at runtime.
+// Thread-safe via atomic.Value.
+func (c *StandardWorkflowCoordinator) SetAutoApprovalPolicy(p AutoApprovalPolicy) {
+	c.autoApproval.Store(&p)
+}
+
+// GetAutoApprovalPolicy returns the current auto-approval policy.
+func (c *StandardWorkflowCoordinator) GetAutoApprovalPolicy() AutoApprovalPolicy {
+	if v := c.autoApproval.Load(); v != nil {
+		return *v.(*AutoApprovalPolicy)
+	}
+	return AutoApprovalPolicy{}
+}
+
+// shouldAutoApprove returns true when the auto-approval policy permits
+// skipping the human approval modal for the given risk level.
+func (c *StandardWorkflowCoordinator) shouldAutoApprove(skillRisk string) bool {
+	v := c.autoApproval.Load()
+	if v == nil {
+		return false
+	}
+	policy := v.(*AutoApprovalPolicy)
+	if !policy.Enabled {
+		return false
+	}
+	return riskLevelOrdinal(skillRisk) <= riskLevelOrdinal(policy.MaxRisk)
+}
+
+func riskLevelOrdinal(level string) int {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "low":
+		return 1
+	case "medium":
+		return 2
+	case "high":
+		return 3
+	default:
+		return 99
+	}
 }
 
 func (c *StandardWorkflowCoordinator) RequestFileAccess(ctx context.Context, path string, mode FileAccessMode, requester string) (FilePermission, error) {

@@ -77,6 +77,12 @@ third-party TUI libraries are used.
 
 Key design decisions:
 
+- **Smart Sandbox auto-approval**: The `StandardWorkflowCoordinator` stores
+  an `AutoApprovalPolicy` via `atomic.Value`. When enabled, actions whose
+  interceptor risk level is at or below `MaxRisk` have `RequiresApproval`
+  overridden to `false` before the approval record is created. This keeps
+  skill code unchanged — skills still declare intent, and the coordinator
+  applies policy at runtime.
 - `cmd/pookie/stack.go` extracts `buildStack` so `start` and `run` share
   identical initialisation without duplication.
 - `cmd/pookie/roots.go` centralises OS-agnostic path resolution:
@@ -136,12 +142,18 @@ Current built-in skills:
 - `salesmanago-lead-router`
 - `mitto-sms-drafter`
 - `whatsapp-message-drafter`
+- `mitpo-ba-researcher` — business analysis and competitor intelligence
+- `mitpo-creative-director` — brand voice copy generation
+- `mitpo-seo-auditor` — URL keyword density and technical SEO audit
 
 Current adapter posture:
 
 - live HTTP adapters for SALESmanago and Mitto
 - outbound WhatsApp channel adapter behind a provider-facing abstraction
+- inbound WhatsApp message parsing (`ParseIncomingMessages`) with brain dispatch
+  for AI-driven workflow routing from incoming customer messages
 - approval-gated execution for all outward-facing actions
+- risk-based auto-approval for low-risk skills via Smart Sandbox policy
 - no MITPO-private integration in the open-source core
 
 ### 4. LLM Brain

@@ -18,7 +18,7 @@ import (
 	"github.com/mitpoai/pookiepaws/internal/gateway"
 )
 
-const version = "0.4.0"
+const version = "0.5.0"
 
 func main() {
 	// No arguments → launch interactive menu.
@@ -155,6 +155,7 @@ func cmdStart(args []string) {
 		p.Warning(warning)
 	}
 
+	shutdown := make(chan struct{}, 1)
 	api := gateway.NewServer(gateway.Config{
 		Coordinator: stack.coord,
 		EventBus:    stack.bus,
@@ -162,6 +163,12 @@ func cmdStart(args []string) {
 		Vault:       stack.secrets,
 		WhatsApp:    adapters.NewWhatsAppAdapter(),
 		Address:     *addr,
+		RequestShutdown: func() {
+			select {
+			case shutdown <- struct{}{}:
+			default:
+			}
+		},
 	})
 
 	httpServer := &http.Server{
@@ -183,7 +190,10 @@ func cmdStart(args []string) {
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-	<-stop
+	select {
+	case <-stop:
+	case <-shutdown:
+	}
 	signal.Stop(stop)
 
 	p.Blank()

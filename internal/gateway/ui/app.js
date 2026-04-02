@@ -4,6 +4,12 @@
   const STORAGE_KEY = "pookiepaws:canvas:v1";
   const THEME_STORAGE_KEY = "pookiepaws:theme:v1";
   const THEMES = Object.freeze(["light", "dark", "soft"]);
+  const VIEW_METADATA = Object.freeze({
+    dashboard: { title: "Dashboard", breadcrumb: "Dashboard / Overview" },
+    workflows: { title: "Workflows", breadcrumb: "Workflows / Active" },
+    settings: { title: "Vault / Settings", breadcrumb: "Vault / Settings" },
+    audit: { title: "Audit Log", breadcrumb: "Audit Log / Live" }
+  });
 
   // UI microcopy guidelines:
   // 1. Lead with the current state before naming the problem.
@@ -109,7 +115,7 @@
   };
 
   const state = {
-    view: "workflows",
+    view: "dashboard",
     console: null,
     vault: null,
     vaultNotice: "",
@@ -140,6 +146,7 @@
     cacheRefs();
     state.theme = loadTheme();
     applyTheme(state.theme);
+    setAgentStatus(false, "Connecting");
     renderThemeSwitcher();
     bindNavigation();
     bindThemeSwitcher();
@@ -150,13 +157,23 @@
     refreshConsoleState();
     startChatControlPlane();
     startAuditStream();
+    initAutoApprovalToggle();
+    initHamburger();
+    initKillSwitch();
+    initCopyButtons();
+    initModalAccessibility();
   }
 
   function cacheRefs() {
     refs.navItems = Array.from(document.querySelectorAll(".nav-item"));
     refs.views = Array.from(document.querySelectorAll(".view"));
-    refs.themeButtons = Array.from(document.querySelectorAll("[data-theme-switch]"));
+    refs.themeToggle = document.getElementById("theme-toggle");
+    refs.themeToggleIcon = document.getElementById("theme-toggle-icon");
     refs.themeStatus = document.getElementById("theme-status");
+    refs.headerTitle = document.getElementById("header-title");
+    refs.headerBreadcrumb = document.getElementById("header-breadcrumb");
+    refs.agentStatusDot = document.getElementById("agent-status-dot");
+    refs.agentStatusLabel = document.getElementById("agent-status-label");
     refs.runtimeBadge = document.getElementById("runtime-badge");
     refs.runtimeDetail = document.getElementById("runtime-detail");
     refs.brainBadge = document.getElementById("brain-badge");
@@ -210,15 +227,36 @@
     refs.navItems.forEach((item) => {
       item.addEventListener("click", () => setView(item.dataset.view));
     });
-    refs.refreshConsole.addEventListener("click", () => refreshConsoleState());
-    refs.openApprovals.addEventListener("click", () => setView("approvals"));
+    if (refs.refreshConsole) {
+      refs.refreshConsole.addEventListener("click", () => refreshConsoleState());
+    }
+    if (refs.openApprovals) {
+      refs.openApprovals.addEventListener("click", () => setView("audit"));
+    }
+  }
+
+  function initAutoApprovalToggle() {
+    var toggle = document.getElementById("auto-approve-toggle");
+    if (!toggle) return;
+    fetch("/api/v1/settings/auto-approval")
+      .then(function (r) { return r.json(); })
+      .then(function (policy) { toggle.checked = !!policy.enabled; })
+      .catch(function () {});
+    toggle.addEventListener("change", function () {
+      fetch("/api/v1/settings/auto-approval", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: toggle.checked, max_risk: "low" })
+      }).catch(function () {});
+    });
   }
 
   function bindThemeSwitcher() {
-    refs.themeButtons.forEach((button) => {
-      button.addEventListener("click", () => {
-        setTheme(button.dataset.themeSwitch);
-      });
+    if (!refs.themeToggle) {
+      return;
+    }
+    refs.themeToggle.addEventListener("click", () => {
+      setTheme(nextThemeID(state.theme));
     });
   }
 
@@ -383,12 +421,22 @@
   }
 
   function renderNavigation() {
+    const activeView = resolveView(state.view);
+    const meta = VIEW_METADATA[activeView] || VIEW_METADATA.dashboard;
+    state.view = activeView;
     refs.navItems.forEach((item) => {
-      item.classList.toggle("is-active", item.dataset.view === state.view);
+      item.classList.toggle("is-active", item.dataset.view === activeView);
     });
     refs.views.forEach((view) => {
-      view.classList.toggle("is-active", view.id === `view-${state.view}`);
+      view.classList.toggle("is-active", view.id === `view-${activeView}`);
     });
+    if (refs.headerTitle) {
+      refs.headerTitle.textContent = meta.title;
+    }
+    if (refs.headerBreadcrumb) {
+      refs.headerBreadcrumb.textContent = meta.breadcrumb;
+    }
+    document.title = `${meta.title} | PookiePaws`;
   }
 
   function renderSidebarStatus() {
@@ -646,13 +694,17 @@
   }
 
   function renderThemeSwitcher() {
-    refs.themeButtons.forEach((button) => {
-      const active = button.dataset.themeSwitch === state.theme;
-      button.classList.toggle("is-active", active);
-      button.setAttribute("aria-pressed", String(active));
-    });
+    const activeTheme = isValidTheme(state.theme) ? state.theme : "dark";
+    const nextTheme = nextThemeID(activeTheme);
+    if (refs.themeToggleIcon) {
+      refs.themeToggleIcon.innerHTML = themeIconMarkup(activeTheme);
+    }
+    if (refs.themeToggle) {
+      refs.themeToggle.setAttribute("aria-label", `Cycle theme. Current ${themeLabel(activeTheme)}. Next ${themeLabel(nextTheme)}.`);
+      refs.themeToggle.setAttribute("title", `Theme: ${themeLabel(activeTheme)}. Next: ${themeLabel(nextTheme)}.`);
+    }
     if (refs.themeStatus) {
-      refs.themeStatus.textContent = MICROCOPY.themes[state.theme] || MICROCOPY.themes.light;
+      refs.themeStatus.textContent = MICROCOPY.themes[activeTheme] || MICROCOPY.themes.light;
     }
   }
 
@@ -1276,8 +1328,11 @@
     state.eventSource = source;
 
     source.onopen = () => {
-      refs.streamIndicator.textContent = "Live";
-      refs.streamIndicator.classList.add("is-live");
+      if (refs.streamIndicator) {
+        refs.streamIndicator.textContent = "Live";
+        refs.streamIndicator.classList.add("is-live");
+      }
+      setAgentStatus(true, "Live");
       pushAuditEntry({
         type: "client.connected",
         title: "Audit stream connected",
@@ -1310,8 +1365,12 @@
     };
 
     source.onerror = () => {
-      refs.streamIndicator.textContent = "Reconnecting";
-      refs.streamIndicator.classList.remove("is-live");
+      const label = source.readyState === window.EventSource.CLOSED ? "Offline" : "Reconnecting";
+      if (refs.streamIndicator) {
+        refs.streamIndicator.textContent = label;
+        refs.streamIndicator.classList.remove("is-live");
+      }
+      setAgentStatus(false, label);
     };
   }
 
@@ -1324,8 +1383,24 @@
   }
 
   function setView(view) {
-    state.view = view || "workflows";
+    state.view = resolveView(view);
     renderNavigation();
+  }
+
+  function resolveView(view) {
+    const candidate = String(view || "").trim();
+    const exists = refs.views.some((item) => item.id === `view-${candidate}`);
+    return exists ? candidate : "dashboard";
+  }
+
+  function setAgentStatus(isLive, label) {
+    if (refs.agentStatusDot) {
+      refs.agentStatusDot.classList.toggle("is-live", Boolean(isLive));
+      refs.agentStatusDot.classList.toggle("is-offline", !isLive);
+    }
+    if (refs.agentStatusLabel) {
+      refs.agentStatusLabel.textContent = label || (isLive ? "Live" : "Offline");
+    }
   }
 
   function addNode(type) {
@@ -1833,6 +1908,56 @@
     renderCanvas();
   }
 
+  function nextThemeID(theme) {
+    const currentIndex = THEMES.indexOf(isValidTheme(theme) ? theme : "dark");
+    return THEMES[(currentIndex + 1) % THEMES.length];
+  }
+
+  function themeLabel(theme) {
+    switch (theme) {
+    case "light":
+      return "Classic Light";
+    case "dark":
+      return "Classic Dark";
+    case "soft":
+      return "Pookie Soft";
+    default:
+      return "Classic Dark";
+    }
+  }
+
+  function themeIconMarkup(theme) {
+    switch (theme) {
+    case "light":
+      return `
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4"></circle>
+          <path d="M12 2v2.2"></path>
+          <path d="M12 19.8V22"></path>
+          <path d="m4.93 4.93 1.56 1.56"></path>
+          <path d="m17.51 17.51 1.56 1.56"></path>
+          <path d="M2 12h2.2"></path>
+          <path d="M19.8 12H22"></path>
+          <path d="m4.93 19.07 1.56-1.56"></path>
+          <path d="m17.51 6.49 1.56-1.56"></path>
+        </svg>
+      `;
+    case "soft":
+      return `
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+          <path d="M12 21c-.33 0-.66-.11-.93-.32l-5.88-4.55A6.27 6.27 0 0 1 3 11.14C3 7.75 5.66 5 8.95 5c1.26 0 2.48.42 3.45 1.19A5.62 5.62 0 0 1 15.85 5C19.22 5 22 7.77 22 11.16c0 1.95-.9 3.8-2.48 5.04l-6.6 4.48c-.27.21-.59.32-.92.32Z"></path>
+        </svg>
+      `;
+    case "dark":
+    default:
+      return `
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3c-.08.49-.12 1-.12 1.5A7.5 7.5 0 0 0 18.5 12c.5 0 1.01-.04 1.5-.12Z"></path>
+        </svg>
+      `;
+    }
+  }
+
   function applyTheme(theme) {
     const resolved = isValidTheme(theme) ? theme : "dark";
     document.documentElement.dataset.theme = resolved;
@@ -2031,5 +2156,120 @@
 
   function clamp(value, min, max) {
     return Math.min(Math.max(value, min), max);
+  }
+
+  // ── Hamburger menu (mobile sidebar toggle) ────────────────────────────
+  function initHamburger() {
+    var btn = document.getElementById("hamburger-btn");
+    var sidebar = document.querySelector(".sidebar");
+    var backdrop = document.getElementById("sidebar-backdrop");
+    if (!btn || !sidebar) return;
+    function toggle(open) {
+      sidebar.classList.toggle("is-open", open);
+      if (backdrop) backdrop.classList.toggle("is-open", open);
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+      document.body.style.overflow = open ? "hidden" : "";
+    }
+    btn.addEventListener("click", function () {
+      toggle(!sidebar.classList.contains("is-open"));
+    });
+    if (backdrop) {
+      backdrop.addEventListener("click", function () { toggle(false); });
+    }
+    refs.navItems.forEach(function (item) {
+      item.addEventListener("click", function () {
+        if (window.innerWidth <= 768) toggle(false);
+      });
+    });
+  }
+
+  // ── Kill switch (stop agent safety button) ────────────────────────────
+  function initKillSwitch() {
+    var btn = document.getElementById("stop-agent");
+    if (!btn) return;
+    var originalMarkup = btn.innerHTML;
+    btn.addEventListener("click", async function () {
+      if (!confirm("Stop the PookiePaws agent? This will shut down the local server.")) return;
+      btn.textContent = "Stopping...";
+      btn.disabled = true;
+      btn.style.opacity = "0.5";
+      try {
+        await fetchJSON("/api/v1/system/stop", { method: "POST" });
+        setAgentStatus(false, "Stopping");
+      } catch (error) {
+        btn.disabled = false;
+        btn.style.opacity = "";
+        btn.innerHTML = originalMarkup;
+        setCanvasMessage(humanizeError(error, "The kill switch could not stop the local agent yet."));
+      }
+    });
+  }
+
+  // ── Modal focus trap & Escape key (a11y) ──────────────────────────────
+  function initModalAccessibility() {
+    var modal = document.getElementById("approval-modal");
+    var lastFocusedElement = null;
+    if (!modal) return;
+
+    // Watch for modal becoming visible (hidden attribute removed).
+    var observer = new MutationObserver(function () {
+      if (!modal.hidden) {
+        lastFocusedElement = document.activeElement;
+        var firstBtn = modal.querySelector("button");
+        if (firstBtn) firstBtn.focus();
+      }
+    });
+    observer.observe(modal, { attributes: true, attributeFilter: ["hidden"] });
+
+    // Escape key closes the modal.
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && !modal.hidden) {
+        modal.hidden = true;
+        document.body.style.overflow = "";
+        if (lastFocusedElement) lastFocusedElement.focus();
+      }
+    });
+
+    // Trap Tab inside the modal while it is open.
+    modal.addEventListener("keydown", function (e) {
+      if (e.key !== "Tab") return;
+      var focusable = modal.querySelectorAll("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])");
+      if (focusable.length === 0) return;
+      var first = focusable[0];
+      var last = focusable[focusable.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+      } else {
+        if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    });
+
+    // Return focus when modal is closed by approve/reject/close buttons.
+    var closeHandler = function () {
+      if (lastFocusedElement) {
+        setTimeout(function () { lastFocusedElement.focus(); }, 50);
+      }
+    };
+    ["modal-approve", "modal-reject", "modal-close"].forEach(function (id) {
+      var btn = document.getElementById(id);
+      if (btn) btn.addEventListener("click", closeHandler);
+    });
+  }
+
+  // ── Copy-to-clipboard (delegated on .copy-btn) ────────────────────────
+  function initCopyButtons() {
+    document.addEventListener("click", function (e) {
+      var btn = e.target.closest(".copy-btn");
+      if (!btn) return;
+      var entry = btn.closest(".chat-message, .audit-entry");
+      if (!entry) return;
+      var text = entry.textContent.replace(/\s*Copy\s*$/, "").trim();
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () {
+          btn.textContent = "Copied";
+          setTimeout(function () { btn.textContent = "Copy"; }, 1200);
+        });
+      }
+    });
   }
 })();

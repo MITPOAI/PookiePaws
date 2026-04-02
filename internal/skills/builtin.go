@@ -343,3 +343,175 @@ func firstNonEmptyString(values ...string) string {
 	}
 	return ""
 }
+
+// ── mitpo-ba-researcher ─────────────────────────────────────────────────────
+
+type BAResearcherSkill struct {
+	manifest Manifest
+}
+
+func NewBAResearcherSkill(manifest Manifest) *BAResearcherSkill {
+	return &BAResearcherSkill{manifest: manifest}
+}
+
+func (s *BAResearcherSkill) Definition() engine.SkillDefinition {
+	return engine.SkillDefinition{
+		Name:        s.manifest.Name,
+		Description: s.manifest.Description,
+		Tools:       s.manifest.Tools,
+		Events:      s.manifest.Events,
+		Prompt:      s.manifest.Prompt,
+	}
+}
+
+func (s *BAResearcherSkill) Validate(input map[string]any) error {
+	company := strings.TrimSpace(conv.AsString(input["company"]))
+	if company == "" {
+		return fmt.Errorf("company is required")
+	}
+	return nil
+}
+
+func (s *BAResearcherSkill) Execute(_ context.Context, req engine.SkillRequest) (engine.SkillResult, error) {
+	company := strings.TrimSpace(conv.AsString(req.Input["company"]))
+	domains := conv.AsStringSlice(req.Input["domains"])
+	focusAreas := conv.AsStringSlice(req.Input["focus_areas"])
+	market := strings.TrimSpace(conv.AsString(req.Input["market"]))
+
+	output := map[string]any{
+		"company":  company,
+		"findings": []string{},
+		"summary":  fmt.Sprintf("Business analysis request for %s queued. Domains: %d, focus areas: %d.", company, len(domains), len(focusAreas)),
+		"sources":  []string{},
+	}
+	if market != "" {
+		output["market"] = market
+	}
+	if len(domains) > 0 {
+		output["domains"] = domains
+	}
+	if len(focusAreas) > 0 {
+		output["focus_areas"] = focusAreas
+	}
+
+	return engine.SkillResult{Output: output}, nil
+}
+
+// ── mitpo-creative-director ─────────────────────────────────────────────────
+
+type CreativeDirectorSkill struct {
+	manifest Manifest
+}
+
+func NewCreativeDirectorSkill(manifest Manifest) *CreativeDirectorSkill {
+	return &CreativeDirectorSkill{manifest: manifest}
+}
+
+func (s *CreativeDirectorSkill) Definition() engine.SkillDefinition {
+	return engine.SkillDefinition{
+		Name:        s.manifest.Name,
+		Description: s.manifest.Description,
+		Tools:       s.manifest.Tools,
+		Events:      s.manifest.Events,
+		Prompt:      s.manifest.Prompt,
+	}
+}
+
+func (s *CreativeDirectorSkill) Validate(input map[string]any) error {
+	if strings.TrimSpace(conv.AsString(input["brand_name"])) == "" {
+		return fmt.Errorf("brand_name is required")
+	}
+	if strings.TrimSpace(conv.AsString(input["tone"])) == "" {
+		return fmt.Errorf("tone is required")
+	}
+	if strings.TrimSpace(conv.AsString(input["audience"])) == "" {
+		return fmt.Errorf("audience is required")
+	}
+	return nil
+}
+
+func (s *CreativeDirectorSkill) Execute(_ context.Context, req engine.SkillRequest) (engine.SkillResult, error) {
+	brandName := strings.TrimSpace(conv.AsString(req.Input["brand_name"]))
+	tone := strings.TrimSpace(conv.AsString(req.Input["tone"]))
+	audience := strings.TrimSpace(conv.AsString(req.Input["audience"]))
+	contentType := strings.TrimSpace(conv.AsString(req.Input["content_type"]))
+	guidelines := strings.TrimSpace(conv.AsString(req.Input["guidelines"]))
+
+	output := map[string]any{
+		"brand_name":    brandName,
+		"copy_variants": []string{},
+		"tone_analysis": fmt.Sprintf("Tone direction: %s for %s audience.", tone, audience),
+		"recommendations": []string{
+			fmt.Sprintf("Consider A/B testing %s variations with the %s audience segment.", tone, audience),
+		},
+	}
+	if contentType != "" {
+		output["content_type"] = contentType
+	}
+	if guidelines != "" {
+		output["guidelines"] = guidelines
+	}
+
+	return engine.SkillResult{Output: output}, nil
+}
+
+// ── mitpo-seo-auditor ───────────────────────────────────────────────────────
+
+type SEOAuditorSkill struct {
+	manifest Manifest
+}
+
+func NewSEOAuditorSkill(manifest Manifest) *SEOAuditorSkill {
+	return &SEOAuditorSkill{manifest: manifest}
+}
+
+func (s *SEOAuditorSkill) Definition() engine.SkillDefinition {
+	return engine.SkillDefinition{
+		Name:        s.manifest.Name,
+		Description: s.manifest.Description,
+		Tools:       s.manifest.Tools,
+		Events:      s.manifest.Events,
+		Prompt:      s.manifest.Prompt,
+	}
+}
+
+func (s *SEOAuditorSkill) Validate(input map[string]any) error {
+	rawURL := strings.TrimSpace(conv.AsString(input["url"]))
+	if rawURL == "" {
+		return fmt.Errorf("url is required")
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid url: %w", err)
+	}
+	scheme := strings.ToLower(strings.TrimSpace(parsed.Scheme))
+	if scheme != "http" && scheme != "https" {
+		return fmt.Errorf("only http and https URLs are supported")
+	}
+	host := strings.ToLower(strings.TrimSpace(parsed.Hostname()))
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		return fmt.Errorf("local addresses are not allowed")
+	}
+	return nil
+}
+
+func (s *SEOAuditorSkill) Execute(_ context.Context, req engine.SkillRequest) (engine.SkillResult, error) {
+	targetURL := strings.TrimSpace(conv.AsString(req.Input["url"]))
+	keywords := conv.AsStringSlice(req.Input["keywords"])
+
+	output := map[string]any{
+		"url":   targetURL,
+		"score": 0,
+		"findings": []string{
+			"SEO audit request queued for analysis.",
+		},
+		"recommendations": []string{
+			"Full crawl and metadata evaluation pending.",
+		},
+	}
+	if len(keywords) > 0 {
+		output["keywords"] = keywords
+	}
+
+	return engine.SkillResult{Output: output}, nil
+}

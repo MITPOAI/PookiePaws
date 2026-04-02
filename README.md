@@ -74,46 +74,60 @@ Download the binary for your platform from the [Releases page](https://github.co
 
 ## Quick Start
 
-1. Ensure you are on a working Go 1.22 toolchain.
+1. Install `pookie`.
+
+Use a release binary from the [latest release](https://github.com/MITPOAI/PookiePaws/releases/latest), the installer scripts above, or build it locally if you need a development build:
 
 ```powershell
-go env -w GOTOOLCHAIN=go1.22.12+auto
-go list std > $null
-```
-
-2. Synchronize modules and build the binary.
-
-```powershell
-go mod tidy
 go build -o pookie.exe ./cmd/pookie
 ```
 
-Or use a prebuilt release binary from the project releases page and skip the Go toolchain entirely.
-
-3. Run the interactive setup wizard.
+2. Run the interactive setup wizard.
 
 ```powershell
 .\pookie.exe init
 ```
 
-The wizard collects your LLM provider settings plus optional SALESmanago, Mitto,
-and WhatsApp credentials. For a local Ollama setup this is enough (leave the API key blank):
+The new wizard uses arrow keys for the brain provider and model menus, masked input for secrets, connectivity checks for the selected LLM provider, and a checkbox flow for optional channels:
 
-```
-LLM base URL  >  http://localhost:11434/v1/chat/completions
-LLM model     >  llama3.2:latest
-LLM API key   >  [blank]
-```
+- Brain providers: OpenAI, Anthropic, Google, OpenRouter, Ollama, LM Studio / Local
+- Marketing channels: Meta WhatsApp, Mitto SMS, SALESmanago
 
-Credentials are written to `~\.pookiepaws\.security.json` with mode 0600.
+Credentials are written atomically to `~/.pookiepaws/.security.json` by default. The wizard uses `os.UserHomeDir()` plus `filepath.Join()` internally, and keeps `--home` / `POOKIEPAWS_HOME` support for custom runtime roots. On Unix systems the file is locked to `0600`; on Windows the save remains best-effort because ACLs do not map directly to Unix mode bits.
 
-4. Start the agent.
+3. Start the agent.
 
 ```powershell
 .\pookie.exe start
 ```
 
 Open [http://127.0.0.1:18800/](http://127.0.0.1:18800/).
+
+## Setup Wizard
+
+`pookie init` is now a staged setup wizard rather than a line-by-line prompt list.
+
+**Controls**
+
+- `↑/↓` move through menus
+- `Space` toggle channel checkboxes
+- `Enter` confirm
+- `Esc` go back or cancel the current wizard step
+- `Ctrl+C` exit immediately
+
+**Brain setup**
+
+- Hosted presets auto-fill the exact chat-completions endpoint and curated model IDs.
+- Local presets do not require an API key.
+- LM Studio attempts local model discovery from `/v1/models` and falls back to manual model entry when the server is offline.
+- After you enter a hosted API key, Pookie runs a short connectivity check before saving the config.
+
+**Channel setup**
+
+- Channels are optional and selected through a checkbox screen.
+- WhatsApp runs a real credential test against the configured Meta-compatible endpoint.
+- Mitto and SALESmanago currently use strict field and URL validation during setup.
+- A final review screen shows the selected brain, active channels, redacted secrets, and the config path before the file is written.
 
 ## Cross-Platform Build & Run
 

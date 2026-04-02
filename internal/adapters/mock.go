@@ -116,3 +116,7 @@ func (a *MockWhatsAppAdapter) ParseDeliveryEvents(payload map[string]any) []engi
 		Raw:       payload,
 	}}
 }
+
+func (a *MockWhatsAppAdapter) ParseIncomingMessages(_ map[string]any) []engine.ChannelIncomingMessage {
+	return nil
+}

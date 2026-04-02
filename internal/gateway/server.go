@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mitpoai/pookiepaws/internal/brain"
@@ -21,12 +22,13 @@ import (
 var uiFS embed.FS
 
 type Config struct {
-	Coordinator engine.WorkflowCoordinator
-	EventBus    engine.EventBus
-	Brain       PromptDispatcher
-	Vault       Vault
-	WhatsApp    engine.ChannelAdapter
-	Address     string
+	Coordinator     engine.WorkflowCoordinator
+	EventBus        engine.EventBus
+	Brain           PromptDispatcher
+	Vault           Vault
+	WhatsApp        engine.ChannelAdapter
+	Address         string
+	RequestShutdown func()
 }
 
 type PromptDispatcher interface {
@@ -196,16 +198,18 @@ type IndexViewModel struct {
 }
 
 type Server struct {
-	coordinator engine.WorkflowCoordinator
-	eventBus    engine.EventBus
-	brain       PromptDispatcher
-	vault       Vault
-	whatsApp    engine.ChannelAdapter
-	chat        *chatStore
-	address     string
-	mux         *http.ServeMux
-	indexTmpl   *template.Template
-	indexView   IndexViewModel
+	coordinator     engine.WorkflowCoordinator
+	eventBus        engine.EventBus
+	brain           PromptDispatcher
+	vault           Vault
+	whatsApp        engine.ChannelAdapter
+	requestShutdown func()
+	chat            *chatStore
+	address         string
+	mux             *http.ServeMux
+	indexTmpl       *template.Template
+	indexView       IndexViewModel
+	seenIncoming    sync.Map // deduplication for incoming WhatsApp messages
 }
 
 func NewServer(cfg Config) *Server {
@@ -215,15 +219,16 @@ func NewServer(cfg Config) *Server {
 	}
 
 	server := &Server{
-		coordinator: cfg.Coordinator,
-		eventBus:    cfg.EventBus,
-		brain:       cfg.Brain,
-		vault:       cfg.Vault,
-		whatsApp:    cfg.WhatsApp,
-		chat:        newChatStore(),
-		address:     cfg.Address,
-		mux:         http.NewServeMux(),
-		indexTmpl:   indexTmpl,
+		coordinator:     cfg.Coordinator,
+		eventBus:        cfg.EventBus,
+		brain:           cfg.Brain,
+		vault:           cfg.Vault,
+		whatsApp:        cfg.WhatsApp,
+		requestShutdown: cfg.RequestShutdown,
+		chat:            newChatStore(),
+		address:         cfg.Address,
+		mux:             http.NewServeMux(),
+		indexTmpl:       indexTmpl,
 		indexView: IndexViewModel{
 			Title:        "PookiePaws Operator Console",
 			DefaultTheme: "dark",
@@ -249,12 +254,14 @@ func (s *Server) routes() {
 	}
 
 	s.mux.HandleFunc("/", s.handleIndex)
+	s.mux.HandleFunc("/favicon.ico", s.handleFavicon)
 	s.mux.HandleFunc("/healthz", s.handleHealth)
 	s.mux.HandleFunc("/readyz", s.handleReadiness)
 	s.mux.Handle("/ui/", http.StripPrefix("/ui/", http.FileServer(http.FS(uiAssets))))
 	s.mux.HandleFunc("/api/v1/console", s.handleConsole)
 	s.mux.HandleFunc("/api/v1/diagnostics", s.handleDiagnostics)
 	s.mux.HandleFunc("/api/v1/status", s.handleStatus)
+	s.mux.HandleFunc("/api/v1/system/stop", s.handleSystemStop)
 	s.mux.HandleFunc("/api/v1/channels", s.handleChannels)
 	s.mux.HandleFunc("/api/v1/channels/status", s.handleChannels)
 	s.mux.HandleFunc("/api/v1/channels/whatsapp/test", s.handleWhatsAppTest)
@@ -275,6 +282,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/v1/file-permissions", s.handleFilePermissions)
 	s.mux.HandleFunc("/api/v1/file-permissions/", s.handleFilePermissionAction)
 	s.mux.HandleFunc("/api/v1/settings/vault", s.handleSettingsVault)
+	s.mux.HandleFunc("/api/v1/settings/auto-approval", s.handleAutoApproval)
 }
 
 func (s *Server) handleIndex(writer http.ResponseWriter, request *http.Request) {
@@ -289,6 +297,17 @@ func (s *Server) handleIndex(writer http.ResponseWriter, request *http.Request) 
 	}
 }
 
+func (s *Server) handleFavicon(writer http.ResponseWriter, request *http.Request) {
+	data, err := uiFS.ReadFile("ui/favicon.ico")
+	if err != nil {
+		writer.WriteHeader(http.StatusNotFound)
+		return
+	}
+	writer.Header().Set("Content-Type", "image/x-icon")
+	writer.Header().Set("Cache-Control", "public, max-age=86400")
+	writer.Write(data)
+}
+
 func (s *Server) handleStatus(writer http.ResponseWriter, request *http.Request) {
 	status, err := s.coordinator.Status(request.Context())
 	if err != nil {
@@ -296,6 +315,31 @@ func (s *Server) handleStatus(writer http.ResponseWriter, request *http.Request)
 		return
 	}
 	writeJSON(writer, http.StatusOK, status)
+}
+
+func (s *Server) handleSystemStop(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		writer.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if !isLoopbackClient(request.RemoteAddr) {
+		writeJSONError(writer, fmt.Errorf("system stop is available only from loopback clients"), http.StatusForbidden)
+		return
+	}
+	if s.requestShutdown == nil {
+		writeJSONError(writer, fmt.Errorf("shutdown is not configured"), http.StatusNotImplemented)
+		return
+	}
+
+	writeJSON(writer, http.StatusAccepted, map[string]any{
+		"status":  "stopping",
+		"message": "Shutdown requested. The local server is stopping.",
+	})
+
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		s.requestShutdown()
+	}()
 }
 
 func (s *Server) handleHealth(writer http.ResponseWriter, request *http.Request) {
@@ -497,6 +541,8 @@ func (s *Server) handleWhatsAppWebhook(writer http.ResponseWriter, request *http
 			writeJSONError(writer, err, http.StatusBadRequest)
 			return
 		}
+
+		// Process delivery status events (sent, delivered, read, failed).
 		events := s.whatsApp.ParseDeliveryEvents(payload)
 		updated := make([]engine.Message, 0, len(events))
 		for _, event := range events {
@@ -505,13 +551,80 @@ func (s *Server) handleWhatsAppWebhook(writer http.ResponseWriter, request *http
 				updated = append(updated, message)
 			}
 		}
+
+		// Process incoming messages and route text to the brain.
+		incoming := s.whatsApp.ParseIncomingMessages(payload)
+		for _, msg := range incoming {
+			_ = s.eventBus.Publish(engine.Event{
+				Type:   engine.EventChannelIncoming,
+				Source: "whatsapp-webhook",
+				Payload: map[string]any{
+					"from":       msg.From,
+					"from_name":  msg.FromName,
+					"type":       msg.Type,
+					"message_id": msg.MessageID,
+					"channel":    msg.Channel,
+				},
+			})
+			if msg.Type == "text" && msg.Text != "" && s.brain != nil && s.brain.Available() {
+				go s.routeIncomingWhatsAppToBrain(msg)
+			}
+		}
+
 		writeJSON(writer, http.StatusOK, map[string]any{
-			"accepted": len(events),
-			"updated":  len(updated),
+			"accepted_statuses": len(events),
+			"updated_messages":  len(updated),
+			"incoming_messages": len(incoming),
 		})
 	default:
 		writer.WriteHeader(http.StatusMethodNotAllowed)
 	}
+}
+
+// routeIncomingWhatsAppToBrain dispatches an incoming WhatsApp text message
+// through the brain service. The brain picks the best skill and submits a
+// workflow, which then follows the normal approval/execution path.
+// Runs in a goroutine with a detached context to survive after the webhook
+// HTTP response is sent.
+func (s *Server) routeIncomingWhatsAppToBrain(msg engine.ChannelIncomingMessage) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Deduplication: skip if we've recently processed this message ID.
+	if _, loaded := s.seenIncoming.LoadOrStore(msg.MessageID, time.Now()); loaded {
+		return
+	}
+
+	result, err := s.brain.DispatchPrompt(ctx, msg.Text)
+	if err != nil {
+		_ = s.eventBus.Publish(engine.Event{
+			Type:   engine.EventBrainCommandError,
+			Source: "whatsapp-incoming",
+			Payload: map[string]any{
+				"from":  msg.From,
+				"error": err.Error(),
+			},
+		})
+		return
+	}
+
+	payload := map[string]any{
+		"from":    msg.From,
+		"channel": "whatsapp",
+	}
+	if result.Workflow != nil {
+		payload["workflow_id"] = result.Workflow.ID
+		payload["skill"] = result.Workflow.Skill
+	}
+	if result.Blocked != nil {
+		payload["blocked"] = true
+		payload["reason"] = result.Blocked.Reason
+	}
+	_ = s.eventBus.Publish(engine.Event{
+		Type:    engine.EventBrainCommand,
+		Source:  "whatsapp-incoming",
+		Payload: payload,
+	})
 }
 
 func (s *Server) handleMessages(writer http.ResponseWriter, request *http.Request) {
@@ -814,6 +927,32 @@ func (s *Server) handleSettingsVault(writer http.ResponseWriter, request *http.R
 	}
 }
 
+func (s *Server) handleAutoApproval(writer http.ResponseWriter, request *http.Request) {
+	coord, ok := s.coordinator.(*engine.StandardWorkflowCoordinator)
+	if !ok {
+		writeJSONError(writer, fmt.Errorf("auto-approval not supported by this coordinator"), http.StatusNotImplemented)
+		return
+	}
+
+	switch request.Method {
+	case http.MethodGet:
+		writeJSON(writer, http.StatusOK, coord.GetAutoApprovalPolicy())
+	case http.MethodPut:
+		var policy engine.AutoApprovalPolicy
+		if err := json.NewDecoder(request.Body).Decode(&policy); err != nil {
+			writeJSONError(writer, err, http.StatusBadRequest)
+			return
+		}
+		if policy.MaxRisk == "" {
+			policy.MaxRisk = "low"
+		}
+		coord.SetAutoApprovalPolicy(policy)
+		writeJSON(writer, http.StatusOK, coord.GetAutoApprovalPolicy())
+	default:
+		writer.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
 func (s *Server) currentVaultStatus() VaultStatus {
 	status := VaultStatus{
 		CanWrite:     s.isLoopbackBound(),
@@ -1047,6 +1186,13 @@ func summarizeEvent(event engine.Event) AuditEntryView {
 		entry.Title = "File access denied"
 		entry.Detail = fmt.Sprintf("Denied %s access to %s: %s.", firstNonEmpty(payloadString(event.Payload, "mode"), "file"), firstNonEmpty(payloadString(event.Payload, "path"), "a file"), firstNonEmpty(payloadString(event.Payload, "reason"), "no reason"))
 		entry.Severity = "error"
+	case engine.EventAutoApproved:
+		entry.Title = "Auto-approved"
+		entry.Detail = fmt.Sprintf("%s via %s was auto-approved by smart sandbox policy (risk: %s).", firstNonEmpty(payloadString(event.Payload, "operation"), "Action"), firstNonEmpty(payloadString(event.Payload, "adapter"), "adapter"), firstNonEmpty(payloadString(event.Payload, "risk"), "low"))
+	case engine.EventChannelIncoming:
+		entry.Title = "Incoming message"
+		entry.Detail = fmt.Sprintf("Received %s message from %s via %s.", firstNonEmpty(payloadString(event.Payload, "type"), "text"), firstNonEmpty(payloadString(event.Payload, "from"), "unknown"), firstNonEmpty(payloadString(event.Payload, "channel"), "channel"))
+		entry.Severity = "info"
 	}
 
 	if url := payloadString(event.Payload, "url"); url != "" {
@@ -1255,6 +1401,15 @@ func writeJSON(writer http.ResponseWriter, status int, payload any) {
 
 func writeJSONError(writer http.ResponseWriter, err error, status int) {
 	writeJSON(writer, status, map[string]any{"error": err.Error()})
+}
+
+func isLoopbackClient(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = strings.TrimSpace(remoteAddr)
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func defaultWorkflowTemplates() []WorkflowTemplate {
