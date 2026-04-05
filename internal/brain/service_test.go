@@ -75,6 +75,60 @@ func TestDispatchPromptCreatesWorkflow(t *testing.T) {
 	}
 }
 
+func TestDispatchPromptFallbackCasualChat(t *testing.T) {
+	root := t.TempDir()
+	bus := engine.NewEventBus()
+	subturns := engine.NewSubTurnManager(engine.SubTurnManagerConfig{
+		MaxDepth:           4,
+		MaxConcurrent:      2,
+		ConcurrencyTimeout: time.Second,
+		DefaultTimeout:     time.Second,
+		Bus:                bus,
+	})
+	sandbox, _ := security.NewWorkspaceSandbox(filepath.Join(root, ".pookiepaws"), filepath.Join(root, ".pookiepaws", "workspace"))
+	secrets, _ := security.NewJSONSecretProvider(filepath.Join(root, ".pookiepaws"))
+	store, _ := state.NewFileStore(filepath.Join(root, ".pookiepaws", "state"))
+	registry, _ := skills.NewDefaultRegistry()
+
+	coord, err := engine.NewWorkflowCoordinator(engine.WorkflowCoordinatorConfig{
+		Bus:         bus,
+		SubTurns:    subturns,
+		Store:       store,
+		Skills:      registry,
+		Sandbox:     sandbox,
+		Secrets:     secrets,
+		CRMAdapter:  adapters.NewMockSalesmanagoAdapter(),
+		SMSAdapter:  adapters.NewMockMittoAdapter(),
+		RuntimeRoot: filepath.Join(root, ".pookiepaws"),
+		Workspace:   filepath.Join(root, ".pookiepaws", "workspace"),
+	})
+	if err != nil {
+		t.Fatalf("create coordinator: %v", err)
+	}
+
+	// Simulate a model that returns plain text instead of JSON.
+	service := NewService(stubClient{
+		response: CompletionResponse{
+			Raw:   "Hello! I'm Pookie, your marketing co-pilot. How can I help you today?",
+			Model: "qwen-test",
+		},
+	}, coord, bus)
+
+	result, err := service.DispatchPrompt(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("dispatch should not fail on plain text: %v", err)
+	}
+	if result.Command.Action != "casual_chat" {
+		t.Fatalf("expected casual_chat action, got %q", result.Command.Action)
+	}
+	if result.Command.Explanation == "" {
+		t.Fatalf("expected non-empty explanation from fallback")
+	}
+	if result.Model != "qwen-test" {
+		t.Fatalf("expected model qwen-test, got %q", result.Model)
+	}
+}
+
 func TestParseCommandStripsMarkdownFence(t *testing.T) {
 	command, err := ParseCommand("```json\n{\"action\":\"run_workflow\",\"skill\":\"utm-validator\",\"input\":{\"url\":\"https://example.com\"}}\n```")
 	if err != nil {

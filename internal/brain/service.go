@@ -118,11 +118,19 @@ func (s *Service) DispatchPrompt(ctx context.Context, prompt string) (DispatchRe
 
 	command, err := ParseCommand(response.Raw)
 	if err != nil {
-		s.publishEvent(ctx, engine.EventBrainCommandError, map[string]any{
-			"error": err.Error(),
-			"raw":   response.Raw,
-		})
-		return DispatchResult{}, s.persona.Humanize(err)
+		// Many models (especially open-source) return plain text instead of
+		// strict JSON for casual input. Treat non-empty text as conversation
+		// rather than crashing with a parse error.
+		rawText := strings.TrimSpace(response.Raw)
+		if rawText != "" {
+			command = Command{Action: "casual_chat", Explanation: rawText}
+		} else {
+			s.publishEvent(ctx, engine.EventBrainCommandError, map[string]any{
+				"error": err.Error(),
+				"raw":   response.Raw,
+			})
+			return DispatchResult{}, s.persona.Humanize(err)
+		}
 	}
 	if err := command.Validate(skillNames); err != nil {
 		s.publishEvent(ctx, engine.EventBrainCommandError, map[string]any{
