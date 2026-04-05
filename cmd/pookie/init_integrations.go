@@ -45,9 +45,21 @@ const (
 
 var integrationDefinitions = []integrationDefinition{
 	{
+		ID:    "firecrawl",
+		Label: "Firecrawl / Jina (Web Research)",
+		Hint:  "Turn any URL into clean markdown for competitor research and content analysis.",
+		Keys:  []string{"firecrawl_api_key", "jina_api_key"},
+	},
+	{
+		ID:    "resend",
+		Label: "Resend (Email)",
+		Hint:  "Send marketing and transactional emails through the Resend API.",
+		Keys:  []string{"resend_api_key", "resend_from"},
+	},
+	{
 		ID:    "whatsapp",
 		Label: "Meta WhatsApp",
-		Hint:  "Marketing control plane with approval-gated outbound sends.",
+		Hint:  "Send approval-gated WhatsApp messages to customers via Meta Cloud API.",
 		Keys: []string{
 			"whatsapp_provider",
 			"whatsapp_access_token",
@@ -59,23 +71,33 @@ var integrationDefinitions = []integrationDefinition{
 	},
 	{
 		ID:    "mitto",
-		Label: "Mitto SMS",
-		Hint:  "Outbound SMS campaigns through Mitto.",
-		Keys: []string{
-			"mitto_api_key",
-			"mitto_base_url",
-			"mitto_from",
-		},
+		Label: "Mitto (SMS)",
+		Hint:  "Send SMS campaigns and transactional messages through Mitto.",
+		Keys:  []string{"mitto_api_key", "mitto_base_url", "mitto_from"},
+	},
+	{
+		ID:    "hubspot",
+		Label: "HubSpot (CRM)",
+		Hint:  "Create and update contacts in HubSpot CRM from your workflows.",
+		Keys:  []string{"hubspot_api_key"},
 	},
 	{
 		ID:    "salesmanago",
-		Label: "SALESmanago",
-		Hint:  "CRM and lead management routing.",
-		Keys: []string{
-			"salesmanago_base_url",
-			"salesmanago_api_key",
-			"salesmanago_owner",
-		},
+		Label: "SALESmanago (CRM)",
+		Hint:  "Route leads and manage contacts in SALESmanago CRM.",
+		Keys:  []string{"salesmanago_base_url", "salesmanago_api_key", "salesmanago_owner"},
+	},
+	{
+		ID:    "slack_webhook",
+		Label: "Slack (Notifications)",
+		Hint:  "Get daily workflow summaries posted to a Slack channel.",
+		Keys:  []string{"slack_webhook_url"},
+	},
+	{
+		ID:    "discord_webhook",
+		Label: "Discord (Notifications)",
+		Hint:  "Get daily workflow summaries posted to a Discord channel.",
+		Keys:  []string{"discord_webhook_url"},
 	},
 }
 
@@ -95,6 +117,43 @@ func (s initSecrets) RedactMap(payload map[string]any) map[string]any {
 
 func configureIntegrationsAndReview(reader *bufio.Reader, p *cli.Printer, wizard *cli.Wizard, next map[string]string, ask initAskFunc, secretsPath string) bool {
 	selected := currentIntegrationSelection(next)
+
+	// Ask whether to configure channels at all - most users just need the brain.
+	hasAnyChannel := false
+	for _, v := range selected {
+		if v {
+			hasAnyChannel = true
+			break
+		}
+	}
+
+	skipIndex := 0
+	configIndex := 1
+	channelChoice, ok := wizard.Select(
+		"Marketing channels",
+		"Channels let Pookie send emails, SMS, and research the web for you.",
+		[]cli.MenuItem{
+			{Label: "Skip for now - I just need the AI brain", Hint: "You can add channels later by running pookie init again."},
+			{Label: "Set up marketing channels", Hint: "Choose which services to connect (email, SMS, CRM, research, notifications)."},
+		},
+		skipIndex,
+	)
+	if !ok || channelChoice == skipIndex {
+		if hasAnyChannel {
+			p.Info("Keeping previously configured channels.")
+		} else {
+			p.Dim("Channels skipped. Run pookie init again anytime to add them.")
+		}
+		p.Blank()
+		// Still go to review so the user can save the brain config.
+		switch reviewConfiguration(p, wizard, next, selected, secretsPath) {
+		case integrationReviewSave:
+			return true
+		default:
+			return false
+		}
+	}
+	_ = configIndex
 
 	for {
 		updatedSelection, ok := chooseIntegrations(wizard, selected)
@@ -148,21 +207,43 @@ func chooseIntegrations(wizard *cli.Wizard, current map[string]bool) (map[string
 }
 
 func configureSelectedIntegrations(reader *bufio.Reader, p *cli.Printer, wizard *cli.Wizard, next map[string]string, ask initAskFunc, selected map[string]bool) bool {
+	if selected["firecrawl"] {
+		if ok := configureFirecrawlIntegration(p, next, ask); !ok {
+			return false
+		}
+	}
+	if selected["resend"] {
+		if ok := configureResendIntegration(p, next, ask); !ok {
+			return false
+		}
+	}
 	if selected["whatsapp"] {
-		ok := configureWhatsAppIntegration(reader, p, wizard, next, ask)
-		if !ok {
+		if ok := configureWhatsAppIntegration(reader, p, wizard, next, ask); !ok {
 			return false
 		}
 	}
 	if selected["mitto"] {
-		ok := configureMittoIntegration(p, wizard, next, ask)
-		if !ok {
+		if ok := configureMittoIntegration(p, wizard, next, ask); !ok {
+			return false
+		}
+	}
+	if selected["hubspot"] {
+		if ok := configureHubSpotIntegration(p, next, ask); !ok {
 			return false
 		}
 	}
 	if selected["salesmanago"] {
-		ok := configureSalesmanagoIntegration(p, wizard, next, ask)
-		if !ok {
+		if ok := configureSalesmanagoIntegration(p, wizard, next, ask); !ok {
+			return false
+		}
+	}
+	if selected["slack_webhook"] {
+		if ok := configureWebhookIntegration(p, next, ask, "Slack", "slack_webhook_url"); !ok {
+			return false
+		}
+	}
+	if selected["discord_webhook"] {
+		if ok := configureWebhookIntegration(p, next, ask, "Discord", "discord_webhook_url"); !ok {
 			return false
 		}
 	}
@@ -355,6 +436,85 @@ func testWhatsAppIntegration(config map[string]string) (engine.ChannelProviderSt
 	return adapters.NewWhatsAppAdapter().Test(ctx, secrets)
 }
 
+func configureFirecrawlIntegration(p *cli.Printer, next map[string]string, ask initAskFunc) bool {
+	p.Blank()
+	p.Rule("Firecrawl / Jina (Web Research)")
+	p.Blank()
+	p.Dim("Firecrawl converts web pages to clean markdown for competitor research.")
+	p.Dim("If you don't have a Firecrawl key, Jina Reader is used as a free fallback.")
+	p.Dim("You can leave both blank to use Jina without authentication.")
+	p.Blank()
+
+	ask("Firecrawl API key (optional)", "firecrawl_api_key", "Masked input.", true)
+	ask("Jina API key (optional fallback)", "jina_api_key", "Masked input.", true)
+
+	p.Success("Research channel configured.")
+	p.Blank()
+	return true
+}
+
+func configureResendIntegration(p *cli.Printer, next map[string]string, ask initAskFunc) bool {
+	p.Blank()
+	p.Rule("Resend (Email)")
+	p.Blank()
+	p.Dim("Resend powers outbound email delivery for campaigns and notifications.")
+	p.Blank()
+
+	ask("Resend API key", "resend_api_key", "Masked input.", true)
+	ask("Default sender email", "resend_from", "  (e.g. marketing@yourdomain.com)", false)
+
+	if strings.TrimSpace(next["resend_api_key"]) == "" {
+		p.Warning("Resend API key is required. Skipping email channel.")
+		clearIntegrationKeys(next, "resend")
+	} else {
+		p.Success("Resend email configured.")
+	}
+	p.Blank()
+	return true
+}
+
+func configureHubSpotIntegration(p *cli.Printer, next map[string]string, ask initAskFunc) bool {
+	p.Blank()
+	p.Rule("HubSpot (CRM)")
+	p.Blank()
+	p.Dim("HubSpot integration creates and updates contacts from your workflows.")
+	p.Blank()
+
+	ask("HubSpot API key", "hubspot_api_key", "Masked input.", true)
+
+	if strings.TrimSpace(next["hubspot_api_key"]) == "" {
+		p.Warning("HubSpot API key is required. Skipping CRM channel.")
+		clearIntegrationKeys(next, "hubspot")
+	} else {
+		p.Success("HubSpot CRM configured.")
+	}
+	p.Blank()
+	return true
+}
+
+func configureWebhookIntegration(p *cli.Printer, next map[string]string, ask initAskFunc, name string, key string) bool {
+	p.Blank()
+	p.Rule(name + " Notifications")
+	p.Blank()
+	p.Dim("Paste your " + name + " incoming webhook URL to receive daily workflow summaries.")
+	p.Blank()
+
+	ask(name+" webhook URL", key, "  (https://hooks.slack.com/... or https://discord.com/api/webhooks/...)", false)
+
+	webhookURL := strings.TrimSpace(next[key])
+	if webhookURL == "" {
+		p.Warning(name + " webhook URL not set. Skipping.")
+		clearIntegrationKeys(next, strings.ToLower(name)+"_webhook")
+	} else if err := validateHTTPURL(webhookURL); err != nil {
+		p.Warning("Invalid URL: %v. Skipping %s.", err, name)
+		clearIntegrationKeys(next, strings.ToLower(name)+"_webhook")
+	} else {
+		p.Success(name + " notifications configured.")
+	}
+	p.Blank()
+	return true
+}
+
 func validateMittoIntegration(config map[string]string) error {
 	if strings.TrimSpace(config["mitto_api_key"]) == "" {
 		return fmt.Errorf("mitto_api_key is required")
@@ -426,21 +586,22 @@ func reviewConfiguration(p *cli.Printer, wizard *cli.Wizard, next map[string]str
 	})
 	p.Blank()
 
-	p.Box("Channels", [][2]string{
-		{"Activated", activatedIntegrationsLabel(selected)},
-		{"WhatsApp", integrationStatusLabel(selected["whatsapp"])},
-		{"Mitto SMS", integrationStatusLabel(selected["mitto"])},
-		{"SALESmanago", integrationStatusLabel(selected["salesmanago"])},
-	})
+	channelRows := [][2]string{{"Activated", activatedIntegrationsLabel(selected)}}
+	for _, def := range integrationDefinitions {
+		channelRows = append(channelRows, [2]string{def.Label, integrationStatusLabel(selected[def.ID])})
+	}
+	p.Box("Channels", channelRows)
 	p.Blank()
 
-	p.Box("Secrets", [][2]string{
-		{"LLM API key", redactSecretValue(next["llm_api_key"])},
-		{"WhatsApp token", redactSecretValue(next["whatsapp_access_token"])},
-		{"WhatsApp webhook", redactSecretValue(next["whatsapp_webhook_verify_token"])},
-		{"Mitto API key", redactSecretValue(next["mitto_api_key"])},
-		{"SALESmanago API key", redactSecretValue(next["salesmanago_api_key"])},
-	})
+	secretRows := [][2]string{{"LLM API key", redactSecretValue(next["llm_api_key"])}}
+	for _, def := range integrationDefinitions {
+		for _, key := range def.Keys {
+			if strings.Contains(key, "api_key") || strings.Contains(key, "token") || strings.Contains(key, "webhook_url") {
+				secretRows = append(secretRows, [2]string{key, redactSecretValue(next[key])})
+			}
+		}
+	}
+	p.Box("Secrets", secretRows)
 	p.Blank()
 
 	p.Box("Destination", [][2]string{
