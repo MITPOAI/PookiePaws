@@ -84,10 +84,15 @@
           </div>
 
           <div class="top-header__right">
-            <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Cycle theme">
-              <span class="theme-toggle__icon" id="theme-toggle-icon" aria-hidden="true"></span>
+            <div class="theme-select-wrap">
+              <span class="theme-select__icon" id="theme-toggle-icon" aria-hidden="true"></span>
+              <select class="theme-select" id="theme-toggle" aria-label="Choose theme">
+                {{ range .ThemeOptions }}
+                <option value="{{ .ID }}">{{ .Label }}</option>
+                {{ end }}
+              </select>
               <span class="sr-only" id="theme-status">Dark theme is active.</span>
-            </button>
+            </div>
 
             <div class="agent-status" aria-live="polite">
               <span class="agent-status__dot" id="agent-status-dot"></span>
@@ -158,7 +163,7 @@
                 </article>
               </section>
 
-              <section class="panel panel-span-8">
+              <section class="panel panel-span-12">
                 <div class="panel-head">
                   <div>
                     <p class="eyebrow">Workflow Queue</p>
@@ -168,7 +173,7 @@
                 <div class="data-list" id="workflow-queue"></div>
               </section>
 
-              <section class="panel panel-span-4">
+              <section class="panel panel-span-12">
                 <div class="panel-head">
                   <div>
                     <p class="eyebrow">Pending Approvals</p>
@@ -192,40 +197,32 @@
           </section>
 
           <section class="view" id="view-workflows" aria-labelledby="workflows-heading">
-            <div class="hero-grid">
-              <section class="panel">
-                <div class="panel-head">
-                  <div>
-                    <p class="eyebrow">Mission Input</p>
-                    <h3 id="workflows-heading">Describe the marketing goal.</h3>
-                  </div>
-                </div>
-                <form id="goal-form" class="prompt-form">
-                  <label class="field">
-                    Campaign goal
-                    <textarea id="goal-input" name="prompt" placeholder="Research competitor pricing and draft an SMS campaign for VIP leads."></textarea>
-                  </label>
-                  <div class="button-row">
-                    <button class="button" type="submit">Run with Brain</button>
-                    <button class="button secondary" id="run-canvas" type="button">Run Canvas</button>
-                    <button class="button ghost" id="reset-canvas" type="button">Reset</button>
-                  </div>
-                  <p class="inline-note" id="brain-guard" aria-live="polite" hidden>Configure an LLM provider in Vault / Settings before using free-text routing.</p>
-                  <p class="inline-note" id="canvas-plan-status"></p>
-                </form>
-                <div class="response-card" id="brain-response" aria-live="polite" hidden></div>
-              </section>
+            <section class="prompt-hero">
+              <h3 id="workflows-heading" class="prompt-hero__title">What would you like Pookie to do?</h3>
+              <form id="goal-form" class="prompt-bar">
+                <textarea id="goal-input" name="prompt" class="prompt-bar__input" rows="1" placeholder="Describe a marketing goal, research task, or campaign idea..."></textarea>
+                <button class="prompt-bar__send" type="submit" aria-label="Send">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                </button>
+              </form>
+              <div class="prompt-bar__aux">
+                <button class="button secondary" id="run-canvas" type="button">Run Canvas</button>
+                <button class="button ghost" id="reset-canvas" type="button">Reset</button>
+              </div>
+              <p class="inline-note" id="brain-guard" aria-live="polite" hidden>Configure an LLM provider in Vault / Settings before using free-text routing.</p>
+              <p class="inline-note" id="canvas-plan-status"></p>
+              <div class="response-card" id="brain-response" aria-live="polite" hidden></div>
+            </section>
 
-              <section class="panel">
-                <div class="panel-head">
-                  <div>
-                    <p class="eyebrow">Templates</p>
-                    <h3>Prebuilt workflow starting points.</h3>
-                  </div>
+            <section class="panel">
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">Templates</p>
+                  <h3>Prebuilt workflow starting points.</h3>
                 </div>
-                <div class="template-strip" id="template-strip"></div>
-              </section>
-            </div>
+              </div>
+              <div class="template-strip" id="template-strip"></div>
+            </section>
 
             <section class="panel">
               <div class="panel-head">

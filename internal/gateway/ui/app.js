@@ -256,8 +256,8 @@
     if (!refs.themeToggle) {
       return;
     }
-    refs.themeToggle.addEventListener("click", () => {
-      setTheme(nextThemeID(state.theme));
+    refs.themeToggle.addEventListener("change", () => {
+      setTheme(refs.themeToggle.value);
     });
   }
 
@@ -728,13 +728,11 @@
 
   function renderThemeSwitcher() {
     const activeTheme = isValidTheme(state.theme) ? state.theme : "dark";
-    const nextTheme = nextThemeID(activeTheme);
     if (refs.themeToggleIcon) {
       refs.themeToggleIcon.innerHTML = themeIconMarkup(activeTheme);
     }
     if (refs.themeToggle) {
-      refs.themeToggle.setAttribute("aria-label", `Cycle theme. Current ${themeLabel(activeTheme)}. Next ${themeLabel(nextTheme)}.`);
-      refs.themeToggle.setAttribute("title", `Theme: ${themeLabel(activeTheme)}. Next: ${themeLabel(nextTheme)}.`);
+      refs.themeToggle.value = activeTheme;
     }
     if (refs.themeStatus) {
       refs.themeStatus.textContent = MICROCOPY.themes[activeTheme] || MICROCOPY.themes.light;
