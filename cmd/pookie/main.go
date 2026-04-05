@@ -18,7 +18,7 @@ import (
 	"github.com/mitpoai/pookiepaws/internal/gateway"
 )
 
-const version = "0.5.0"
+var version = "0.5.1"
 
 func main() {
 	// No arguments → launch interactive menu.
