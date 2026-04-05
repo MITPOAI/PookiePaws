@@ -2,6 +2,81 @@
 
 All notable changes to PookiePaws should be documented in this file.
 
+## [1.0.0] - Unreleased
+
+### Added
+
+- **Pink ASCII art splash screen**: `pookie init` now displays a pink POOKIEPAWS banner
+- **Quick-start 4+1 model menu**: init wizard offers DeepSeek V3.2, DeepSeek R1, Claude Opus 4.6, Meta Llama 4 70B, and Custom as a fast path before the full provider selection
+- **REPL model info**: `pookie chat` now shows the connected model name and provider at startup
+- **Unified MarketingChannel interface**: standardised Go interface (`Name`, `Kind`, `Status`, `Test`, `Execute`, `SecretKeys`) for all channel plugins, enabling the open-source community to extend the agent
+- **InMemoryChannelRegistry**: thread-safe registry for marketing channel plugins
+- **Resend email adapter**: full `net/http` integration with Resend API for outbound email (`send_email` operation)
+- **HubSpot CRM adapter**: contact creation and update via HubSpot CRM v3 API (`create_contact`, `update_contact` operations)
+- **Firecrawl/Jina research adapter**: web page to markdown conversion using Firecrawl API with Jina Reader fallback (`scrape` operation)
+- **Slack webhook notifier**: sends workflow summaries to Slack channels via Block Kit format
+- **Discord webhook notifier**: sends workflow summaries to Discord channels via embed format
+- **Daily summary generator**: aggregates 24-hour workflow metrics for webhook delivery
+- **Mock adapters**: MockResendAdapter, MockHubSpotAdapter, MockFirecrawlAdapter for testing
+
+### Changed
+
+- **Pookie Soft theme refined**: blush white backgrounds (#faf5f7), crisp white cards (#ffffff), deeper dark plum text (#2a1f30), warmer rose pink accents (#c4648a), lighter shadows
+- **Existing adapters upgraded**: SalesmanagoAdapter, MittoAdapter, and WhatsAppAdapter now implement the unified MarketingChannel interface while retaining backward compatibility
+- **CONTRIBUTING.md rewritten**: comprehensive guide for writing marketing channel plugins
+
+## [0.6.0] - Unreleased
+
+### Added
+
+- **Raw-mode terminal REPL**: `pookie chat` now uses cross-platform raw terminal mode for proper backspace, Ctrl+C, and escape-sequence handling via the new `cli.ReadLine()` function — replaces the old `bufio.Scanner` which could not handle arrow keys or backspace
+- **Intent router (casual chat)**: the brain service now classifies input as `casual_chat`, `run_workflow`, or `run_chain`; casual prompts ("Hello!", "What can you do?") return friendly conversational responses instead of crashing on non-JSON parse failures
+- **Chained workflow execution**: new `run_chain` action allows the LLM to orchestrate multi-step pipelines where each step's output feeds into the next step's input automatically
+- **`mitpo-researcher` skill**: fetch a public URL, strip HTML, and return a structured summary for competitor intelligence and marketing research
+- **`mitpo-markdown-export` skill**: save text content as a timestamped Markdown file inside `workspace/exports/`
+- **Research-to-export pipeline**: the brain can chain `mitpo-researcher` and `mitpo-markdown-export` in a single prompt to research a URL and export the results
+- **OpenRouter model additions**: Cohere Command R3 (enterprise RAG) and Meta Llama 4 Instruct (open-weight) added to the OpenRouter provider presets
+
+### Security
+
+- Security policies added for `mitpo-researcher` (URL scheme and localhost validation) and `mitpo-markdown-export` (content-only allowed keys) in the skill execution interceptor
+
+### Changed
+
+- `Command.Validate()` now accepts `casual_chat` and `run_chain` actions in addition to `run_workflow`
+- Brain system prompt updated to describe three valid response formats with clear routing guidance
+- `ChainStep` type added to `Command` struct for multi-step pipeline definitions
+
+## [0.5.2] - Unreleased
+
+### Changed
+
+- **2026 frontier model presets**: CLI wizard updated with GPT-5.4, Claude Opus 4.6 / Sonnet 4.6 (1M context), Gemini 3.1 Pro / Flash, DeepSeek V3.2 via OpenRouter
+- **Conversation window expanded**: default turn limit raised from 8 to 24 to leverage 1M+ token context windows in multi-step marketing campaigns
+- **Conversation window persistence**: window state saved to disk on every turn and restored on restart so context survives process restarts
+- **Optimistic approval UI**: approve/reject actions update the DOM instantly with background server reconciliation and automatic rollback on failure
+- **Canvas topology fix**: SVG link lines now use dynamic viewBox matching actual board dimensions; nodes and links share the same coordinate container
+- **Audit view layout**: Action Approvals and File Permissions render as separate full-width rows instead of a 2-column grid
+- **Prompt bar send button**: vertically centered using transform instead of fixed bottom offset
+
+### Security
+
+- **Prompt context boundaries**: system prompt sections now carry `[SYSTEM]`, `[OPERATOR]`, `[MEMORY]`, and `[TOOL-OUTPUT]` labels so the LLM can distinguish trusted instructions from untrusted data — prevents prompt injection from skill output or user content
+- **Outbound channel policy layer**: formal `ChannelPolicy` rules per channel (WhatsApp: 1 recipient, SMS: 100 max, CRM: 1 lead) with `CheckChannelPolicy()` validator — enforces send limits independent of per-skill risk scoring
+
+### Added
+
+- **`pookie context` CLI command**: inspect the brain's current prompt size, memory narrative, extracted variables, registered skills, and the full rendered routing prompt (`--prompt` flag)
+- **`pookie memory` CLI command**: inspect persistent brain memory entries and variables, prune all memory (`--prune`), or clear the conversation window only (`--prune-window`)
+
+### Performance
+
+- **Static asset caching**: `/ui/*` assets served with `Cache-Control: immutable` and `max-age=31536000`; cache-busted via `?v=` query param on each restart — eliminates redundant gzip compression
+- **Targeted renders**: `render()` now only updates DOM panels for the active view instead of all 12 sub-renderers, reducing layout thrashing on state changes
+- **Async memory compression**: `RecordWorkflow()` runs in a background goroutine so workflow completion responses are not blocked by LLM summarization
+- **Audit log rotation**: audit.jsonl rotates at 5 MB, keeping up to 3 archived files — prevents unbounded disk growth
+- **Exponential backoff reconnection**: WebSocket and SSE reconnect with exponential backoff (1s → 2s → 4s → ... → 30s max) instead of fixed 2s intervals, reducing thundering-herd load on server recovery
+
 ## [0.5.1] - Unreleased
 
 ### Added

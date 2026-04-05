@@ -1,13 +1,14 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/mitpoai/pookiepaws/internal/brain"
 	"github.com/mitpoai/pookiepaws/internal/cli"
 	"github.com/mitpoai/pookiepaws/internal/engine"
 )
@@ -18,6 +19,7 @@ import (
 func cmdChat(args []string) {
 	fs := flag.NewFlagSet("chat", flag.ExitOnError)
 	home := fs.String("home", "", "override runtime home directory")
+	sessionID := fs.String("session", "", "resume an existing session id")
 	_ = fs.Parse(args)
 
 	p := cli.Stdout()
@@ -49,31 +51,35 @@ func cmdChat(args []string) {
 	}
 
 	p.Blank()
-	p.Info("Chat with Pookie — your marketing co-pilot")
+	p.Info("Chat with Pookie - your marketing co-pilot")
+	brainStatus := stack.brainSvc.Status()
+	if brainStatus.Model != "" {
+		p.Dim("Connected to %s via %s", brainStatus.Model, brainStatus.Provider)
+	}
 	p.Dim("Type a marketing goal in plain English. Pookie will pick the best skill.")
-	p.Dim("Commands:  /skills  /clear  /exit")
+	p.Dim("Commands:  /skills  /sessions  /approvals  /doctor  /clear  /exit")
 	p.Blank()
 
 	ctx := context.Background()
-	scanner := bufio.NewScanner(os.Stdin)
+	session, err := loadOrCreateChatSession(ctx, stack.store, *sessionID)
+	if err != nil {
+		p.Error("session setup: %v", err)
+		os.Exit(1)
+	}
+	p.Dim("Session: %s", session.ID)
+	p.Blank()
 
 	for {
-		// Print the prompt in accent colour.
-		if p.IsColor() {
-			fmt.Fprint(os.Stdout, ansiBoldMagenta+"  Pookie > "+ansiReset)
-		} else {
-			fmt.Fprint(os.Stdout, "  Pookie > ")
-		}
-
-		if !scanner.Scan() {
-			// EOF (Ctrl+D) — exit gracefully.
+		line, ok := cli.ReadLine(p, "Pookie > ")
+		if !ok {
+			// Ctrl+C or EOF — exit gracefully.
 			p.Blank()
 			p.Dim("Goodbye! — Pookie")
 			p.Blank()
 			return
 		}
 
-		line := strings.TrimSpace(scanner.Text())
+		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
@@ -89,6 +95,72 @@ func cmdChat(args []string) {
 			printSkillList(p, stack.coord.SkillDefinitions())
 			continue
 
+		case "/sessions":
+			sessions, err := stack.store.ListSessions(ctx)
+			if err != nil {
+				p.Error("list sessions: %v", err)
+				p.Blank()
+				continue
+			}
+			if len(sessions) == 0 {
+				p.Warning("No persisted sessions yet")
+				p.Blank()
+				continue
+			}
+			for _, session := range sessions {
+				p.Box("Session", [][2]string{
+					{"id", session.ID},
+					{"updated", session.UpdatedAt.Format(time.RFC3339)},
+					{"messages", fmt.Sprintf("%d", len(session.Messages))},
+					{"status", firstChatValue(string(session.LastStatus), "-")},
+				})
+				p.Blank()
+			}
+			continue
+
+		case "/approvals":
+			approvals, err := stack.coord.ListApprovals(ctx)
+			if err != nil {
+				p.Error("list approvals: %v", err)
+				p.Blank()
+				continue
+			}
+			found := false
+			for _, approval := range approvals {
+				if approval.State != engine.ApprovalPending {
+					continue
+				}
+				found = true
+				p.Box("Pending Approval", [][2]string{
+					{"id", approval.ID},
+					{"workflow", approval.WorkflowID},
+					{"adapter", approval.Adapter},
+					{"action", approval.Action},
+				})
+				p.Blank()
+			}
+			if !found {
+				p.Success("No pending approvals")
+				p.Blank()
+			}
+			continue
+
+		case "/doctor":
+			status, err := stack.coord.Status(ctx)
+			if err != nil {
+				p.Error("status: %v", err)
+				p.Blank()
+				continue
+			}
+			p.Box("Runtime", [][2]string{
+				{"workflows", fmt.Sprintf("%d", status.Workflows)},
+				{"approvals", fmt.Sprintf("%d", status.PendingApprovals)},
+				{"file permissions", fmt.Sprintf("%d", status.PendingFilePermissions)},
+				{"brain", fmt.Sprintf("%t / %s", stack.brainSvc.Available(), stack.brainSvc.Status().Provider)},
+			})
+			p.Blank()
+			continue
+
 		case "/clear":
 			fmt.Fprint(os.Stdout, "\033[2J\033[H")
 			p.Banner()
@@ -97,6 +169,9 @@ func cmdChat(args []string) {
 		case "/help":
 			p.Blank()
 			p.Plain("  /skills   List available marketing skills")
+			p.Plain("  /sessions Show persisted control-plane sessions")
+			p.Plain("  /approvals List pending approvals")
+			p.Plain("  /doctor   Show runtime diagnostics")
 			p.Plain("  /clear    Clear the screen")
 			p.Plain("  /exit     Leave the chat")
 			p.Blank()
@@ -107,14 +182,53 @@ func cmdChat(args []string) {
 		spin := p.NewSpinner("Thinking…")
 		spin.Start()
 
-		result, err := stack.brainSvc.DispatchPrompt(ctx, line)
+		run, sessionState, err := beginChatRun(ctx, stack.store, session.ID, line)
 		if err != nil {
 			spin.Stop(false, "")
 			p.Error("%v", err)
 			p.Blank()
 			continue
 		}
+
+		result, err := stack.brainSvc.DispatchPrompt(ctx, line)
+		if err != nil {
+			_ = finishChatRunFailure(ctx, stack.store, &sessionState, run.ID, err)
+			spin.Stop(false, "")
+			p.Error("%v", err)
+			p.Blank()
+			continue
+		}
 		spin.Stop(true, "")
+		session = finishChatRunSuccess(ctx, stack.store, sessionState, run.ID, result)
+
+		// Casual chat — display the conversational response.
+		if result.Command.Action == "casual_chat" {
+			p.Blank()
+			printWrapped(p, result.Command.Explanation)
+			p.Blank()
+			continue
+		}
+
+		// Chained pipeline — show steps and final output.
+		if result.Command.Action == "run_chain" {
+			p.Blank()
+			if result.Command.Explanation != "" {
+				printWrapped(p, result.Command.Explanation)
+				p.Blank()
+			}
+			if result.Blocked != nil {
+				p.Warning("Chain halted: %s", result.Blocked.Reason)
+				p.Blank()
+			}
+			if result.Workflow != nil {
+				printChatWorkflow(p, result.Workflow, "")
+				if path, ok := result.Workflow.Output["path"].(string); ok {
+					p.Success("Exported to: %s", path)
+					p.Blank()
+				}
+			}
+			continue
+		}
 
 		// Safety intervention — the request was blocked.
 		if result.Blocked != nil {
@@ -201,10 +315,170 @@ func printWrapped(p *cli.Printer, text string) {
 	}
 }
 
-// ansiBoldMagenta and ansiReset are re-declared here because they are
-// unexported constants in the cli package. We use the same values for
-// prompt colouring in this file.
-const (
-	ansiBoldMagenta = "\033[1;35m"
-	ansiReset       = "\033[0m"
-)
+func firstChatValue(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func loadOrCreateChatSession(ctx context.Context, store engine.StateStore, sessionID string) (engine.Session, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID != "" {
+		return store.GetSession(ctx, sessionID)
+	}
+	now := time.Now().UTC()
+	session := engine.Session{
+		SessionSummary: engine.SessionSummary{
+			ID:        localChatID("chat"),
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Messages: []engine.SessionMessage{},
+		Runs:     []engine.SessionRun{},
+	}
+	return session, store.SaveSession(ctx, session)
+}
+
+func beginChatRun(ctx context.Context, store engine.StateStore, sessionID string, prompt string) (engine.SessionRun, engine.Session, error) {
+	session, err := store.GetSession(ctx, sessionID)
+	if err != nil {
+		return engine.SessionRun{}, engine.Session{}, err
+	}
+	now := time.Now().UTC()
+	session.Messages = append(session.Messages, engine.SessionMessage{
+		ID:        localChatID("msg"),
+		SessionID: session.ID,
+		Role:      "user",
+		Kind:      "prompt",
+		Content:   prompt,
+		CreatedAt: now,
+	})
+	run := engine.SessionRun{
+		ID:         localChatID("run"),
+		SessionID:  session.ID,
+		Prompt:     prompt,
+		Status:     engine.SessionRunning,
+		AcceptedAt: now,
+		StartedAt:  now,
+	}
+	session.Runs = append(session.Runs, run)
+	session.UpdatedAt = now
+	session.MessageCount = len(session.Messages)
+	session.LastStatus = engine.SessionRunning
+	return run, session, store.SaveSession(ctx, session)
+}
+
+func finishChatRunFailure(ctx context.Context, store engine.StateStore, session *engine.Session, runID string, dispatchErr error) error {
+	now := time.Now().UTC()
+	session.Messages = append(session.Messages, engine.SessionMessage{
+		ID:        localChatID("msg"),
+		SessionID: session.ID,
+		Role:      "assistant",
+		Kind:      "error",
+		Content:   dispatchErr.Error(),
+		Status:    "failed",
+		CreatedAt: now,
+	})
+	for index := range session.Runs {
+		if session.Runs[index].ID != runID {
+			continue
+		}
+		session.Runs[index].Status = engine.SessionFailed
+		session.Runs[index].Error = dispatchErr.Error()
+		session.Runs[index].FinishedAt = now
+	}
+	session.UpdatedAt = now
+	session.MessageCount = len(session.Messages)
+	session.LastStatus = engine.SessionFailed
+	return store.SaveSession(ctx, *session)
+}
+
+func finishChatRunSuccess(ctx context.Context, store engine.StateStore, session engine.Session, runID string, result brain.DispatchResult) engine.Session {
+	now := time.Now().UTC()
+	session.Messages = append(session.Messages, buildCLIChatAssistantMessage(session.ID, result))
+
+	status := engine.SessionCompleted
+	workflowID := ""
+	if result.Workflow != nil {
+		workflowID = result.Workflow.ID
+		if result.Workflow.Status == engine.WorkflowWaitingApproval {
+			status = engine.SessionAwaitingApproval
+		}
+	}
+	if result.Blocked != nil {
+		status = engine.SessionBlocked
+	}
+
+	for index := range session.Runs {
+		if session.Runs[index].ID != runID {
+			continue
+		}
+		session.Runs[index].Status = status
+		session.Runs[index].WorkflowID = workflowID
+		session.Runs[index].Skill = result.Command.Skill
+		session.Runs[index].FinishedAt = now
+		session.Runs[index].Trace = translateCLITrace(result.PromptTrace)
+		session.Runs[index].AlternativeTrace = translateCLITrace(result.AltTrace)
+	}
+	session.UpdatedAt = now
+	session.MessageCount = len(session.Messages)
+	session.LastStatus = status
+	_ = store.SaveSession(ctx, session)
+	return session
+}
+
+func buildCLIChatAssistantMessage(sessionID string, result brain.DispatchResult) engine.SessionMessage {
+	message := engine.SessionMessage{
+		ID:        localChatID("msg"),
+		SessionID: sessionID,
+		Role:      "assistant",
+		Kind:      "assistant",
+		CreatedAt: time.Now().UTC(),
+		Model:     result.Model,
+		Skill:     result.Command.Skill,
+	}
+	switch {
+	case result.Command.Action == "casual_chat":
+		message.Kind = "chat"
+		message.Status = "completed"
+		message.Content = result.Command.Explanation
+	case result.Blocked != nil:
+		alternativeMessage := ""
+		if result.Alternative != nil {
+			alternativeMessage = result.Alternative.Message
+		}
+		message.Kind = "blocked"
+		message.Status = "blocked"
+		message.Content = firstChatValue(alternativeMessage, result.Blocked.Reason, "Request blocked by policy.")
+	case result.Workflow != nil:
+		message.Status = "completed"
+		message.WorkflowID = result.Workflow.ID
+		message.Content = fmt.Sprintf("Routed into %s using %s.", firstChatValue(result.Workflow.Name, "a workflow"), firstChatValue(result.Command.Skill, "the selected skill"))
+	default:
+		message.Status = "completed"
+		message.Content = fmt.Sprintf("Routed into %s.", firstChatValue(result.Command.Skill, "the selected skill"))
+	}
+	return message
+}
+
+func translateCLITrace(trace *brain.PromptTrace) *engine.SessionPromptTrace {
+	if trace == nil {
+		return nil
+	}
+	return &engine.SessionPromptTrace{
+		Mode:         string(trace.Mode),
+		SystemPrompt: trace.SystemPrompt,
+		UserPrompt:   trace.UserPrompt,
+		Model:        trace.Model,
+		RawResponse:  trace.RawResponse,
+		Error:        trace.Error,
+		CreatedAt:    time.Now().UTC(),
+	}
+}
+
+func localChatID(prefix string) string {
+	return fmt.Sprintf("%s_%d", prefix, time.Now().UTC().UnixNano())
+}

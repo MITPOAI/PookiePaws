@@ -44,10 +44,15 @@ func (s *Server) handleChatWebSocket(writer http.ResponseWriter, request *http.R
 	sessionID := strings.TrimSpace(request.URL.Query().Get("session_id"))
 	var session ChatSession
 	if sessionID == "" {
-		session = s.chat.Create()
+		created, err := s.chat.Create(request.Context())
+		if err != nil {
+			_ = ws.WriteJSON(ChatSocketEnvelope{Type: "chat.error", Error: err.Error()})
+			return
+		}
+		session = created
 		sessionID = session.ID
 	} else {
-		existing, ok := s.chat.Get(sessionID)
+		existing, ok := s.chat.Get(request.Context(), sessionID)
 		if !ok {
 			_ = ws.WriteJSON(ChatSocketEnvelope{Type: "chat.error", Error: fmt.Sprintf("chat session %s not found", sessionID)})
 			return
@@ -77,6 +82,9 @@ func (s *Server) handleChatWebSocket(writer http.ResponseWriter, request *http.R
 				case event, ok := <-subscription.C:
 					if !ok {
 						return
+					}
+					if !s.matchesEventFilter(ctx, sessionID, "", event) {
+						continue
 					}
 					entry := summarizeEvent(event)
 					if err := ws.WriteJSON(ChatSocketEnvelope{

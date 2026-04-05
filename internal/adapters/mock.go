@@ -120,3 +120,59 @@ func (a *MockWhatsAppAdapter) ParseDeliveryEvents(payload map[string]any) []engi
 func (a *MockWhatsAppAdapter) ParseIncomingMessages(_ map[string]any) []engine.ChannelIncomingMessage {
 	return nil
 }
+
+// ── Mock MarketingChannel adapters for new channels ────────────────────────
+
+type MockResendAdapter struct{}
+
+var _ engine.MarketingChannel = (*MockResendAdapter)(nil)
+
+func NewMockResendAdapter() *MockResendAdapter          { return &MockResendAdapter{} }
+func (a *MockResendAdapter) Name() string               { return "resend" }
+func (a *MockResendAdapter) Kind() string               { return "email" }
+func (a *MockResendAdapter) SecretKeys() []string        { return []string{"resend_api_key", "resend_from"} }
+func (a *MockResendAdapter) Status(_ engine.SecretProvider) engine.ChannelProviderStatus {
+	return engine.ChannelProviderStatus{Provider: "resend", Channel: "email", Configured: true, Healthy: true, Message: "mocked"}
+}
+func (a *MockResendAdapter) Test(_ context.Context, _ engine.SecretProvider) (engine.ChannelProviderStatus, error) {
+	return a.Status(nil), nil
+}
+func (a *MockResendAdapter) Execute(_ context.Context, action engine.AdapterAction, _ engine.SecretProvider) (engine.AdapterResult, error) {
+	return engine.AdapterResult{Adapter: "resend", Operation: action.Operation, Status: "mocked", Details: map[string]any{"payload": action.Payload, "executed_at": time.Now().UTC()}}, nil
+}
+
+type MockHubSpotAdapter struct{}
+
+var _ engine.MarketingChannel = (*MockHubSpotAdapter)(nil)
+
+func NewMockHubSpotAdapter() *MockHubSpotAdapter         { return &MockHubSpotAdapter{} }
+func (a *MockHubSpotAdapter) Name() string               { return "hubspot" }
+func (a *MockHubSpotAdapter) Kind() string               { return "crm" }
+func (a *MockHubSpotAdapter) SecretKeys() []string        { return []string{"hubspot_api_key"} }
+func (a *MockHubSpotAdapter) Status(_ engine.SecretProvider) engine.ChannelProviderStatus {
+	return engine.ChannelProviderStatus{Provider: "hubspot", Channel: "crm", Configured: true, Healthy: true, Message: "mocked"}
+}
+func (a *MockHubSpotAdapter) Test(_ context.Context, _ engine.SecretProvider) (engine.ChannelProviderStatus, error) {
+	return a.Status(nil), nil
+}
+func (a *MockHubSpotAdapter) Execute(_ context.Context, action engine.AdapterAction, _ engine.SecretProvider) (engine.AdapterResult, error) {
+	return engine.AdapterResult{Adapter: "hubspot", Operation: action.Operation, Status: "mocked", Details: map[string]any{"payload": action.Payload, "executed_at": time.Now().UTC()}}, nil
+}
+
+type MockFirecrawlAdapter struct{}
+
+var _ engine.MarketingChannel = (*MockFirecrawlAdapter)(nil)
+
+func NewMockFirecrawlAdapter() *MockFirecrawlAdapter      { return &MockFirecrawlAdapter{} }
+func (a *MockFirecrawlAdapter) Name() string               { return "firecrawl" }
+func (a *MockFirecrawlAdapter) Kind() string               { return "research" }
+func (a *MockFirecrawlAdapter) SecretKeys() []string        { return []string{"firecrawl_api_key", "jina_api_key"} }
+func (a *MockFirecrawlAdapter) Status(_ engine.SecretProvider) engine.ChannelProviderStatus {
+	return engine.ChannelProviderStatus{Provider: "firecrawl", Channel: "research", Configured: true, Healthy: true, Message: "mocked"}
+}
+func (a *MockFirecrawlAdapter) Test(_ context.Context, _ engine.SecretProvider) (engine.ChannelProviderStatus, error) {
+	return a.Status(nil), nil
+}
+func (a *MockFirecrawlAdapter) Execute(_ context.Context, action engine.AdapterAction, _ engine.SecretProvider) (engine.AdapterResult, error) {
+	return engine.AdapterResult{Adapter: "firecrawl", Operation: action.Operation, Status: "mocked", Details: map[string]any{"markdown": "# Mock Research Result\n\nThis is mock content.", "url": action.Payload["url"], "executed_at": time.Now().UTC()}}, nil
+}

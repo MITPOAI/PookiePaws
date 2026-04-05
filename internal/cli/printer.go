@@ -123,6 +123,27 @@ func (p *Printer) Banner() {
 	fmt.Fprintln(p.out)
 }
 
+// ansiPink is a warm pink used for the splash art.
+const ansiPink = "\033[1;38;5;211m"
+
+// PinkBanner prints a large ASCII art splash in pink for the init wizard.
+func (p *Printer) PinkBanner() {
+	art := []string{
+		``,
+		`   ____              _    _      ____                    `,
+		`  |  _ \  ___   ___ | | _(_) ___|  _ \ __ ___      _____`,
+		`  | |_) |/ _ \ / _ \| |/ / |/ _ \ |_) / _` + "`" + ` \ \ /\ / / __|`,
+		`  |  __/| (_) | (_) |   <| |  __/  __/ (_| |\ V  V /\__ \`,
+		`  |_|    \___/ \___/|_|\_\_|\___|_|   \__,_| \_/\_/ |___/`,
+		``,
+	}
+	for _, line := range art {
+		fmt.Fprintln(p.out, p.paint(ansiPink, line))
+	}
+	fmt.Fprintln(p.out, p.paint(ansiMuted, "  local-first marketing agent - mitpo.io"))
+	fmt.Fprintln(p.out)
+}
+
 // ── Box ─────────────────────────────────────────────────────────────────────
 
 // boxW is the number of visible characters between the two side-border glyphs.

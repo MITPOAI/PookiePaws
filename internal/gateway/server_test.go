@@ -101,6 +101,7 @@ func newHarness(t *testing.T, address string, promptBrain PromptDispatcher) harn
 			Coordinator: coord,
 			EventBus:    bus,
 			Brain:       promptBrain,
+			Store:       store,
 			Vault:       secrets,
 			WhatsApp:    adapters.NewMockWhatsAppAdapter(),
 			Address:     address,

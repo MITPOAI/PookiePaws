@@ -7,6 +7,59 @@ import (
 	"strings"
 )
 
+// ReadLine reads a single line of input using raw terminal mode for proper
+// backspace, Ctrl+C, and escape-sequence handling. Falls back to buffered
+// line input when a raw terminal is unavailable (e.g. piped stdin).
+// Returns the trimmed line and true on Enter, or ("", false) on Ctrl+C / EOF.
+func ReadLine(p *Printer, prompt string) (string, bool) {
+	rendered := prompt
+	if p != nil && p.IsColor() {
+		rendered = "\033[1;35m" + prompt + "\033[0m"
+	}
+	fmt.Fprint(os.Stdout, "  "+rendered)
+
+	if !InteractiveAvailable() {
+		reader := bufio.NewReader(os.Stdin)
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return "", false
+		}
+		return strings.TrimSpace(line), true
+	}
+
+	state, err := enableRawMode()
+	if err != nil {
+		reader := bufio.NewReader(os.Stdin)
+		line, readErr := reader.ReadString('\n')
+		if readErr != nil {
+			return "", false
+		}
+		return strings.TrimSpace(line), true
+	}
+	defer restoreMode(state)
+
+	buf := promptBuffer{}
+	for {
+		chunk, err := readInputChunk()
+		if err != nil {
+			fmt.Fprintln(os.Stdout)
+			return "", false
+		}
+
+		action := buf.ApplyChunk(chunk)
+		switch action {
+		case promptActionAbort, promptActionCancel:
+			fmt.Fprintln(os.Stdout)
+			return "", false
+		case promptActionSubmit:
+			fmt.Fprintln(os.Stdout)
+			return strings.TrimSpace(buf.String()), true
+		default:
+			fmt.Fprintf(os.Stdout, "\r\033[2K  %s%s", rendered, buf.String())
+		}
+	}
+}
+
 type promptActionKind int
 
 const (

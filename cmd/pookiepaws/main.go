@@ -98,6 +98,7 @@ func main() {
 		Coordinator: coord,
 		EventBus:    bus,
 		Brain:       promptBrain,
+		Store:       store,
 		Vault:       secrets,
 		WhatsApp:    adapters.NewWhatsAppAdapter(),
 		Address:     *addr,

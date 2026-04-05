@@ -43,6 +43,10 @@ func NewDefaultRegistry() (*Registry, error) {
 			registry.Register(NewCreativeDirectorSkill(manifest))
 		case "mitpo-seo-auditor":
 			registry.Register(NewSEOAuditorSkill(manifest))
+		case "mitpo-researcher":
+			registry.Register(NewResearcherSkill(manifest))
+		case "mitpo-markdown-export":
+			registry.Register(NewMarkdownExportSkill(manifest))
 		}
 	}
 	return registry, nil

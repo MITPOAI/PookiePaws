@@ -162,6 +162,45 @@ func NewSkillExecutionInterceptor() *SkillExecutionInterceptor {
 					return nil
 				},
 			},
+			"mitpo-researcher": {
+				risk:        "low",
+				allowedKeys: setOf("url", "focus"),
+				altPrompt:   "Suggest a read-only research workflow limited to public URLs.",
+				inspectInput: func(input map[string]any) *payloadFinding {
+					rawURL := strings.TrimSpace(conv.AsString(input["url"]))
+					if rawURL == "" {
+						return nil
+					}
+					parsed, err := url.Parse(rawURL)
+					if err != nil {
+						return nil
+					}
+					scheme := strings.ToLower(strings.TrimSpace(parsed.Scheme))
+					host := strings.ToLower(strings.TrimSpace(parsed.Hostname()))
+					if scheme != "http" && scheme != "https" {
+						return &payloadFinding{
+							path:      "url",
+							reason:    "only http and https URLs are allowed for research",
+							violation: "unsupported_url_scheme",
+							risk:      "medium",
+						}
+					}
+					if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+						return &payloadFinding{
+							path:      "url",
+							reason:    "local addresses are blocked from web research",
+							violation: "local_target_blocked",
+							risk:      "medium",
+						}
+					}
+					return nil
+				},
+			},
+			"mitpo-markdown-export": {
+				risk:        "low",
+				allowedKeys: setOf("content", "title", "filename"),
+				altPrompt:   "Suggest a file export that stays within the workspace boundary.",
+			},
 		},
 	}
 }
@@ -370,4 +409,39 @@ func setOf(values ...string) map[string]struct{} {
 		result[value] = struct{}{}
 	}
 	return result
+}
+
+// ChannelPolicy defines outbound send rules per channel adapter.
+type ChannelPolicy struct {
+	Allowed         bool   // Whether this channel is permitted at all.
+	RequireApproval bool   // Whether sends always need human approval.
+	MaxRecipients   int    // Max recipients per send (0 = unlimited).
+	Reason          string // Explanation if blocked.
+}
+
+// DefaultChannelPolicies returns the built-in channel send rules.
+func DefaultChannelPolicies() map[string]ChannelPolicy {
+	return map[string]ChannelPolicy{
+		"whatsapp": {Allowed: true, RequireApproval: true, MaxRecipients: 1, Reason: "WhatsApp sends are limited to single recipients and require approval."},
+		"sms":      {Allowed: true, RequireApproval: true, MaxRecipients: 100, Reason: "SMS sends are capped at 100 recipients and require approval."},
+		"crm":      {Allowed: true, RequireApproval: true, MaxRecipients: 1, Reason: "CRM mutations are limited to single leads and require approval."},
+		"email":    {Allowed: false, RequireApproval: true, MaxRecipients: 0, Reason: "Email channel is not configured."},
+	}
+}
+
+// CheckChannelPolicy validates whether an outbound send is allowed for a given
+// channel. Returns an error description if the policy blocks the send.
+func CheckChannelPolicy(channel string, recipientCount int) (ChannelPolicy, string) {
+	policies := DefaultChannelPolicies()
+	policy, ok := policies[strings.ToLower(strings.TrimSpace(channel))]
+	if !ok {
+		return ChannelPolicy{Allowed: false, Reason: "unknown channel"}, "channel is not on the policy allowlist"
+	}
+	if !policy.Allowed {
+		return policy, policy.Reason
+	}
+	if policy.MaxRecipients > 0 && recipientCount > policy.MaxRecipients {
+		return policy, fmt.Sprintf("recipient count %d exceeds channel limit of %d", recipientCount, policy.MaxRecipients)
+	}
+	return policy, ""
 }

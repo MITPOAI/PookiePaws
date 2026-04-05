@@ -18,8 +18,8 @@ func TestFindProviderPreset(t *testing.T) {
 	if preset.ProviderKind != "openai-compatible" {
 		t.Fatalf("unexpected provider kind %q", preset.ProviderKind)
 	}
-	if len(preset.Models) != 3 {
-		t.Fatalf("expected 3 models, got %d", len(preset.Models))
+	if len(preset.Models) != 5 {
+		t.Fatalf("expected 5 models, got %d", len(preset.Models))
 	}
 }
 
@@ -32,22 +32,22 @@ func TestDefaultProviderPresets(t *testing.T) {
 		{
 			id:      "openai",
 			baseURL: "https://api.openai.com/v1/chat/completions",
-			models:  []string{"gpt-5.1", "o3"},
+			models:  []string{"gpt-5.4", "o3"},
 		},
 		{
 			id:      "anthropic",
 			baseURL: "https://api.anthropic.com/v1/chat/completions",
-			models:  []string{"claude-opus-4-1-20250805", "claude-sonnet-4-20250514"},
+			models:  []string{"claude-opus-4-6-20260301", "claude-sonnet-4-6-20260301"},
 		},
 		{
 			id:      "google",
 			baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-			models:  []string{"gemini-2.5-pro", "gemini-2.5-flash"},
+			models:  []string{"gemini-3.1-pro", "gemini-3.1-flash"},
 		},
 		{
 			id:      "openrouter",
 			baseURL: "https://openrouter.ai/api/v1/chat/completions",
-			models:  []string{"deepseek/deepseek-r1-0528", "qwen/qwen3.5-plus-02-15", "z-ai/glm-5"},
+			models:  []string{"deepseek/deepseek-v3.2", "deepseek/deepseek-r1", "qwen/qwen3.5-plus", "cohere/command-r3", "meta-llama/llama-4-instruct"},
 		},
 		{
 			id:      "ollama",

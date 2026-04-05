@@ -19,6 +19,7 @@ type appStack struct {
 	bus         engine.EventBus
 	subturns    engine.SubTurnManager
 	coord       engine.WorkflowCoordinator
+	store       engine.StateStore
 	secrets     *security.JSONSecretProvider
 	brainSvc    *brain.DynamicService
 	runtimeRoot string
@@ -88,12 +89,16 @@ func buildStack(runtimeRoot, workspaceRoot string) (*appStack, error) {
 	permSandbox := security.NewPermissionedSandbox(sandbox, coord, bus)
 	coord.SetSandbox(permSandbox)
 
-	brainSvc := brain.NewDynamicService(secrets, coord, bus).WithMemory(memory)
+	windowPath := filepath.Join(runtimeRoot, "state", "runtime", "conversation-window.json")
+	brainSvc := brain.NewDynamicService(secrets, coord, bus).
+		WithWindowPath(windowPath).
+		WithMemory(memory)
 
 	return &appStack{
 		bus:         bus,
 		subturns:    subturns,
 		coord:       coord,
+		store:       store,
 		secrets:     secrets,
 		brainSvc:    brainSvc,
 		runtimeRoot: runtimeRoot,

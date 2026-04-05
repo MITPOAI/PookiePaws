@@ -27,6 +27,7 @@ type Config struct {
 	Coordinator     engine.WorkflowCoordinator
 	EventBus        engine.EventBus
 	Brain           PromptDispatcher
+	Store           engine.StateStore
 	Vault           Vault
 	WhatsApp        engine.ChannelAdapter
 	Address         string
@@ -228,7 +229,7 @@ func NewServer(cfg Config) *Server {
 		vault:           cfg.Vault,
 		whatsApp:        cfg.WhatsApp,
 		requestShutdown: cfg.RequestShutdown,
-		chat:            newChatStore(),
+		chat:            newChatStore(cfg.Store),
 		address:         cfg.Address,
 		mux:             http.NewServeMux(),
 		indexTmpl:       indexTmpl,
@@ -285,6 +286,18 @@ func gzipMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// cacheableFileServer wraps http.FileServer with aggressive Cache-Control headers.
+// Static assets are cache-busted via ?v={{ .AssetVersion }} in HTML, so browsers
+// will always fetch new versions after a restart. Between restarts, assets are
+// served from the browser cache without a round-trip — eliminating re-gzip overhead.
+func cacheableFileServer(root http.FileSystem) http.Handler {
+	fileServer := http.FileServer(root)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		fileServer.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) routes() {
 	uiAssets, err := fs.Sub(uiFS, "ui")
 	if err != nil {
@@ -295,7 +308,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/favicon.ico", s.handleFavicon)
 	s.mux.HandleFunc("/healthz", s.handleHealth)
 	s.mux.HandleFunc("/readyz", s.handleReadiness)
-	s.mux.Handle("/ui/", http.StripPrefix("/ui/", http.FileServer(http.FS(uiAssets))))
+	s.mux.Handle("/ui/", http.StripPrefix("/ui/", cacheableFileServer(http.FS(uiAssets))))
 	s.mux.HandleFunc("/api/v1/console", s.handleConsole)
 	s.mux.HandleFunc("/api/v1/diagnostics", s.handleDiagnostics)
 	s.mux.HandleFunc("/api/v1/status", s.handleStatus)
@@ -314,6 +327,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/v1/skills", s.handleSkills)
 	s.mux.HandleFunc("/api/v1/skills/validate", s.handleValidateSkill)
 	s.mux.HandleFunc("/api/v1/brain/dispatch", s.handleBrainDispatch)
+	s.mux.HandleFunc("/api/v1/sessions", s.handleChatSessions)
+	s.mux.HandleFunc("/api/v1/sessions/", s.handleSessionAliasRoutes)
 	s.mux.HandleFunc("/api/v1/chat/sessions", s.handleChatSessions)
 	s.mux.HandleFunc("/api/v1/chat/sessions/", s.handleChatSessionRoutes)
 	s.mux.HandleFunc("/api/v1/chat/ws", s.handleChatWebSocket)
@@ -516,6 +531,9 @@ func (s *Server) handleEvents(writer http.ResponseWriter, request *http.Request)
 			if !ok {
 				return
 			}
+			if !s.matchesEventFilter(request.Context(), request.URL.Query().Get("session_id"), request.URL.Query().Get("workflow_id"), event) {
+				continue
+			}
 			entry := summarizeEvent(event)
 			data, err := json.Marshal(entry)
 			if err != nil {
@@ -527,6 +545,11 @@ func (s *Server) handleEvents(writer http.ResponseWriter, request *http.Request)
 			flusher.Flush()
 		}
 	}
+}
+
+func (s *Server) handleSessionAliasRoutes(writer http.ResponseWriter, request *http.Request) {
+	path := strings.TrimPrefix(request.URL.Path, "/api/v1/sessions/")
+	s.handleSessionRoutes(writer, request, path)
 }
 
 func (s *Server) handleChannels(writer http.ResponseWriter, request *http.Request) {
@@ -1238,6 +1261,31 @@ func summarizeEvent(event engine.Event) AuditEntryView {
 		entry.Detail += " Target: " + url + "."
 	}
 	return entry
+}
+
+func (s *Server) matchesEventFilter(ctx context.Context, sessionID string, workflowID string, event engine.Event) bool {
+	workflowID = strings.TrimSpace(workflowID)
+	if workflowID != "" {
+		return event.WorkflowID == workflowID
+	}
+
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return true
+	}
+	if strings.TrimSpace(event.WorkflowID) == "" {
+		return false
+	}
+	session, ok := s.chat.Get(ctx, sessionID)
+	if !ok {
+		return false
+	}
+	for _, run := range session.Runs {
+		if run.WorkflowID != "" && run.WorkflowID == event.WorkflowID {
+			return true
+		}
+	}
+	return false
 }
 
 func humanizeEventType(eventType engine.EventType) string {

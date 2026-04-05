@@ -18,13 +18,13 @@ import (
 // ~/.pookiepaws/.security.json with mode 0600.
 func cmdInit(args []string) {
 	p := cli.Stdout()
-	wizard := cli.NewWizard(p)
-	wizard.Splash("Pookie setup", []string{
-		"Professional, local-first setup for your brain and marketing channels.",
-		"Your keys stay on this machine in ~/.pookiepaws/.security.json.",
-		"Arrow keys now drive brain provider and model setup.",
-		"Marketing channels now use a checkbox setup flow with a final review screen.",
-	})
+	p.PinkBanner()
+	p.Accent("Pookie setup")
+	p.Dim("Professional, local-first setup for your brain and marketing channels.")
+	p.Dim("Your keys stay on this machine in ~/.pookiepaws/.security.json.")
+	p.Dim("Arrow keys now drive brain provider and model setup.")
+	p.Dim("Marketing channels now use a checkbox setup flow with a final review screen.")
+	p.Blank()
 
 	cmdInitClassic(args, p)
 }
@@ -157,19 +157,22 @@ func configureBrainProvider(reader *bufio.Reader, p *cli.Printer, wizard *cli.Wi
 		return
 	}
 
-	presets := cli.DefaultProviderPresets()
 	checker := cli.NewConnectivityChecker(nil)
+
+	presets := cli.DefaultProviderPresets()
+	quickPresets := cli.QuickStartPresets()
 	hasCurrent := strings.TrimSpace(next["llm_provider"]) != "" ||
 		strings.TrimSpace(next["llm_base_url"]) != "" ||
 		strings.TrimSpace(next["llm_model"]) != ""
 
 	type providerChoice struct {
-		kind   string
-		preset cli.ProviderPreset
+		kind       string
+		preset     cli.ProviderPreset
+		quickStart *cli.QuickStartPreset
 	}
 
-	choices := make([]providerChoice, 0, len(presets)+2)
-	items := make([]cli.MenuItem, 0, len(presets)+2)
+	choices := make([]providerChoice, 0, len(quickPresets)+len(presets)+3)
+	items := make([]cli.MenuItem, 0, len(quickPresets)+len(presets)+3)
 	fallback := 0
 
 	if hasCurrent {
@@ -182,6 +185,20 @@ func configureBrainProvider(reader *bufio.Reader, p *cli.Printer, wizard *cli.Wi
 		choices = append(choices, providerChoice{kind: "keep"})
 	}
 
+	// Recommended quick-start models at the top of the list.
+	for i := range quickPresets {
+		qs := &quickPresets[i]
+		if qs.IsCustom {
+			continue // skip the "Custom" entry, the full providers below cover that
+		}
+		items = append(items, cli.MenuItem{
+			Label: qs.Label,
+			Hint:  qs.Hint,
+		})
+		choices = append(choices, providerChoice{kind: "quickstart", quickStart: qs})
+	}
+
+	// Full provider list below the recommendations.
 	for _, preset := range presets {
 		items = append(items, cli.MenuItem{
 			Label: preset.Label,
@@ -226,6 +243,77 @@ providerSelection:
 			p.Warning("Brain setup skipped for now.")
 			p.Blank()
 			return
+		case "quickstart":
+			qs := choice.quickStart
+			// Build a synthetic provider preset so the connectivity flow works.
+			syntheticPreset := cli.ProviderPreset{
+				Label:          qs.Label,
+				ProviderKind:   qs.ProviderKind,
+				BaseURL:        qs.BaseURL,
+				RequiresAPIKey: qs.RequiresKey,
+				CheckMode:      qs.CheckMode,
+			}
+
+			candidateAPIKey := ""
+			if qs.RequiresKey {
+				sameURL := strings.EqualFold(strings.TrimSpace(next["llm_base_url"]), qs.BaseURL)
+				if sameURL {
+					candidateAPIKey = strings.TrimSpace(next["llm_api_key"])
+				}
+				keyHint := fmt.Sprintf("%s requires an API key. Leave blank to keep the current value.", qs.Label)
+				keyInput, keyOK := wizard.PromptSecret("LLM API key", keyHint, candidateAPIKey != "")
+				if !keyOK {
+					p.Blank()
+					continue
+				}
+				if trimmed := strings.TrimSpace(keyInput); trimmed != "" {
+					candidateAPIKey = trimmed
+				}
+			}
+
+			for {
+				outcome := runBrainConnectivityCheck(p, wizard, checker, syntheticPreset, qs.ModelID, candidateAPIKey)
+				switch outcome {
+				case brainConnectivityApply:
+					next["llm_provider"] = qs.ProviderKind
+					next["llm_base_url"] = qs.BaseURL
+					next["llm_model"] = qs.ModelID
+					if qs.RequiresKey {
+						next["llm_api_key"] = candidateAPIKey
+					} else {
+						delete(next, "llm_api_key")
+					}
+					p.Success("Brain configured: %s", qs.Label)
+					p.Blank()
+					return
+				case brainConnectivityRetry:
+					continue
+				case brainConnectivityReenter:
+					keyInput, keyOK := wizard.PromptSecret("LLM API key", "Re-enter your API key.", candidateAPIKey != "")
+					if !keyOK {
+						break
+					}
+					if trimmed := strings.TrimSpace(keyInput); trimmed != "" {
+						candidateAPIKey = trimmed
+					}
+					continue
+				case brainConnectivityContinueLocal:
+					next["llm_provider"] = qs.ProviderKind
+					next["llm_base_url"] = qs.BaseURL
+					next["llm_model"] = qs.ModelID
+					delete(next, "llm_api_key")
+					p.Warning("Continuing with %s even though it is not reachable right now.", qs.Label)
+					p.Blank()
+					return
+				case brainConnectivitySkip:
+					p.Warning("Brain setup skipped for now.")
+					p.Blank()
+					return
+				}
+				break // break inner retry loop if we get an unhandled outcome
+			}
+			continue providerSelection
+
 		case "provider":
 			modelID, modelLabel, ok := selectProviderModel(reader, p, wizard, choice.preset, next["llm_model"])
 			if !ok {

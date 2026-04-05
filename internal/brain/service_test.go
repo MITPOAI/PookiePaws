@@ -70,6 +70,9 @@ func TestDispatchPromptCreatesWorkflow(t *testing.T) {
 	if result.Workflow.Skill != "utm-validator" {
 		t.Fatalf("unexpected skill %q", result.Workflow.Skill)
 	}
+	if result.PromptTrace == nil || result.PromptTrace.SystemPrompt == "" || result.PromptTrace.UserPrompt == "" {
+		t.Fatalf("expected prompt trace to be captured")
+	}
 }
 
 func TestParseCommandStripsMarkdownFence(t *testing.T) {

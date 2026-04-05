@@ -18,7 +18,7 @@ import (
 	"github.com/mitpoai/pookiepaws/internal/gateway"
 )
 
-var version = "0.5.1"
+var version = "0.5.2"
 
 func main() {
 	// No arguments → launch interactive menu.
@@ -42,6 +42,18 @@ func main() {
 		cmdChat(os.Args[2:])
 	case "list":
 		cmdList(os.Args[2:])
+	case "sessions":
+		cmdSessions(os.Args[2:])
+	case "approvals":
+		cmdApprovals(os.Args[2:])
+	case "audit":
+		cmdAudit(os.Args[2:])
+	case "doctor":
+		cmdDoctor(os.Args[2:])
+	case "context":
+		cmdContext(os.Args[2:])
+	case "memory":
+		cmdMemory(os.Args[2:])
 	case "version", "--version", "-v":
 		printVersion()
 	case "help", "--help", "-h":
@@ -99,6 +111,12 @@ func printUsage() {
 	p.Plain("  list               Show all installed marketing skills")
 	p.Plain("  run <skill>        Execute a marketing skill in this terminal")
 	p.Plain("  status             Check whether the agent is running")
+	p.Plain("  sessions           Inspect persisted control-plane sessions")
+	p.Plain("  approvals          Review or resolve pending approvals")
+	p.Plain("  audit              Tail recent audit events from local state")
+	p.Plain("  doctor             Print local runtime diagnostics")
+	p.Plain("  context            Inspect the current prompt, memory, and variables")
+	p.Plain("  memory             Manage persistent brain memory (prune, inspect)")
 	p.Plain("  install <repo>     Install a skill from a GitHub repository")
 	p.Plain("  init               Interactive first-run setup wizard")
 	p.Blank()
@@ -162,6 +180,7 @@ func cmdStart(args []string) {
 		Coordinator: stack.coord,
 		EventBus:    stack.bus,
 		Brain:       stack.brainSvc,
+		Store:       stack.store,
 		Vault:       stack.secrets,
 		WhatsApp:    adapters.NewWhatsAppAdapter(),
 		Address:     *addr,

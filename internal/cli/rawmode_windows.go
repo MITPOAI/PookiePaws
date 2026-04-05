@@ -47,3 +47,15 @@ func restoreMode(state *terminalState) {
 	}
 	setConsoleMode.Call(state.fd, uintptr(state.origMode))
 }
+
+// isTerminal reports whether the given file is a Windows console handle.
+// Uses GetConsoleMode from kernel32.dll which returns 0 for non-console
+// handles (pipes, NUL, files) and nonzero for real consoles.
+func isTerminal(file *os.File) bool {
+	if file == nil {
+		return false
+	}
+	var mode uint32
+	r, _, _ := getConsoleMode.Call(file.Fd(), uintptr(unsafe.Pointer(&mode)))
+	return r != 0
+}

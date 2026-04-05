@@ -47,7 +47,7 @@ func DefaultProviderPresets() []ProviderPreset {
 			RequiresAPIKey: true,
 			CheckMode:      CheckModeListModels,
 			Models: []ModelPreset{
-				{Label: "GPT-5.1", ID: "gpt-5.1", Hint: "Balanced frontier default."},
+				{Label: "GPT-5.4", ID: "gpt-5.4", Hint: "Balanced frontier default."},
 				{Label: "o3", ID: "o3", Hint: "Reasoning-first model."},
 			},
 		},
@@ -60,8 +60,8 @@ func DefaultProviderPresets() []ProviderPreset {
 			RequiresAPIKey: true,
 			CheckMode:      CheckModeChatPing,
 			Models: []ModelPreset{
-				{Label: "Claude Opus 4.1", ID: "claude-opus-4-1-20250805", Hint: "Highest capability preset."},
-				{Label: "Claude Sonnet 4", ID: "claude-sonnet-4-20250514", Hint: "Recommended speed / quality default."},
+				{Label: "Claude Opus 4.6", ID: "claude-opus-4-6-20260301", Hint: "Highest capability. 1M token context."},
+				{Label: "Claude Sonnet 4.6", ID: "claude-sonnet-4-6-20260301", Hint: "Fast + capable. 1M token context."},
 			},
 		},
 		{
@@ -73,8 +73,8 @@ func DefaultProviderPresets() []ProviderPreset {
 			RequiresAPIKey: true,
 			CheckMode:      CheckModeChatPing,
 			Models: []ModelPreset{
-				{Label: "Gemini 2.5 Pro", ID: "gemini-2.5-pro", Hint: "Best capability preset."},
-				{Label: "Gemini 2.5 Flash", ID: "gemini-2.5-flash", Hint: "Fast hosted default."},
+				{Label: "Gemini 3.1 Pro", ID: "gemini-3.1-pro", Hint: "Best capability. 1M token context."},
+				{Label: "Gemini 3.1 Flash", ID: "gemini-3.1-flash", Hint: "Fast streaming default."},
 			},
 		},
 		{
@@ -86,9 +86,11 @@ func DefaultProviderPresets() []ProviderPreset {
 			RequiresAPIKey: true,
 			CheckMode:      CheckModeListModels,
 			Models: []ModelPreset{
-				{Label: "DeepSeek R1", ID: "deepseek/deepseek-r1-0528", Hint: "Reasoning-heavy preset."},
-				{Label: "Qwen 3.5 Plus", ID: "qwen/qwen3.5-plus-02-15", Hint: "Strong generalist preset."},
-				{Label: "GLM-5", ID: "z-ai/glm-5", Hint: "Alternative frontier preset."},
+				{Label: "DeepSeek V3.2", ID: "deepseek/deepseek-v3.2", Hint: "Generalist frontier preset."},
+				{Label: "DeepSeek R1", ID: "deepseek/deepseek-r1", Hint: "Reasoning-heavy preset."},
+				{Label: "Qwen 3.5 Plus", ID: "qwen/qwen3.5-plus", Hint: "Strong generalist preset."},
+				{Label: "Cohere Command R3", ID: "cohere/command-r3", Hint: "Enterprise RAG and grounded generation."},
+				{Label: "Meta Llama 4 Instruct", ID: "meta-llama/llama-4-instruct", Hint: "Open-weight instruction-tuned model."},
 			},
 		},
 		{
@@ -116,6 +118,68 @@ func DefaultProviderPresets() []ProviderPreset {
 			Models: []ModelPreset{
 				{Label: "Enter model manually", ID: "", Hint: "Use this if the local server is not running yet."},
 			},
+		},
+	}
+}
+
+// QuickStartPreset is a flattened provider+model combination for the fast-path
+// init wizard. Selecting one auto-configures provider URL, model ID, and auth.
+type QuickStartPreset struct {
+	Label        string
+	Hint         string
+	ProviderKind string
+	BaseURL      string
+	ModelID      string
+	RequiresKey  bool
+	CheckMode    ConnectivityCheckMode
+	IsCustom     bool
+}
+
+// QuickStartPresets returns the curated 4+1 model options shown before the
+// full provider selection in the init wizard. The last entry is always
+// "Custom Model ID" which falls through to the hierarchical flow.
+func QuickStartPresets() []QuickStartPreset {
+	return []QuickStartPreset{
+		{
+			Label:        "DeepSeek V3.2 (Speed / Generalist)",
+			Hint:         "Via OpenRouter. Fast, balanced frontier model.",
+			ProviderKind: "openai-compatible",
+			BaseURL:      "https://openrouter.ai/api/v1/chat/completions",
+			ModelID:      "deepseek/deepseek-v3.2",
+			RequiresKey:  true,
+			CheckMode:    CheckModeListModels,
+		},
+		{
+			Label:        "DeepSeek R1 (Complex Reasoning)",
+			Hint:         "Via OpenRouter. Deep reasoning for SEO and strategy.",
+			ProviderKind: "openai-compatible",
+			BaseURL:      "https://openrouter.ai/api/v1/chat/completions",
+			ModelID:      "deepseek/deepseek-r1",
+			RequiresKey:  true,
+			CheckMode:    CheckModeListModels,
+		},
+		{
+			Label:        "Claude Opus 4.6 (Creative / Copywriting)",
+			Hint:         "Anthropic direct. 1M context. Best for brand voice.",
+			ProviderKind: "openai-compatible",
+			BaseURL:      "https://api.anthropic.com/v1/chat/completions",
+			ModelID:      "claude-opus-4-6-20260301",
+			RequiresKey:  true,
+			CheckMode:    CheckModeChatPing,
+		},
+		{
+			Label:        "Meta Llama 4 70B (Open Source / Enterprise)",
+			Hint:         "Via OpenRouter. Open-weight instruction model.",
+			ProviderKind: "openai-compatible",
+			BaseURL:      "https://openrouter.ai/api/v1/chat/completions",
+			ModelID:      "meta-llama/llama-4-instruct",
+			RequiresKey:  true,
+			CheckMode:    CheckModeListModels,
+		},
+		{
+			Label:    "Custom Model ID",
+			Hint:     "Opens the full provider and model selection flow.",
+			IsCustom: true,
 		},
 	}
 }

@@ -597,18 +597,25 @@ func (c *StandardWorkflowCoordinator) recordMemory(ctx context.Context, workflow
 	if c.memory == nil {
 		return
 	}
-	if err := c.memory.RecordWorkflow(ctx, workflow); err != nil {
-		c.publishAndAudit(ctx, Event{
-			Type:       EventContextCompressFailed,
-			WorkflowID: workflow.ID,
-			Source:     "workflow-coordinator",
-			Payload: map[string]any{
-				"skill":  workflow.Skill,
-				"status": workflow.Status,
-				"error":  err.Error(),
-			},
-		})
-	}
+	// Run memory compression in a background goroutine so it does not
+	// block the workflow completion response.  Use a detached context
+	// because the request context may cancel before compression finishes.
+	wf := workflow
+	go func() {
+		bgCtx := context.Background()
+		if err := c.memory.RecordWorkflow(bgCtx, wf); err != nil {
+			c.publishAndAudit(bgCtx, Event{
+				Type:       EventContextCompressFailed,
+				WorkflowID: wf.ID,
+				Source:     "workflow-coordinator",
+				Payload: map[string]any{
+					"skill":  wf.Skill,
+					"status": wf.Status,
+					"error":  err.Error(),
+				},
+			})
+		}
+	}()
 }
 
 func (c *StandardWorkflowCoordinator) nextWorkflowID() string {

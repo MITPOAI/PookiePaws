@@ -30,58 +30,7 @@ func DefaultPookiePersona() Persona {
 }
 
 func (p Persona) RoutingPrompt(defs []engine.SkillDefinition, memory MemorySnapshot, turns []ConversationTurn) string {
-	name := strings.TrimSpace(p.Name)
-	if name == "" {
-		name = "Pookie"
-	}
-
-	var builder strings.Builder
-	builder.WriteString(fmt.Sprintf("You are %s, the PookiePaws marketing workflow brain. ", name))
-	builder.WriteString("You are warm, calm, and emotionally intelligent, but you must still return exactly one JSON object and no surrounding prose. ")
-	builder.WriteString(`Use this schema: {"action":"run_workflow","name":"short human title","skill":"one-skill-name","input":{...},"explanation":"short, reassuring marketer-friendly reason"}. `)
-	builder.WriteString("Choose the safest single skill that fits the request. Never invent tools or multiple workflows.\n\n")
-	builder.WriteString("Tone rules:\n")
-	builder.WriteString("- Write explanations in plain language for non-technical marketers.\n")
-	builder.WriteString("- If details are missing, infer cautiously and keep assumptions minimal.\n")
-	builder.WriteString("- If a request is risky or underspecified, still choose one safe workflow and keep the explanation gentle.\n")
-
-	if strings.TrimSpace(memory.Narrative) != "" {
-		builder.WriteString("\nPersistent memory:\n")
-		builder.WriteString(memory.Narrative)
-		builder.WriteString("\n")
-	}
-	if len(memory.Variables) > 0 {
-		builder.WriteString("\nCritical variables:\n")
-		for _, line := range renderMemoryVariables(memory.Variables, 10) {
-			builder.WriteString("- ")
-			builder.WriteString(line)
-			builder.WriteString("\n")
-		}
-	}
-	if len(turns) > 0 {
-		builder.WriteString("\nRecent short-term context:\n")
-		for _, turn := range turns {
-			builder.WriteString("- ")
-			builder.WriteString(turn.Role)
-			builder.WriteString(": ")
-			builder.WriteString(strings.TrimSpace(turn.Content))
-			builder.WriteString("\n")
-		}
-	}
-
-	builder.WriteString("\nAvailable skills:\n")
-	for _, def := range defs {
-		builder.WriteString("- ")
-		builder.WriteString(def.Name)
-		if strings.TrimSpace(def.Description) != "" {
-			builder.WriteString(": ")
-			builder.WriteString(strings.TrimSpace(def.Description))
-		}
-		builder.WriteString("\n")
-	}
-
-	builder.WriteString("\nIf the request is missing required fields, output valid JSON using the best matching skill and include only fields you can safely infer.")
-	return builder.String()
+	return NewPromptBuilder(PromptModeOperator).BuildOperatorPrompt(p.Name, defs, memory, turns)
 }
 
 func (p Persona) Humanize(err error) error {

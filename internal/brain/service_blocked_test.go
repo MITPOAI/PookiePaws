@@ -132,4 +132,7 @@ func TestDispatchPromptReturnsSafeAlternativeOnSecurityBlock(t *testing.T) {
 	if result.Alternative.Command.Skill != "utm-validator" {
 		t.Fatalf("unexpected alternative skill %q", result.Alternative.Command.Skill)
 	}
+	if result.PromptTrace == nil || result.AltTrace == nil {
+		t.Fatalf("expected both primary and alternative prompt traces")
+	}
 }

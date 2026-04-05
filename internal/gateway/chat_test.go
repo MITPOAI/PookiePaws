@@ -14,6 +14,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/mitpoai/pookiepaws/internal/engine"
 )
 
 func TestGatewayChatSessionLifecycle(t *testing.T) {
@@ -55,6 +57,15 @@ func TestGatewayChatSessionLifecycle(t *testing.T) {
 	if len(response.Steps) < 2 {
 		t.Fatalf("expected chat steps, got %d", len(response.Steps))
 	}
+	if response.Run == nil {
+		t.Fatalf("expected run metadata")
+	}
+	if response.Run.Status != engine.SessionCompleted {
+		t.Fatalf("expected completed run, got %q", response.Run.Status)
+	}
+	if response.Run.Trace == nil || response.Run.Trace.Mode == "" {
+		t.Fatalf("expected prompt trace on run")
+	}
 
 	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/chat/sessions/"+session.ID+"/messages", nil)
 	listRec := httptest.NewRecorder()
@@ -69,6 +80,21 @@ func TestGatewayChatSessionLifecycle(t *testing.T) {
 	}
 	if len(messages) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(messages))
+	}
+
+	runsReq := httptest.NewRequest(http.MethodGet, "/api/v1/sessions/"+session.ID+"/runs", nil)
+	runsRec := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(runsRec, runsReq)
+	if runsRec.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body=%s", runsRec.Code, runsRec.Body.String())
+	}
+
+	var runs []ChatRun
+	if err := json.Unmarshal(runsRec.Body.Bytes(), &runs); err != nil {
+		t.Fatalf("decode runs: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(runs))
 	}
 }
 

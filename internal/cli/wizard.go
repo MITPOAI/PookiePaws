@@ -333,13 +333,7 @@ func classifyKey(buf []byte) keyKind {
 	return keyUnknown
 }
 
-func isTerminal(file *os.File) bool {
-	if file == nil {
-		return false
-	}
-	info, err := file.Stat()
-	if err != nil {
-		return false
-	}
-	return (info.Mode() & os.ModeCharDevice) != 0
-}
+// isTerminal is defined in rawmode_windows.go and rawmode_unix.go using
+// platform-specific detection (GetConsoleMode on Windows, ModeCharDevice
+// on Unix). This ensures InteractiveAvailable() works correctly on all
+// platforms.

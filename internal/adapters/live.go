@@ -244,3 +244,71 @@ func secretWithFallback(secrets engine.SecretProvider, key, fallback string) str
 	}
 	return fallback
 }
+
+// ── MarketingChannel conformance for SalesmanagoAdapter ────────────────────
+
+var _ engine.MarketingChannel = (*SalesmanagoAdapter)(nil)
+
+func (a *SalesmanagoAdapter) Kind() string { return "crm" }
+
+func (a *SalesmanagoAdapter) Status(secrets engine.SecretProvider) engine.ChannelProviderStatus {
+	apiKey, _ := secrets.Get("salesmanago_api_key")
+	configured := strings.TrimSpace(apiKey) != ""
+	msg := "SALESmanago API key configured"
+	if !configured {
+		msg = "SALESmanago API key not set"
+	}
+	return engine.ChannelProviderStatus{
+		Provider:   "salesmanago",
+		Channel:    "crm",
+		Configured: configured,
+		Healthy:    configured,
+		Message:    msg,
+	}
+}
+
+func (a *SalesmanagoAdapter) Test(ctx context.Context, secrets engine.SecretProvider) (engine.ChannelProviderStatus, error) {
+	status := a.Status(secrets)
+	if !status.Configured {
+		return status, fmt.Errorf("salesmanago_api_key is not configured")
+	}
+	return status, nil
+}
+
+func (a *SalesmanagoAdapter) SecretKeys() []string {
+	return []string{"salesmanago_api_key", "salesmanago_base_url", "salesmanago_owner"}
+}
+
+// ── MarketingChannel conformance for MittoAdapter ──────────────────────────
+
+var _ engine.MarketingChannel = (*MittoAdapter)(nil)
+
+func (a *MittoAdapter) Kind() string { return "sms" }
+
+func (a *MittoAdapter) Status(secrets engine.SecretProvider) engine.ChannelProviderStatus {
+	apiKey, _ := secrets.Get("mitto_api_key")
+	configured := strings.TrimSpace(apiKey) != ""
+	msg := "Mitto API key configured"
+	if !configured {
+		msg = "Mitto API key not set"
+	}
+	return engine.ChannelProviderStatus{
+		Provider:   "mitto",
+		Channel:    "sms",
+		Configured: configured,
+		Healthy:    configured,
+		Message:    msg,
+	}
+}
+
+func (a *MittoAdapter) Test(ctx context.Context, secrets engine.SecretProvider) (engine.ChannelProviderStatus, error) {
+	status := a.Status(secrets)
+	if !status.Configured {
+		return status, fmt.Errorf("mitto_api_key is not configured")
+	}
+	return status, nil
+}
+
+func (a *MittoAdapter) SecretKeys() []string {
+	return []string{"mitto_api_key", "mitto_base_url", "mitto_from"}
+}

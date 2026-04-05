@@ -24,10 +24,18 @@ func NewDynamicService(secrets engine.SecretProvider, coordinator engine.Workflo
 		bus:             bus,
 		providerFactory: NewSecretBackedProviderFactory(secrets),
 		persona:         DefaultPookiePersona(),
-		window:          NewConversationWindow(8),
+		window:          NewConversationWindow(24),
 	}
 	service.bindFlushListener()
 	return service
+}
+
+func (s *DynamicService) WithWindowPath(path string) *DynamicService {
+	if s == nil {
+		return nil
+	}
+	s.window.SetPath(path)
+	return s
 }
 
 func (s *DynamicService) WithMemory(memory MemoryReader) *DynamicService {
@@ -61,6 +69,27 @@ func (s *DynamicService) Status() Status {
 		return Status{Enabled: false, Provider: "OpenAI-compatible", Mode: "disabled"}
 	}
 	return s.providerFactory.Status()
+}
+
+// DebugRoutingPrompt renders the full system prompt that would be sent to the
+// LLM on the next dispatch. Useful for CLI inspection (pookie context --prompt).
+func (s *DynamicService) DebugRoutingPrompt() string {
+	if s == nil {
+		return "(brain not configured)"
+	}
+	defs := []engine.SkillDefinition{}
+	if s.coordinator != nil {
+		defs = s.coordinator.SkillDefinitions()
+	}
+	var memory MemorySnapshot
+	if s.memory != nil {
+		memory, _ = s.memory.Snapshot(context.Background())
+	}
+	var turns []ConversationTurn
+	if s.window != nil {
+		turns = s.window.Snapshot()
+	}
+	return s.persona.RoutingPrompt(defs, memory, turns)
 }
 
 func (s *DynamicService) DispatchPrompt(ctx context.Context, prompt string) (DispatchResult, error) {

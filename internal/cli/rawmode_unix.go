@@ -53,3 +53,15 @@ func restoreMode(state *terminalState) {
 		0, 0, 0,
 	)
 }
+
+// isTerminal reports whether the given file is attached to a terminal.
+func isTerminal(file *os.File) bool {
+	if file == nil {
+		return false
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return false
+	}
+	return (info.Mode() & os.ModeCharDevice) != 0
+}

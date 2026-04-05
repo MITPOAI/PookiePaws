@@ -60,7 +60,7 @@
         </nav>
 
         <div class="sidebar-footer">
-          <p class="inline-note">PookiePaws v0.5.0</p>
+          <p class="inline-note">PookiePaws v0.5.2</p>
           <p class="inline-note">Local-first. Approval-gated.</p>
         </div>
       </aside>
@@ -249,8 +249,10 @@
                   <div class="canvas-stage__chrome">
                     <span class="status-pill">Topology</span>
                   </div>
-                  <svg class="canvas-links" id="canvas-links" aria-hidden="true"></svg>
-                  <div class="canvas-board" id="canvas-board"></div>
+                  <div class="canvas-board" id="canvas-board">
+                    <svg class="canvas-links" id="canvas-links" aria-hidden="true"></svg>
+                    <div class="canvas-nodes" id="canvas-nodes"></div>
+                  </div>
                 </section>
 
                 <aside class="canvas-inspector" id="canvas-inspector">
@@ -446,7 +448,6 @@ pookie start</code></pre>
           </section>
 
           <section class="view" id="view-audit" aria-labelledby="audit-heading">
-            <div class="split-panel-grid">
               <section class="panel">
                 <div class="panel-head">
                   <div>
@@ -466,7 +467,6 @@ pookie start</code></pre>
                 </div>
                 <div class="data-list" id="file-permissions-list"></div>
               </section>
-            </div>
 
             <section class="panel panel-audit">
               <div class="audit-head">

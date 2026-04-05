@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mitpoai/pookiepaws/internal/conv"
 	"github.com/mitpoai/pookiepaws/internal/engine"
 )
 
@@ -405,4 +406,56 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// ── MarketingChannel conformance for WhatsAppAdapter ───────────────────────
+
+var _ engine.MarketingChannel = (*WhatsAppAdapter)(nil)
+
+func (a *WhatsAppAdapter) Kind() string { return "whatsapp" }
+
+func (a *WhatsAppAdapter) Execute(ctx context.Context, action engine.AdapterAction, secrets engine.SecretProvider) (engine.AdapterResult, error) {
+	if action.Operation != "send_message" {
+		return engine.AdapterResult{}, fmt.Errorf("unsupported whatsapp operation %q", action.Operation)
+	}
+
+	// Build a ChannelSendRequest from the action payload.
+	req := engine.ChannelSendRequest{
+		Provider: conv.AsString(action.Payload["provider"]),
+		Channel:  "whatsapp",
+		To:       conv.AsString(action.Payload["to"]),
+		Type:     conv.AsString(action.Payload["type"]),
+		Text:     conv.AsString(action.Payload["text"]),
+	}
+	if req.Type == "" {
+		req.Type = "text"
+	}
+	if req.Provider == "" {
+		req.Provider = "meta_cloud"
+	}
+	if tn := conv.AsString(action.Payload["template_name"]); tn != "" {
+		req.TemplateName = tn
+		req.TemplateLanguage = firstNonEmpty(conv.AsString(action.Payload["template_language"]), "en")
+	}
+
+	result, err := a.Send(ctx, req, secrets)
+	if err != nil {
+		return engine.AdapterResult{}, err
+	}
+
+	return engine.AdapterResult{
+		Adapter:   a.Name(),
+		Operation: action.Operation,
+		Status:    result.Status,
+		Details: map[string]any{
+			"message_id":  result.MessageID,
+			"external_id": result.ExternalID,
+			"provider":    result.Provider,
+			"channel":     result.Channel,
+		},
+	}, nil
+}
+
+func (a *WhatsAppAdapter) SecretKeys() []string {
+	return []string{"whatsapp_access_token", "whatsapp_phone_number_id", "whatsapp_graph_version"}
 }

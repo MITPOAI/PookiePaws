@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/mitpoai/pookiepaws/internal/engine"
@@ -29,6 +30,7 @@ func NewFileStore(root string) (*FileStore, error) {
 		filepath.Join(root, "approvals"),
 		filepath.Join(root, "filepermissions"),
 		filepath.Join(root, "messages"),
+		filepath.Join(root, "sessions"),
 		filepath.Join(root, "runtime"),
 		filepath.Join(root, "audits"),
 	} {
@@ -139,11 +141,51 @@ func (s *FileStore) ListMessages(_ context.Context) ([]engine.Message, error) {
 	return messages, nil
 }
 
+func (s *FileStore) SaveSession(_ context.Context, session engine.Session) error {
+	return s.writeJSON(filepath.Join(s.root, "sessions", session.ID+".json"), session)
+}
+
+func (s *FileStore) GetSession(_ context.Context, id string) (engine.Session, error) {
+	var session engine.Session
+	err := s.readJSON(filepath.Join(s.root, "sessions", id+".json"), &session)
+	if errors.Is(err, fs.ErrNotExist) {
+		return engine.Session{}, engine.ErrNotFound
+	}
+	session.MessageCount = len(session.Messages)
+	return session, err
+}
+
+func (s *FileStore) ListSessions(_ context.Context) ([]engine.Session, error) {
+	var sessions []engine.Session
+	if err := s.readDirJSON(filepath.Join(s.root, "sessions"), &sessions); err != nil {
+		return nil, err
+	}
+	for index := range sessions {
+		sessions[index].MessageCount = len(sessions[index].Messages)
+	}
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].UpdatedAt.After(sessions[j].UpdatedAt)
+	})
+	return sessions, nil
+}
+
+// maxAuditBytes is the size threshold (5 MB) that triggers rotation.
+const maxAuditBytes = 5 * 1024 * 1024
+
+// maxAuditRotations is the number of rotated files to keep.
+const maxAuditRotations = 3
+
 func (s *FileStore) AppendAudit(_ context.Context, event engine.Event) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	path := filepath.Join(s.root, "audits", "audit.jsonl")
+
+	// Check rotation before appending.
+	if info, statErr := os.Stat(path); statErr == nil && info.Size() >= maxAuditBytes {
+		s.rotateAuditLocked(path)
+	}
+
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
@@ -156,6 +198,30 @@ func (s *FileStore) AppendAudit(_ context.Context, event engine.Event) error {
 	}
 	_, err = file.Write(append(data, '\n'))
 	return err
+}
+
+// rotateAuditLocked shifts audit files: audit.jsonl → audit.1.jsonl → audit.2.jsonl → ...
+// Oldest file beyond maxAuditRotations is deleted. Caller must hold s.mu.
+func (s *FileStore) rotateAuditLocked(path string) {
+	dir := filepath.Dir(path)
+	base := filepath.Base(path)
+	ext := filepath.Ext(base)
+	stem := strings.TrimSuffix(base, ext)
+
+	// Remove the oldest file if it exists.
+	oldest := filepath.Join(dir, fmt.Sprintf("%s.%d%s", stem, maxAuditRotations, ext))
+	os.Remove(oldest)
+
+	// Shift numbered files up: N-1 → N.
+	for i := maxAuditRotations - 1; i >= 1; i-- {
+		from := filepath.Join(dir, fmt.Sprintf("%s.%d%s", stem, i, ext))
+		to := filepath.Join(dir, fmt.Sprintf("%s.%d%s", stem, i+1, ext))
+		os.Rename(from, to)
+	}
+
+	// Rotate current file to .1.
+	first := filepath.Join(dir, fmt.Sprintf("%s.1%s", stem, ext))
+	os.Rename(path, first)
 }
 
 func (s *FileStore) writeJSON(path string, value any) error {

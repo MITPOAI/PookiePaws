@@ -134,6 +134,9 @@
     chatSocket: null,
     chatSocketReady: false,
     chatReconnectTimer: null,
+    chatReconnectAttempts: 0,
+    sseReconnectTimer: null,
+    sseReconnectAttempts: 0,
     chatStatus: MICROCOPY.chat.connecting
   };
 
@@ -208,6 +211,7 @@
     refs.runCanvas = document.getElementById("run-canvas");
     refs.resetCanvas = document.getElementById("reset-canvas");
     refs.canvasBoard = document.getElementById("canvas-board");
+    refs.canvasNodes = document.getElementById("canvas-nodes");
     refs.canvasLinks = document.getElementById("canvas-links");
     refs.canvasStage = document.getElementById("canvas-stage");
     refs.inspectorContent = document.getElementById("inspector-content");
@@ -406,19 +410,45 @@
     render();
   }
 
+  var initialRenderDone = false;
+
   function render() {
+    var active = resolveView(state.view);
     renderNavigation();
     renderThemeSwitcher();
     renderSidebarStatus();
-    renderSummaryStrip();
-    renderTemplates();
-    renderWorkflowQueue();
-    renderApprovals();
-    renderSettings();
-    renderCanvas();
-    renderAudit();
-    renderBrainResponse();
-    renderChatPanel();
+
+    if (!initialRenderDone) {
+      // First render populates all views so content is ready when switching tabs.
+      renderSummaryStrip();
+      renderTemplates();
+      renderWorkflowQueue();
+      renderApprovals();
+      renderSettings();
+      renderCanvas();
+      renderAudit();
+      renderBrainResponse();
+      renderChatPanel();
+      initialRenderDone = true;
+      return;
+    }
+
+    // Subsequent renders only touch the active view to reduce DOM writes.
+    if (active === "dashboard") {
+      renderSummaryStrip();
+      renderWorkflowQueue();
+      renderApprovals();
+    } else if (active === "workflows") {
+      renderTemplates();
+      renderCanvas();
+      renderBrainResponse();
+      renderChatPanel();
+    } else if (active === "settings") {
+      renderSettings();
+    } else if (active === "audit") {
+      renderApprovals();
+      renderAudit();
+    }
   }
 
   function renderNavigation() {
@@ -612,7 +642,7 @@
     const nodes = state.canvas.nodes || [];
     const edges = state.canvas.edges || [];
 
-    refs.canvasBoard.innerHTML = nodes.map((node) => `
+    refs.canvasNodes.innerHTML = nodes.map((node) => `
       <article class="canvas-node${node.id === state.selectedNodeId ? " is-selected" : ""}${node.id === state.linkSourceId ? " is-link-source" : ""}" data-node-id="${escapeHTML(node.id)}" style="transform: translate(${node.position.x}px, ${node.position.y}px);">
         <div class="canvas-node__header" data-drag-handle="${escapeHTML(node.id)}">
           <span class="canvas-node__type">${escapeHTML(node.type.replace("_", " "))}</span>
@@ -622,7 +652,7 @@
       </article>
     `).join("");
 
-    refs.canvasBoard.querySelectorAll(".canvas-node").forEach((nodeEl) => {
+    refs.canvasNodes.querySelectorAll(".canvas-node").forEach((nodeEl) => {
       nodeEl.addEventListener("click", () => {
         const nodeID = nodeEl.dataset.nodeId;
         if (state.linkSourceId && state.linkSourceId !== nodeID) {
@@ -636,11 +666,12 @@
       });
     });
 
-    refs.canvasBoard.querySelectorAll("[data-drag-handle]").forEach((handle) => {
+    refs.canvasNodes.querySelectorAll("[data-drag-handle]").forEach((handle) => {
       handle.addEventListener("pointerdown", startDrag);
     });
 
-    refs.canvasLinks.setAttribute("viewBox", "0 0 1240 820");
+    const boardRect = refs.canvasBoard.getBoundingClientRect();
+    refs.canvasLinks.setAttribute("viewBox", `0 0 ${Math.round(boardRect.width)} ${Math.round(boardRect.height)}`);
     refs.canvasLinks.innerHTML = edges.map((edge) => {
       const from = findNode(edge.from);
       const to = findNode(edge.to);
@@ -896,6 +927,7 @@
 
     socket.addEventListener("open", () => {
       state.chatSocketReady = true;
+      state.chatReconnectAttempts = 0;
       setChatStatus(MICROCOPY.chat.connected);
       renderChatPanel();
     });
@@ -922,12 +954,14 @@
     if (state.chatReconnectTimer) {
       window.clearTimeout(state.chatReconnectTimer);
     }
-    state.chatReconnectTimer = window.setTimeout(() => {
+    state.chatReconnectAttempts++;
+    var delay = Math.min(1000 * Math.pow(2, state.chatReconnectAttempts - 1), 30000);
+    state.chatReconnectTimer = window.setTimeout(function () {
       state.chatReconnectTimer = null;
       if (!state.chatSocketReady) {
         connectChatSocket();
       }
-    }, 2000);
+    }, delay);
   }
 
   function handleChatSocketMessage(raw) {
@@ -1262,61 +1296,105 @@
   }
 
   async function resolveApproval(id, action) {
-    setCanvasMessage(MICROCOPY.loading.approvals);
-    try {
-      await fetchJSON(`/api/v1/approvals/${id}/${action}`, { method: "POST" });
-      pushAuditEntry({
-        type: `client.approval.${action}`,
-        title: action === "approve" ? "Approval recorded" : "Request declined",
-        detail: action === "approve" ? MICROCOPY.success.approval : MICROCOPY.success.rejection,
-        severity: action === "approve" ? "info" : "warning",
-        timestamp: new Date().toISOString()
+    // Optimistic UI: snapshot, mutate, render, then POST in background.
+    var snapshot = state.console && state.console.approvals
+      ? JSON.parse(JSON.stringify(state.console.approvals))
+      : [];
+
+    // Immediately mark resolved in local state.
+    if (state.console && state.console.approvals) {
+      state.console.approvals = state.console.approvals.map(function (item) {
+        return item.id === id ? Object.assign({}, item, { state: action === "approve" ? "approved" : "rejected" }) : item;
       });
-      if (state.activeApprovalId === id) {
-        closeApprovalModal();
-      }
-      setCanvasMessage(action === "approve" ? MICROCOPY.success.approval : MICROCOPY.success.rejection);
+    }
+
+    // Close modal before network round-trip.
+    if (state.activeApprovalId === id) {
+      closeApprovalModal();
+    }
+
+    pushAuditEntry({
+      type: "client.approval." + action,
+      title: action === "approve" ? "Approval recorded" : "Request declined",
+      detail: action === "approve" ? MICROCOPY.success.approval : MICROCOPY.success.rejection,
+      severity: action === "approve" ? "info" : "warning",
+      timestamp: new Date().toISOString()
+    });
+    setCanvasMessage(action === "approve" ? MICROCOPY.success.approval : MICROCOPY.success.rejection);
+    renderApprovals();
+    renderAudit();
+
+    // Background reconciliation.
+    try {
+      await fetchJSON("/api/v1/approvals/" + id + "/" + action, { method: "POST" });
       await refreshConsoleState();
     } catch (error) {
-      const detail = humanizeError(error, MICROCOPY.errors.generic);
+      // Rollback on failure.
+      if (state.console) {
+        state.console.approvals = snapshot;
+      }
+      var detail = humanizeError(error, MICROCOPY.errors.generic);
       setCanvasMessage(detail);
       pushAuditEntry({
         type: "client.error",
-        title: "Approval update paused",
-        detail,
+        title: "Approval update failed \u2014 rolled back",
+        detail: detail,
         severity: "error",
         timestamp: new Date().toISOString()
       });
+      renderApprovals();
+      renderAudit();
     }
   }
 
   async function resolveFilePermission(id, action) {
-    setCanvasMessage(MICROCOPY.loading.approvals);
-    try {
-      await fetchJSON(`/api/v1/file-permissions/${id}/${action}`, { method: "POST" });
-      pushAuditEntry({
-        type: `client.file_permission.${action}`,
-        title: action === "approve" ? "File access approved" : "File access declined",
-        detail: action === "approve"
-          ? "File access was approved. The waiting workflow can continue."
-          : "File access was declined. The protected path remains unchanged.",
-        severity: action === "approve" ? "info" : "warning",
-        timestamp: new Date().toISOString()
+    // Optimistic UI: snapshot, mutate, render, then POST in background.
+    var snapshot = state.console && state.console.file_permissions
+      ? JSON.parse(JSON.stringify(state.console.file_permissions))
+      : [];
+
+    // Immediately mark resolved in local state.
+    if (state.console && state.console.file_permissions) {
+      state.console.file_permissions = state.console.file_permissions.map(function (item) {
+        return item.id === id ? Object.assign({}, item, { state: action === "approve" ? "approved" : "rejected" }) : item;
       });
-      setCanvasMessage(action === "approve"
-        ? "File access approved. The waiting workflow can continue."
-        : "File access declined. The protected path remains unchanged.");
+    }
+
+    pushAuditEntry({
+      type: "client.file_permission." + action,
+      title: action === "approve" ? "File access approved" : "File access declined",
+      detail: action === "approve"
+        ? "File access was approved. The waiting workflow can continue."
+        : "File access was declined. The protected path remains unchanged.",
+      severity: action === "approve" ? "info" : "warning",
+      timestamp: new Date().toISOString()
+    });
+    setCanvasMessage(action === "approve"
+      ? "File access approved. The waiting workflow can continue."
+      : "File access declined. The protected path remains unchanged.");
+    renderApprovals();
+    renderAudit();
+
+    // Background reconciliation.
+    try {
+      await fetchJSON("/api/v1/file-permissions/" + id + "/" + action, { method: "POST" });
       await refreshConsoleState();
     } catch (error) {
-      const detail = humanizeError(error, MICROCOPY.errors.generic);
+      // Rollback on failure.
+      if (state.console) {
+        state.console.file_permissions = snapshot;
+      }
+      var detail = humanizeError(error, MICROCOPY.errors.generic);
       setCanvasMessage(detail);
       pushAuditEntry({
         type: "client.error",
-        title: "File access decision paused",
-        detail,
+        title: "File access decision failed \u2014 rolled back",
+        detail: detail,
         severity: "error",
         timestamp: new Date().toISOString()
       });
+      renderApprovals();
+      renderAudit();
     }
   }
 
@@ -1359,6 +1437,7 @@
     state.eventSource = source;
 
     source.onopen = () => {
+      state.sseReconnectAttempts = 0;
       if (refs.streamIndicator) {
         refs.streamIndicator.textContent = "Live";
         refs.streamIndicator.classList.add("is-live");
@@ -1396,12 +1475,27 @@
     };
 
     source.onerror = () => {
-      const label = source.readyState === window.EventSource.CLOSED ? "Offline" : "Reconnecting";
+      var isClosed = source.readyState === window.EventSource.CLOSED;
+      var label = isClosed ? "Offline" : "Reconnecting";
       if (refs.streamIndicator) {
         refs.streamIndicator.textContent = label;
         refs.streamIndicator.classList.remove("is-live");
       }
       setAgentStatus(false, label);
+
+      // EventSource reconnects automatically on transient errors, but when
+      // fully CLOSED we need manual restart with exponential backoff.
+      if (isClosed) {
+        if (state.sseReconnectTimer) {
+          window.clearTimeout(state.sseReconnectTimer);
+        }
+        state.sseReconnectAttempts++;
+        var delay = Math.min(1000 * Math.pow(2, state.sseReconnectAttempts - 1), 30000);
+        state.sseReconnectTimer = window.setTimeout(function () {
+          state.sseReconnectTimer = null;
+          startAuditStream();
+        }, delay);
+      }
     };
   }
 
@@ -1416,6 +1510,9 @@
   function setView(view) {
     state.view = resolveView(view);
     renderNavigation();
+    if (state.view === "workflows") {
+      renderCanvas();
+    }
   }
 
   function resolveView(view) {
@@ -1508,11 +1605,11 @@
     if (!node) {
       return;
     }
-    const stageRect = refs.canvasStage.getBoundingClientRect();
+    const boardRect = refs.canvasBoard.getBoundingClientRect();
     state.drag = {
       nodeID,
-      offsetX: event.clientX - stageRect.left - node.position.x + refs.canvasStage.scrollLeft,
-      offsetY: event.clientY - stageRect.top - node.position.y + refs.canvasStage.scrollTop
+      offsetX: event.clientX - boardRect.left - node.position.x + refs.canvasBoard.scrollLeft,
+      offsetY: event.clientY - boardRect.top - node.position.y + refs.canvasBoard.scrollTop
     };
     window.addEventListener("pointermove", onDrag);
     window.addEventListener("pointerup", stopDrag);
@@ -1526,9 +1623,9 @@
     if (!node) {
       return;
     }
-    const stageRect = refs.canvasStage.getBoundingClientRect();
-    node.position.x = clamp(event.clientX - stageRect.left - state.drag.offsetX + refs.canvasStage.scrollLeft, 24, 1040);
-    node.position.y = clamp(event.clientY - stageRect.top - state.drag.offsetY + refs.canvasStage.scrollTop, 64, 720);
+    const boardRect = refs.canvasBoard.getBoundingClientRect();
+    node.position.x = clamp(event.clientX - boardRect.left - state.drag.offsetX + refs.canvasBoard.scrollLeft, 12, 1040);
+    node.position.y = clamp(event.clientY - boardRect.top - state.drag.offsetY + refs.canvasBoard.scrollTop, 12, 720);
     renderCanvas();
   }
 

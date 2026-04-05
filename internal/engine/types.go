@@ -379,6 +379,69 @@ type Message struct {
 	UpdatedAt        time.Time              `json:"updated_at"`
 }
 
+type SessionStatus string
+
+const (
+	SessionAccepted         SessionStatus = "accepted"
+	SessionRunning          SessionStatus = "running"
+	SessionAwaitingApproval SessionStatus = "awaiting_approval"
+	SessionCompleted        SessionStatus = "completed"
+	SessionFailed           SessionStatus = "failed"
+	SessionBlocked          SessionStatus = "blocked"
+)
+
+type SessionPromptTrace struct {
+	Mode         string    `json:"mode"`
+	SystemPrompt string    `json:"system_prompt,omitempty"`
+	UserPrompt   string    `json:"user_prompt,omitempty"`
+	Model        string    `json:"model,omitempty"`
+	RawResponse  string    `json:"raw_response,omitempty"`
+	Error        string    `json:"error,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+type SessionMessage struct {
+	ID         string    `json:"id"`
+	SessionID  string    `json:"session_id"`
+	Role       string    `json:"role"`
+	Kind       string    `json:"kind"`
+	Content    string    `json:"content"`
+	Status     string    `json:"status,omitempty"`
+	WorkflowID string    `json:"workflow_id,omitempty"`
+	Model      string    `json:"model,omitempty"`
+	Skill      string    `json:"skill,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+type SessionRun struct {
+	ID               string              `json:"id"`
+	SessionID        string              `json:"session_id"`
+	Prompt           string              `json:"prompt"`
+	Status           SessionStatus       `json:"status"`
+	WorkflowID       string              `json:"workflow_id,omitempty"`
+	Skill            string              `json:"skill,omitempty"`
+	Error            string              `json:"error,omitempty"`
+	AcceptedAt       time.Time           `json:"accepted_at"`
+	StartedAt        time.Time           `json:"started_at,omitempty"`
+	FinishedAt       time.Time           `json:"finished_at,omitempty"`
+	Trace            *SessionPromptTrace `json:"trace,omitempty"`
+	AlternativeTrace *SessionPromptTrace `json:"alternative_trace,omitempty"`
+}
+
+type SessionSummary struct {
+	ID           string        `json:"id"`
+	CreatedAt    time.Time     `json:"created_at"`
+	UpdatedAt    time.Time     `json:"updated_at"`
+	MessageCount int           `json:"message_count"`
+	LastStatus   SessionStatus `json:"last_status,omitempty"`
+}
+
+type Session struct {
+	SessionSummary
+	Messages []SessionMessage `json:"messages"`
+	Runs     []SessionRun     `json:"runs,omitempty"`
+}
+
 type MessageRequest struct {
 	Name              string            `json:"name,omitempty"`
 	Provider          string            `json:"provider,omitempty"`
@@ -431,6 +494,34 @@ type ChannelAdapter interface {
 	ParseIncomingMessages(payload map[string]any) []ChannelIncomingMessage
 }
 
+// MarketingChannel is the unified interface for all marketing channel plugins.
+// It standardises how PookiePaws interacts with outbound channels, CRM systems,
+// research tools, and export services. Community developers implement this
+// interface to extend the agent with new integrations.
+type MarketingChannel interface {
+	// Name returns the unique adapter identifier (e.g. "resend", "hubspot").
+	Name() string
+	// Kind returns the channel category: "crm", "sms", "email", "whatsapp", "research", "export".
+	Kind() string
+	// Status reports whether the channel is configured with valid secrets.
+	Status(secrets SecretProvider) ChannelProviderStatus
+	// Test verifies the channel is reachable and credentials are valid.
+	Test(ctx context.Context, secrets SecretProvider) (ChannelProviderStatus, error)
+	// Execute runs a channel operation. The AdapterAction.Operation field
+	// selects the specific action (e.g. "send_email", "create_contact", "scrape").
+	Execute(ctx context.Context, action AdapterAction, secrets SecretProvider) (AdapterResult, error)
+	// SecretKeys returns the configuration keys this channel needs from the vault.
+	SecretKeys() []string
+}
+
+// MarketingChannelRegistry stores and retrieves registered channel plugins.
+type MarketingChannelRegistry interface {
+	Register(channel MarketingChannel)
+	Get(name string) (MarketingChannel, bool)
+	List() []MarketingChannel
+	ByKind(kind string) []MarketingChannel
+}
+
 type StateStore interface {
 	SaveWorkflow(ctx context.Context, workflow Workflow) error
 	GetWorkflow(ctx context.Context, id string) (Workflow, error)
@@ -444,6 +535,9 @@ type StateStore interface {
 	SaveMessage(ctx context.Context, message Message) error
 	GetMessage(ctx context.Context, id string) (Message, error)
 	ListMessages(ctx context.Context) ([]Message, error)
+	SaveSession(ctx context.Context, session Session) error
+	GetSession(ctx context.Context, id string) (Session, error)
+	ListSessions(ctx context.Context) ([]Session, error)
 	SaveStatus(ctx context.Context, status StatusSnapshot) error
 	AppendAudit(ctx context.Context, event Event) error
 }

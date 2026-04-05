@@ -13,27 +13,13 @@ import (
 	"time"
 
 	"github.com/mitpoai/pookiepaws/internal/brain"
+	"github.com/mitpoai/pookiepaws/internal/engine"
 )
 
-type ChatSessionSummary struct {
-	ID           string    `json:"id"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	MessageCount int       `json:"message_count"`
-}
-
-type ChatMessage struct {
-	ID         string    `json:"id"`
-	SessionID  string    `json:"session_id"`
-	Role       string    `json:"role"`
-	Kind       string    `json:"kind"`
-	Content    string    `json:"content"`
-	Status     string    `json:"status,omitempty"`
-	WorkflowID string    `json:"workflow_id,omitempty"`
-	Model      string    `json:"model,omitempty"`
-	Skill      string    `json:"skill,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
-}
+type ChatSessionSummary = engine.SessionSummary
+type ChatMessage = engine.SessionMessage
+type ChatRun = engine.SessionRun
+type ChatSession = engine.Session
 
 type ChatStep struct {
 	ID         string    `json:"id"`
@@ -46,17 +32,13 @@ type ChatStep struct {
 	Timestamp  time.Time `json:"timestamp"`
 }
 
-type ChatSession struct {
-	ChatSessionSummary
-	Messages []ChatMessage `json:"messages"`
-}
-
 type ChatPromptRequest struct {
 	Prompt string `json:"prompt"`
 }
 
 type ChatDispatchResponse struct {
 	Session          ChatSessionSummary    `json:"session"`
+	Run              *ChatRun              `json:"run,omitempty"`
 	UserMessage      ChatMessage           `json:"user_message"`
 	AssistantMessage ChatMessage           `json:"assistant_message"`
 	Steps            []ChatStep            `json:"steps"`
@@ -74,76 +56,197 @@ type ChatSocketEnvelope struct {
 }
 
 type chatStore struct {
-	mu       sync.RWMutex
-	sessions map[string]*ChatSession
+	store engine.StateStore
+
+	mu    sync.Mutex
+	locks map[string]*sync.Mutex
 }
 
-func newChatStore() *chatStore {
-	return &chatStore{sessions: map[string]*ChatSession{}}
+func newChatStore(store engine.StateStore) *chatStore {
+	return &chatStore{
+		store: store,
+		locks: map[string]*sync.Mutex{},
+	}
 }
 
-func (s *chatStore) Create() ChatSession {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+func (s *chatStore) Create(ctx context.Context) (ChatSession, error) {
 	now := time.Now().UTC()
-	session := &ChatSession{
-		ChatSessionSummary: ChatSessionSummary{
+	session := ChatSession{
+		SessionSummary: ChatSessionSummary{
 			ID:        generateID("chat"),
 			CreatedAt: now,
 			UpdatedAt: now,
 		},
 		Messages: []ChatMessage{},
+		Runs:     []ChatRun{},
 	}
-	s.sessions[session.ID] = session
-	return cloneChatSession(session)
+	if s.store == nil {
+		return session, nil
+	}
+	if err := s.store.SaveSession(ctx, session); err != nil {
+		return ChatSession{}, err
+	}
+	return session, nil
 }
 
-func (s *chatStore) Get(id string) (ChatSession, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	session, ok := s.sessions[id]
-	if !ok {
+func (s *chatStore) Get(ctx context.Context, id string) (ChatSession, bool) {
+	if s.store == nil {
 		return ChatSession{}, false
 	}
-	return cloneChatSession(session), true
+	session, err := s.store.GetSession(ctx, id)
+	if errors.Is(err, engine.ErrNotFound) {
+		return ChatSession{}, false
+	}
+	if err != nil {
+		return ChatSession{}, false
+	}
+	session.MessageCount = len(session.Messages)
+	return session, true
 }
 
-func (s *chatStore) List() []ChatSessionSummary {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	summaries := make([]ChatSessionSummary, 0, len(s.sessions))
-	for _, session := range s.sessions {
-		summary := session.ChatSessionSummary
+func (s *chatStore) List(ctx context.Context) ([]ChatSessionSummary, error) {
+	if s.store == nil {
+		return nil, nil
+	}
+	sessions, err := s.store.ListSessions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	summaries := make([]ChatSessionSummary, 0, len(sessions))
+	for _, session := range sessions {
+		summary := session.SessionSummary
 		summary.MessageCount = len(session.Messages)
 		summaries = append(summaries, summary)
 	}
-	return summaries
+	return summaries, nil
 }
 
-func (s *chatStore) AppendMessage(sessionID string, message ChatMessage) (ChatSession, error) {
+func (s *chatStore) AppendMessage(ctx context.Context, sessionID string, message ChatMessage) (ChatSession, error) {
+	return s.withSession(ctx, sessionID, func(session *ChatSession) error {
+		message.SessionID = sessionID
+		session.Messages = append(session.Messages, message)
+		session.UpdatedAt = message.CreatedAt
+		return nil
+	})
+}
+
+func (s *chatStore) ReserveRun(ctx context.Context, sessionID string, prompt string) (ChatRun, error) {
+	var run ChatRun
+	_, err := s.withSession(ctx, sessionID, func(session *ChatSession) error {
+		if current := latestActiveRun(session.Runs); current != nil {
+			return httpStatusError{status: http.StatusConflict, err: fmt.Errorf("session %s already has an active run %s", sessionID, current.ID)}
+		}
+		now := time.Now().UTC()
+		run = ChatRun{
+			ID:         generateID("run"),
+			SessionID:  sessionID,
+			Prompt:     prompt,
+			Status:     engine.SessionAccepted,
+			AcceptedAt: now,
+		}
+		session.Runs = append(session.Runs, run)
+		session.LastStatus = run.Status
+		session.UpdatedAt = now
+		return nil
+	})
+	return run, err
+}
+
+func (s *chatStore) MarkRunRunning(ctx context.Context, sessionID string, runID string) (ChatRun, error) {
+	var run ChatRun
+	_, err := s.withSession(ctx, sessionID, func(session *ChatSession) error {
+		index := sessionRunIndex(session.Runs, runID)
+		if index < 0 {
+			return engine.ErrNotFound
+		}
+		session.Runs[index].Status = engine.SessionRunning
+		if session.Runs[index].StartedAt.IsZero() {
+			session.Runs[index].StartedAt = time.Now().UTC()
+		}
+		run = session.Runs[index]
+		session.LastStatus = run.Status
+		session.UpdatedAt = time.Now().UTC()
+		return nil
+	})
+	return run, err
+}
+
+func (s *chatStore) CompleteRun(ctx context.Context, sessionID string, runID string, status engine.SessionStatus, workflowID string, skill string, promptTrace *brain.PromptTrace, altTrace *brain.PromptTrace, errText string) (ChatRun, error) {
+	var run ChatRun
+	_, err := s.withSession(ctx, sessionID, func(session *ChatSession) error {
+		index := sessionRunIndex(session.Runs, runID)
+		if index < 0 {
+			return engine.ErrNotFound
+		}
+		session.Runs[index].Status = status
+		session.Runs[index].WorkflowID = strings.TrimSpace(workflowID)
+		session.Runs[index].Skill = strings.TrimSpace(skill)
+		session.Runs[index].Error = strings.TrimSpace(errText)
+		session.Runs[index].FinishedAt = time.Now().UTC()
+		if session.Runs[index].StartedAt.IsZero() {
+			session.Runs[index].StartedAt = session.Runs[index].AcceptedAt
+		}
+		session.Runs[index].Trace = translateTrace(promptTrace)
+		session.Runs[index].AlternativeTrace = translateTrace(altTrace)
+		run = session.Runs[index]
+		session.LastStatus = run.Status
+		session.UpdatedAt = run.FinishedAt
+		return nil
+	})
+	return run, err
+}
+
+func (s *chatStore) withSession(ctx context.Context, sessionID string, mutate func(*ChatSession) error) (ChatSession, error) {
+	if s.store == nil {
+		return ChatSession{}, fmt.Errorf("chat store is not configured")
+	}
+	lock := s.lockFor(sessionID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	session, err := s.store.GetSession(ctx, sessionID)
+	if err != nil {
+		if errors.Is(err, engine.ErrNotFound) {
+			return ChatSession{}, httpStatusError{status: http.StatusNotFound, err: fmt.Errorf("chat session %s not found", sessionID)}
+		}
+		return ChatSession{}, err
+	}
+	if err := mutate(&session); err != nil {
+		return ChatSession{}, err
+	}
+	session.MessageCount = len(session.Messages)
+	if err := s.store.SaveSession(ctx, session); err != nil {
+		return ChatSession{}, err
+	}
+	return session, nil
+}
+
+func (s *chatStore) lockFor(sessionID string) *sync.Mutex {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	session, ok := s.sessions[sessionID]
-	if !ok {
-		return ChatSession{}, fmt.Errorf("chat session %s not found", sessionID)
+	lock := s.locks[sessionID]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		s.locks[sessionID] = lock
 	}
-	message.SessionID = sessionID
-	session.Messages = append(session.Messages, message)
-	session.UpdatedAt = message.CreatedAt
-	session.MessageCount = len(session.Messages)
-	return cloneChatSession(session), nil
+	return lock
 }
 
 func (s *Server) handleChatSessions(writer http.ResponseWriter, request *http.Request) {
 	switch request.Method {
 	case http.MethodGet:
-		writeJSON(writer, http.StatusOK, s.chat.List())
+		sessions, err := s.chat.List(request.Context())
+		if err != nil {
+			writeJSONError(writer, err, http.StatusInternalServerError)
+			return
+		}
+		writeJSON(writer, http.StatusOK, sessions)
 	case http.MethodPost:
-		session := s.chat.Create()
+		session, err := s.chat.Create(request.Context())
+		if err != nil {
+			writeJSONError(writer, err, http.StatusInternalServerError)
+			return
+		}
 		writeJSON(writer, http.StatusCreated, session)
 	default:
 		writer.WriteHeader(http.StatusMethodNotAllowed)
@@ -152,9 +255,13 @@ func (s *Server) handleChatSessions(writer http.ResponseWriter, request *http.Re
 
 func (s *Server) handleChatSessionRoutes(writer http.ResponseWriter, request *http.Request) {
 	path := strings.TrimPrefix(request.URL.Path, "/api/v1/chat/sessions/")
+	s.handleSessionRoutes(writer, request, path)
+}
+
+func (s *Server) handleSessionRoutes(writer http.ResponseWriter, request *http.Request, path string) {
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 	if len(parts) == 0 || parts[0] == "" {
-		writeJSONError(writer, fmt.Errorf("chat session route not found"), http.StatusNotFound)
+		writeJSONError(writer, fmt.Errorf("session route not found"), http.StatusNotFound)
 		return
 	}
 
@@ -164,7 +271,7 @@ func (s *Server) handleChatSessionRoutes(writer http.ResponseWriter, request *ht
 			writer.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		session, ok := s.chat.Get(sessionID)
+		session, ok := s.chat.Get(request.Context(), sessionID)
 		if !ok {
 			writeJSONError(writer, fmt.Errorf("chat session %s not found", sessionID), http.StatusNotFound)
 			return
@@ -173,10 +280,11 @@ func (s *Server) handleChatSessionRoutes(writer http.ResponseWriter, request *ht
 		return
 	}
 
-	if len(parts) == 2 && parts[1] == "messages" {
+	switch parts[1] {
+	case "messages", "history":
 		switch request.Method {
 		case http.MethodGet:
-			session, ok := s.chat.Get(sessionID)
+			session, ok := s.chat.Get(request.Context(), sessionID)
 			if !ok {
 				writeJSONError(writer, fmt.Errorf("chat session %s not found", sessionID), http.StatusNotFound)
 				return
@@ -202,14 +310,58 @@ func (s *Server) handleChatSessionRoutes(writer http.ResponseWriter, request *ht
 		default:
 			writer.WriteHeader(http.StatusMethodNotAllowed)
 		}
-		return
+	case "runs":
+		if request.Method == http.MethodGet {
+			session, ok := s.chat.Get(request.Context(), sessionID)
+			if !ok {
+				writeJSONError(writer, fmt.Errorf("chat session %s not found", sessionID), http.StatusNotFound)
+				return
+			}
+			writeJSON(writer, http.StatusOK, session.Runs)
+			return
+		}
+		if request.Method == http.MethodPost {
+			var payload ChatPromptRequest
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				writeJSONError(writer, err, http.StatusBadRequest)
+				return
+			}
+			response, err := s.processChatPrompt(request.Context(), sessionID, payload.Prompt)
+			if err != nil {
+				var statusErr interface{ StatusCode() int }
+				if errors.As(err, &statusErr) {
+					writeJSONError(writer, err, statusErr.StatusCode())
+					return
+				}
+				writeJSONError(writer, err, http.StatusBadRequest)
+				return
+			}
+			writeJSON(writer, http.StatusOK, response)
+			return
+		}
+		writer.WriteHeader(http.StatusMethodNotAllowed)
+	case "status":
+		if request.Method != http.MethodGet {
+			writer.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		session, ok := s.chat.Get(request.Context(), sessionID)
+		if !ok {
+			writeJSONError(writer, fmt.Errorf("chat session %s not found", sessionID), http.StatusNotFound)
+			return
+		}
+		if len(session.Runs) == 0 {
+			writeJSON(writer, http.StatusOK, map[string]any{"session_id": session.ID, "status": ""})
+			return
+		}
+		writeJSON(writer, http.StatusOK, session.Runs[len(session.Runs)-1])
+	default:
+		writeJSONError(writer, fmt.Errorf("session route not found"), http.StatusNotFound)
 	}
-
-	writeJSONError(writer, fmt.Errorf("chat session route not found"), http.StatusNotFound)
 }
 
 func (s *Server) processChatPrompt(ctx context.Context, sessionID string, prompt string) (ChatDispatchResponse, error) {
-	session, ok := s.chat.Get(sessionID)
+	session, ok := s.chat.Get(ctx, sessionID)
 	if !ok {
 		return ChatDispatchResponse{}, httpStatusError{status: http.StatusNotFound, err: fmt.Errorf("chat session %s not found", sessionID)}
 	}
@@ -221,6 +373,11 @@ func (s *Server) processChatPrompt(ctx context.Context, sessionID string, prompt
 		return ChatDispatchResponse{}, httpStatusError{status: http.StatusBadRequest, err: fmt.Errorf("prompt is required")}
 	}
 
+	run, err := s.chat.ReserveRun(ctx, session.ID, prompt)
+	if err != nil {
+		return ChatDispatchResponse{}, err
+	}
+
 	now := time.Now().UTC()
 	userMessage := ChatMessage{
 		ID:        generateID("msg"),
@@ -230,7 +387,10 @@ func (s *Server) processChatPrompt(ctx context.Context, sessionID string, prompt
 		Content:   prompt,
 		CreatedAt: now,
 	}
-	if _, err := s.chat.AppendMessage(session.ID, userMessage); err != nil {
+	if _, err := s.chat.AppendMessage(ctx, session.ID, userMessage); err != nil {
+		return ChatDispatchResponse{}, err
+	}
+	if run, err = s.chat.MarkRunRunning(ctx, session.ID, run.ID); err != nil {
 		return ChatDispatchResponse{}, err
 	}
 
@@ -250,43 +410,58 @@ func (s *Server) processChatPrompt(ctx context.Context, sessionID string, prompt
 			Status:    "failed",
 			CreatedAt: time.Now().UTC(),
 		}
-		if _, appendErr := s.chat.AppendMessage(session.ID, assistant); appendErr != nil {
+		if _, appendErr := s.chat.AppendMessage(ctx, session.ID, assistant); appendErr != nil {
 			return ChatDispatchResponse{}, appendErr
 		}
+		run, _ = s.chat.CompleteRun(ctx, session.ID, run.ID, engine.SessionFailed, "", "", nil, nil, err.Error())
 		steps = append(steps, newChatStep(session.ID, "failed", "Routing paused", err.Error(), "error", ""))
-		finalSession, _ := s.chat.Get(session.ID)
+		finalSession, _ := s.chat.Get(ctx, session.ID)
 		return ChatDispatchResponse{
-			Session:          finalSession.ChatSessionSummary,
+			Session:          finalSession.SessionSummary,
+			Run:              &run,
 			UserMessage:      userMessage,
 			AssistantMessage: assistant,
 			Steps:            steps,
 		}, nil
 	}
+	result.PromptTrace = ensurePromptTrace(result.PromptTrace, prompt, result.Model, result.Raw)
 
 	assistant := buildAssistantChatMessage(session.ID, result)
-	if _, err := s.chat.AppendMessage(session.ID, assistant); err != nil {
+	if _, err := s.chat.AppendMessage(ctx, session.ID, assistant); err != nil {
 		return ChatDispatchResponse{}, err
 	}
 
+	runStatus := engine.SessionCompleted
+	runWorkflowID := ""
+	if result.Workflow != nil {
+		runWorkflowID = result.Workflow.ID
+	}
+
 	if result.Blocked != nil {
-		steps = append(steps, newChatStep(session.ID, "blocked", "Paused by the police layer", buildBlockedChatDetail(result), "warning", ""))
+		runStatus = engine.SessionBlocked
+		steps = append(steps, newChatStep(session.ID, "blocked", "Paused by the policy layer", buildBlockedChatDetail(result), "warning", ""))
 		if result.Alternative != nil && result.Alternative.Command != nil {
 			steps = append(steps, newChatStep(session.ID, "alternative", "Safe alternative prepared", fmt.Sprintf("Pookie suggested %s as a safer next step.", firstNonEmpty(result.Alternative.Command.Name, result.Alternative.Command.Skill, "an alternative workflow")), "info", ""))
 		}
 	} else {
-		workflowID := ""
-		if result.Workflow != nil {
-			workflowID = result.Workflow.ID
-		}
-		steps = append(steps, newChatStep(session.ID, "routed", "Workflow routed", fmt.Sprintf("Pookie selected %s for this request.", firstNonEmpty(result.Command.Skill, "the best matching skill")), "info", workflowID))
+		steps = append(steps, newChatStep(session.ID, "routed", "Workflow routed", fmt.Sprintf("Pookie selected %s for this request.", firstNonEmpty(result.Command.Skill, "the best matching skill")), "info", runWorkflowID))
 		if result.Workflow != nil {
 			steps = append(steps, newChatStep(session.ID, "queued", "Workflow queued", fmt.Sprintf("%s is now %s.", firstNonEmpty(result.Workflow.Name, "Workflow"), result.Workflow.Status), "info", result.Workflow.ID))
+			if result.Workflow.Status == engine.WorkflowWaitingApproval {
+				runStatus = engine.SessionAwaitingApproval
+			}
 		}
 	}
 
-	finalSession, _ := s.chat.Get(session.ID)
+	run, err = s.chat.CompleteRun(ctx, session.ID, run.ID, runStatus, runWorkflowID, result.Command.Skill, result.PromptTrace, result.AltTrace, "")
+	if err != nil {
+		return ChatDispatchResponse{}, err
+	}
+
+	finalSession, _ := s.chat.Get(ctx, session.ID)
 	return ChatDispatchResponse{
-		Session:          finalSession.ChatSessionSummary,
+		Session:          finalSession.SessionSummary,
+		Run:              &run,
 		UserMessage:      userMessage,
 		AssistantMessage: assistant,
 		Steps:            steps,
@@ -350,21 +525,70 @@ func newChatStep(sessionID string, stage string, title string, detail string, se
 	}
 }
 
-func cloneChatSession(session *ChatSession) ChatSession {
-	clone := ChatSession{
-		ChatSessionSummary: session.ChatSessionSummary,
-		Messages:           append([]ChatMessage(nil), session.Messages...),
-	}
-	clone.MessageCount = len(clone.Messages)
-	return clone
-}
-
 func generateID(prefix string) string {
 	buf := make([]byte, 8)
 	if _, err := rand.Read(buf); err != nil {
 		return fmt.Sprintf("%s_%d", prefix, time.Now().UnixNano())
 	}
 	return prefix + "_" + hex.EncodeToString(buf)
+}
+
+func latestActiveRun(runs []ChatRun) *ChatRun {
+	for index := len(runs) - 1; index >= 0; index-- {
+		switch runs[index].Status {
+		case engine.SessionAccepted, engine.SessionRunning:
+			return &runs[index]
+		}
+	}
+	return nil
+}
+
+func sessionRunIndex(runs []ChatRun, runID string) int {
+	for index := range runs {
+		if runs[index].ID == runID {
+			return index
+		}
+	}
+	return -1
+}
+
+func translateTrace(trace *brain.PromptTrace) *engine.SessionPromptTrace {
+	if trace == nil {
+		return nil
+	}
+	return &engine.SessionPromptTrace{
+		Mode:         string(trace.Mode),
+		SystemPrompt: trace.SystemPrompt,
+		UserPrompt:   trace.UserPrompt,
+		Model:        trace.Model,
+		RawResponse:  trace.RawResponse,
+		Error:        trace.Error,
+		CreatedAt:    time.Now().UTC(),
+	}
+}
+
+func ensurePromptTrace(trace *brain.PromptTrace, prompt string, model string, raw string) *brain.PromptTrace {
+	if trace == nil {
+		return &brain.PromptTrace{
+			Mode:        brain.PromptModeOperator,
+			UserPrompt:  strings.TrimSpace(prompt),
+			Model:       strings.TrimSpace(model),
+			RawResponse: strings.TrimSpace(raw),
+		}
+	}
+	if strings.TrimSpace(trace.UserPrompt) == "" {
+		trace.UserPrompt = strings.TrimSpace(prompt)
+	}
+	if strings.TrimSpace(trace.Model) == "" {
+		trace.Model = strings.TrimSpace(model)
+	}
+	if strings.TrimSpace(trace.RawResponse) == "" {
+		trace.RawResponse = strings.TrimSpace(raw)
+	}
+	if trace.Mode == "" {
+		trace.Mode = brain.PromptModeOperator
+	}
+	return trace
 }
 
 type httpStatusError struct {

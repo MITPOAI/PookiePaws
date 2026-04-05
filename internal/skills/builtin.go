@@ -3,9 +3,13 @@ package skills
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
+	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mitpoai/pookiepaws/internal/conv"
 	"github.com/mitpoai/pookiepaws/internal/engine"
@@ -514,4 +518,256 @@ func (s *SEOAuditorSkill) Execute(_ context.Context, req engine.SkillRequest) (e
 	}
 
 	return engine.SkillResult{Output: output}, nil
+}
+
+// ── mitpo-researcher ───────────────────────────────────────────────────────
+
+type ResearcherSkill struct {
+	manifest Manifest
+}
+
+func NewResearcherSkill(manifest Manifest) *ResearcherSkill {
+	return &ResearcherSkill{manifest: manifest}
+}
+
+func (s *ResearcherSkill) Definition() engine.SkillDefinition {
+	return engine.SkillDefinition{
+		Name:        s.manifest.Name,
+		Description: s.manifest.Description,
+		Tools:       s.manifest.Tools,
+		Events:      s.manifest.Events,
+		Prompt:      s.manifest.Prompt,
+	}
+}
+
+func (s *ResearcherSkill) Validate(input map[string]any) error {
+	rawURL := strings.TrimSpace(conv.AsString(input["url"]))
+	if rawURL == "" {
+		return fmt.Errorf("url is required")
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid url: %w", err)
+	}
+	scheme := strings.ToLower(strings.TrimSpace(parsed.Scheme))
+	if scheme != "http" && scheme != "https" {
+		return fmt.Errorf("only http and https URLs are supported")
+	}
+	host := strings.ToLower(strings.TrimSpace(parsed.Hostname()))
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		return fmt.Errorf("local addresses are not allowed")
+	}
+	return nil
+}
+
+func (s *ResearcherSkill) Execute(ctx context.Context, req engine.SkillRequest) (engine.SkillResult, error) {
+	targetURL := strings.TrimSpace(conv.AsString(req.Input["url"]))
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+	if err != nil {
+		return engine.SkillResult{}, fmt.Errorf("build request: %w", err)
+	}
+	httpReq.Header.Set("User-Agent", "PookiePaws/1.0 (marketing-research-bot)")
+
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return engine.SkillResult{}, fmt.Errorf("fetch url: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return engine.SkillResult{}, fmt.Errorf("fetch returned HTTP %d", resp.StatusCode)
+	}
+
+	// Limit body to 1 MB to prevent abuse.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return engine.SkillResult{}, fmt.Errorf("read body: %w", err)
+	}
+
+	html := string(body)
+	title := extractHTMLTitle(html)
+	rawText := stripHTML(html)
+
+	// Truncate to a reasonable length for downstream processing.
+	const maxChars = 10000
+	if len(rawText) > maxChars {
+		rawText = rawText[:maxChars]
+	}
+
+	// Build a summary from the first portion of the text.
+	summary := rawText
+	const summaryLen = 500
+	if len(summary) > summaryLen {
+		summary = summary[:summaryLen] + "…"
+	}
+
+	return engine.SkillResult{
+		Output: map[string]any{
+			"url":      targetURL,
+			"title":    title,
+			"summary":  summary,
+			"raw_text": rawText,
+		},
+	}, nil
+}
+
+// extractHTMLTitle extracts the content between <title> and </title> tags.
+func extractHTMLTitle(html string) string {
+	lower := strings.ToLower(html)
+	start := strings.Index(lower, "<title")
+	if start < 0 {
+		return ""
+	}
+	// Skip past the opening tag (handle attributes like <title lang="en">).
+	close := strings.IndexByte(lower[start:], '>')
+	if close < 0 {
+		return ""
+	}
+	start += close + 1
+	end := strings.Index(lower[start:], "</title>")
+	if end < 0 {
+		return ""
+	}
+	return strings.TrimSpace(html[start : start+end])
+}
+
+// stripHTML removes HTML tags and script/style blocks, returning plain text.
+func stripHTML(html string) string {
+	// Remove <script> and <style> blocks entirely.
+	result := removeTagBlocks(html, "script")
+	result = removeTagBlocks(result, "style")
+
+	// Strip remaining tags.
+	var buf strings.Builder
+	buf.Grow(len(result))
+	inTag := false
+	for i := 0; i < len(result); i++ {
+		switch {
+		case result[i] == '<':
+			inTag = true
+		case result[i] == '>':
+			inTag = false
+		case !inTag:
+			buf.WriteByte(result[i])
+		}
+	}
+	text := buf.String()
+
+	// Decode common HTML entities.
+	text = strings.ReplaceAll(text, "&amp;", "&")
+	text = strings.ReplaceAll(text, "&lt;", "<")
+	text = strings.ReplaceAll(text, "&gt;", ">")
+	text = strings.ReplaceAll(text, "&quot;", `"`)
+	text = strings.ReplaceAll(text, "&#39;", "'")
+	text = strings.ReplaceAll(text, "&nbsp;", " ")
+
+	// Collapse whitespace.
+	lines := strings.Split(text, "\n")
+	var cleaned []string
+	for _, line := range lines {
+		line = strings.Join(strings.Fields(line), " ")
+		if line != "" {
+			cleaned = append(cleaned, line)
+		}
+	}
+	return strings.Join(cleaned, "\n")
+}
+
+// removeTagBlocks strips everything between <tag...> and </tag> (case-insensitive).
+func removeTagBlocks(html string, tag string) string {
+	lower := strings.ToLower(html)
+	openTag := "<" + tag
+	closeTag := "</" + tag + ">"
+	var buf strings.Builder
+	buf.Grow(len(html))
+	cursor := 0
+	for {
+		start := strings.Index(lower[cursor:], openTag)
+		if start < 0 {
+			buf.WriteString(html[cursor:])
+			break
+		}
+		buf.WriteString(html[cursor : cursor+start])
+		end := strings.Index(lower[cursor+start:], closeTag)
+		if end < 0 {
+			// No closing tag — skip to end.
+			break
+		}
+		cursor = cursor + start + end + len(closeTag)
+	}
+	return buf.String()
+}
+
+// ── mitpo-markdown-export ──────────────────────────────────────────────────
+
+type MarkdownExportSkill struct {
+	manifest Manifest
+}
+
+func NewMarkdownExportSkill(manifest Manifest) *MarkdownExportSkill {
+	return &MarkdownExportSkill{manifest: manifest}
+}
+
+func (s *MarkdownExportSkill) Definition() engine.SkillDefinition {
+	return engine.SkillDefinition{
+		Name:        s.manifest.Name,
+		Description: s.manifest.Description,
+		Tools:       s.manifest.Tools,
+		Events:      s.manifest.Events,
+		Prompt:      s.manifest.Prompt,
+	}
+}
+
+func (s *MarkdownExportSkill) Validate(input map[string]any) error {
+	content := strings.TrimSpace(conv.AsString(input["content"]))
+	if content == "" {
+		return fmt.Errorf("content is required")
+	}
+	return nil
+}
+
+func (s *MarkdownExportSkill) Execute(_ context.Context, req engine.SkillRequest) (engine.SkillResult, error) {
+	content := strings.TrimSpace(conv.AsString(req.Input["content"]))
+	title := strings.TrimSpace(conv.AsString(req.Input["title"]))
+	prefix := strings.TrimSpace(conv.AsString(req.Input["filename"]))
+	if prefix == "" {
+		prefix = "export"
+	}
+
+	// Build the markdown document.
+	var doc strings.Builder
+	if title != "" {
+		doc.WriteString("# ")
+		doc.WriteString(title)
+		doc.WriteString("\n\n")
+	}
+	doc.WriteString(content)
+	doc.WriteString("\n")
+	data := []byte(doc.String())
+
+	// Generate timestamped filename.
+	stamp := time.Now().UTC().Format("2006-01-05T15-04-05")
+	filename := fmt.Sprintf("%s-%s.md", prefix, stamp)
+
+	// Resolve the exports directory within the workspace sandbox.
+	exportsDir, err := req.Sandbox.ResolveWithinWorkspace("exports")
+	if err != nil {
+		return engine.SkillResult{}, fmt.Errorf("resolve exports dir: %w", err)
+	}
+	fullPath := filepath.Join(exportsDir, filename)
+
+	// Write using the sandbox (which ensures the directory exists and stays
+	// within the workspace boundary).
+	if err := req.Sandbox.WriteFile(context.Background(), fullPath, data); err != nil {
+		return engine.SkillResult{}, fmt.Errorf("write export: %w", err)
+	}
+
+	return engine.SkillResult{
+		Output: map[string]any{
+			"path": fullPath,
+			"size": len(data),
+		},
+	}, nil
 }

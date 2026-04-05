@@ -97,16 +97,24 @@ func (s *Service) DispatchPrompt(ctx context.Context, prompt string) (DispatchRe
 
 	systemPrompt := s.persona.RoutingPrompt(skillDefinitions, memorySnapshot, recentTurns)
 	userPrompt := buildUserPrompt(prompt, recentTurns)
+	trace := &PromptTrace{
+		Mode:         PromptModeOperator,
+		SystemPrompt: systemPrompt,
+		UserPrompt:   userPrompt,
+	}
 	response, err := s.client.Complete(ctx, CompletionRequest{
 		SystemPrompt: systemPrompt,
 		UserPrompt:   userPrompt,
 	})
 	if err != nil {
+		trace.Error = err.Error()
 		s.publishEvent(ctx, engine.EventBrainCommandError, map[string]any{
 			"error": err.Error(),
 		})
 		return DispatchResult{}, s.persona.Humanize(err)
 	}
+	trace.Model = response.Model
+	trace.RawResponse = response.Raw
 
 	command, err := ParseCommand(response.Raw)
 	if err != nil {
@@ -130,6 +138,25 @@ func (s *Service) DispatchPrompt(ctx context.Context, prompt string) (DispatchRe
 		"model":  response.Model,
 	})
 
+	// Casual chat — return the conversational response directly.
+	if command.Action == "casual_chat" {
+		if s.window != nil {
+			s.window.Add("user", prompt)
+			s.window.Add("assistant", command.Explanation)
+		}
+		return DispatchResult{
+			Command:     command,
+			Model:       response.Model,
+			Raw:         response.Raw,
+			PromptTrace: trace,
+		}, nil
+	}
+
+	// Chained pipeline — execute steps sequentially.
+	if command.Action == "run_chain" {
+		return s.executeChain(ctx, prompt, command, response, trace)
+	}
+
 	workflow, err := s.coordinator.SubmitWorkflow(ctx, engine.WorkflowDefinition{
 		Name:  firstNonEmpty(command.Name, command.Skill),
 		Skill: command.Skill,
@@ -145,17 +172,19 @@ func (s *Service) DispatchPrompt(ctx context.Context, prompt string) (DispatchRe
 				"violation": blocked.Decision.Violation,
 			})
 			result := DispatchResult{
-				Command: command,
-				Model:   response.Model,
-				Raw:     response.Raw,
+				Command:     command,
+				Model:       response.Model,
+				Raw:         response.Raw,
+				PromptTrace: trace,
 				Blocked: &SafetyIntervention{
 					Skill:     command.Skill,
 					Risk:      blocked.Decision.Risk,
 					Reason:    blocked.Decision.Reason,
 					Violation: blocked.Decision.Violation,
 				},
-				Alternative: s.formulateSafeAlternative(ctx, prompt, command, blocked, skillDefinitions, skillNames),
+				Alternative: nil,
 			}
+			result.Alternative, result.AltTrace = s.formulateSafeAlternative(ctx, prompt, command, blocked, skillDefinitions, skillNames)
 			if s.window != nil {
 				s.window.Add("user", prompt)
 				if result.Alternative != nil {
@@ -178,10 +207,11 @@ func (s *Service) DispatchPrompt(ctx context.Context, prompt string) (DispatchRe
 	}
 
 	return DispatchResult{
-		Command:  command,
-		Workflow: &workflow,
-		Model:    response.Model,
-		Raw:      response.Raw,
+		Command:     command,
+		Workflow:    &workflow,
+		Model:       response.Model,
+		Raw:         response.Raw,
+		PromptTrace: trace,
 	}, nil
 }
 
@@ -219,32 +249,12 @@ func (s *Service) snapshotTurns() []ConversationTurn {
 	return s.window.Snapshot()
 }
 
-func buildUserPrompt(prompt string, turns []ConversationTurn) string {
-	prompt = strings.TrimSpace(prompt)
-	if len(turns) == 0 {
-		return prompt
-	}
-
-	var builder strings.Builder
-	builder.WriteString("Recent routing context:\n")
-	for _, turn := range turns {
-		builder.WriteString("- ")
-		builder.WriteString(turn.Role)
-		builder.WriteString(": ")
-		builder.WriteString(strings.TrimSpace(turn.Content))
-		builder.WriteString("\n")
-	}
-	builder.WriteString("\nCurrent request:\n")
-	builder.WriteString(prompt)
-	return builder.String()
-}
-
 func buildAssistantMemoryTurn(command Command) string {
 	description := firstNonEmpty(command.Explanation, command.Name, command.Skill)
 	return strings.TrimSpace(fmt.Sprintf("Selected %s. %s", command.Skill, description))
 }
 
-func (s *Service) formulateSafeAlternative(ctx context.Context, originalPrompt string, blockedCommand Command, blocked engine.WorkflowBlockedError, defs []engine.SkillDefinition, skillNames []string) *AlternativeSuggestion {
+func (s *Service) formulateSafeAlternative(ctx context.Context, originalPrompt string, blockedCommand Command, blocked engine.WorkflowBlockedError, defs []engine.SkillDefinition, skillNames []string) (*AlternativeSuggestion, *PromptTrace) {
 	fallback := &AlternativeSuggestion{
 		Message: firstNonEmpty(
 			blocked.Decision.Reason,
@@ -252,7 +262,7 @@ func (s *Service) formulateSafeAlternative(ctx context.Context, originalPrompt s
 		),
 	}
 	if !s.Available() {
-		return fallback
+		return fallback, nil
 	}
 
 	payload, err := json.MarshalIndent(map[string]any{
@@ -261,21 +271,30 @@ func (s *Service) formulateSafeAlternative(ctx context.Context, originalPrompt s
 		"decision":        blocked.Decision,
 	}, "", "  ")
 	if err != nil {
-		return fallback
+		return fallback, nil
+	}
+	systemPrompt := s.buildSafeAlternativeSystemPrompt(defs)
+	trace := &PromptTrace{
+		Mode:         PromptModeSafeAlternative,
+		SystemPrompt: systemPrompt,
+		UserPrompt:   string(payload),
 	}
 
 	response, err := s.client.Complete(ctx, CompletionRequest{
-		SystemPrompt: s.buildSafeAlternativeSystemPrompt(defs),
+		SystemPrompt: systemPrompt,
 		UserPrompt:   string(payload),
 	})
 	if err != nil {
-		return fallback
+		trace.Error = err.Error()
+		return fallback, trace
 	}
+	trace.Model = response.Model
+	trace.RawResponse = response.Raw
 
 	suggestion, err := ParseAlternativeSuggestion(response.Raw)
 	if err != nil {
 		fallback.Raw = response.Raw
-		return fallback
+		return fallback, trace
 	}
 	if suggestion.Command != nil {
 		if err := suggestion.Command.Validate(skillNames); err != nil {
@@ -283,7 +302,7 @@ func (s *Service) formulateSafeAlternative(ctx context.Context, originalPrompt s
 			if suggestion.Message == "" {
 				suggestion.Message = fallback.Message
 			}
-			return &suggestion
+			return &suggestion, trace
 		}
 	}
 	if suggestion.Message == "" {
@@ -292,25 +311,82 @@ func (s *Service) formulateSafeAlternative(ctx context.Context, originalPrompt s
 	if suggestion.Raw == "" {
 		suggestion.Raw = response.Raw
 	}
-	return &suggestion
+	return &suggestion, trace
 }
 
 func (s *Service) buildSafeAlternativeSystemPrompt(defs []engine.SkillDefinition) string {
-	var builder strings.Builder
-	builder.WriteString("You are Pookie, the PookiePaws security fallback planner. ")
-	builder.WriteString("A requested workflow was blocked by the police layer. ")
-	builder.WriteString(`Return exactly one JSON object and no surrounding prose using this schema: {"message":"short calm explanation for a marketer","alternative":{"action":"run_workflow","name":"short title","skill":"one-skill-name","input":{...},"explanation":"short reason"}}. `)
-	builder.WriteString("If no safe workflow exists, set alternative to null and explain why in message. ")
-	builder.WriteString("Keep all alternatives read-only or approval-gated, never destructive, never credential-seeking, and never shell-executing.\n\n")
-	builder.WriteString("Available safe skills:\n")
-	for _, def := range defs {
-		builder.WriteString("- ")
-		builder.WriteString(def.Name)
-		if def.Description != "" {
-			builder.WriteString(": ")
-			builder.WriteString(def.Description)
+	return NewPromptBuilder(PromptModeSafeAlternative).BuildSafeAlternativePrompt(defs)
+}
+
+// executeChain runs a sequence of workflow steps. Each step's output is merged
+// into the next step's input (explicit input takes precedence over inherited
+// values). The chain halts on error or if a step requires approval.
+func (s *Service) executeChain(ctx context.Context, prompt string, command Command, response CompletionResponse, trace *PromptTrace) (DispatchResult, error) {
+	var lastOutput map[string]any
+	var lastWorkflow *engine.Workflow
+
+	for i, step := range command.Steps {
+		input := make(map[string]any)
+		// Carry forward output from the previous step.
+		for k, v := range lastOutput {
+			input[k] = v
 		}
-		builder.WriteString("\n")
+		// Explicit step input takes precedence.
+		for k, v := range step.Input {
+			input[k] = v
+		}
+
+		wf, err := s.coordinator.SubmitWorkflow(ctx, engine.WorkflowDefinition{
+			Name:  fmt.Sprintf("chain-step-%d-%s", i+1, step.Skill),
+			Skill: step.Skill,
+			Input: input,
+		})
+		if err != nil {
+			var blocked engine.WorkflowBlockedError
+			if errors.As(err, &blocked) {
+				result := DispatchResult{
+					Command:     command,
+					Workflow:    lastWorkflow,
+					Model:       response.Model,
+					Raw:         response.Raw,
+					PromptTrace: trace,
+					Blocked: &SafetyIntervention{
+						Skill:     step.Skill,
+						Risk:      blocked.Decision.Risk,
+						Reason:    fmt.Sprintf("chain step %d (%s): %s", i+1, step.Skill, blocked.Decision.Reason),
+						Violation: blocked.Decision.Violation,
+					},
+				}
+				return result, nil
+			}
+			return DispatchResult{}, s.persona.Humanize(
+				fmt.Errorf("chain step %d (%s): %w", i+1, step.Skill, err),
+			)
+		}
+
+		lastWorkflow = &wf
+		lastOutput = wf.Output
+
+		// If a step requires approval, halt the chain and inform the user.
+		if wf.Status == engine.WorkflowWaitingApproval {
+			break
+		}
 	}
-	return builder.String()
+
+	if s.window != nil {
+		s.window.Add("user", prompt)
+		skills := make([]string, 0, len(command.Steps))
+		for _, step := range command.Steps {
+			skills = append(skills, step.Skill)
+		}
+		s.window.Add("assistant", fmt.Sprintf("Executed chain: %s", strings.Join(skills, " → ")))
+	}
+
+	return DispatchResult{
+		Command:     command,
+		Workflow:    lastWorkflow,
+		Model:       response.Model,
+		Raw:         response.Raw,
+		PromptTrace: trace,
+	}, nil
 }

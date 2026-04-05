@@ -56,26 +56,26 @@
 
 :root[data-theme="soft"] {
   color-scheme: light;
-  --bg: #f7f2f4;
-  --bg-strong: #eee7ea;
-  --surface: #fcfafb;
-  --surface-muted: #f6f1f3;
-  --surface-strong: #ede3e8;
-  --ink: #26212c;
+  --bg: #faf5f7;
+  --bg-strong: #f2eaee;
+  --surface: #ffffff;
+  --surface-muted: #faf7f8;
+  --surface-strong: #f0e6eb;
+  --ink: #2a1f30;
   --muted: #716879;
-  --border: rgba(92, 78, 95, 0.14);
-  --border-strong: rgba(92, 78, 95, 0.22);
-  --accent: #bf5f83;
-  --accent-soft: rgba(191, 95, 131, 0.11);
+  --border: rgba(92, 78, 95, 0.12);
+  --border-strong: rgba(92, 78, 95, 0.20);
+  --accent: #c4648a;
+  --accent-soft: rgba(196, 100, 138, 0.10);
   --success: #047857;
   --success-soft: rgba(4, 120, 87, 0.12);
   --warning: #b45309;
   --warning-soft: rgba(180, 83, 9, 0.12);
   --danger: #b91c1c;
   --danger-soft: rgba(185, 28, 28, 0.10);
-  --shadow: 0 12px 32px rgba(49, 37, 56, 0.08);
-  --shadow-lg: 0 28px 70px rgba(49, 37, 56, 0.16);
-  --focus-ring: 0 0 0 3px rgba(191, 95, 131, 0.18);
+  --shadow: 0 10px 28px rgba(49, 37, 56, 0.06);
+  --shadow-lg: 0 24px 60px rgba(49, 37, 56, 0.12);
+  --focus-ring: 0 0 0 3px rgba(196, 100, 138, 0.18);
   --modal-backdrop: rgba(31, 17, 29, 0.42);
 }
 
@@ -864,7 +864,8 @@ pre {
 .prompt-bar__send {
   position: absolute;
   right: 8px;
-  bottom: 8px;
+  top: 50%;
+  transform: translateY(-50%);
   width: 36px;
   height: 36px;
   border-radius: 10px;
@@ -1210,13 +1211,20 @@ pre {
   border-bottom: 1px solid var(--border);
 }
 
+.canvas-board {
+  position: relative;
+  min-height: 280px;
+}
+
 .canvas-links {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
 }
 
-.canvas-board {
+.canvas-nodes {
   position: relative;
   min-height: 280px;
 }

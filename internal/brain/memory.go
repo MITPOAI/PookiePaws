@@ -24,6 +24,7 @@ type ConversationWindow struct {
 	mu    sync.Mutex
 	limit int
 	turns []ConversationTurn
+	path  string // optional on-disk persistence path
 }
 
 type MemoryEntry struct {
@@ -88,6 +89,7 @@ func (w *ConversationWindow) Add(role string, content string) {
 	if len(w.turns) > w.limit {
 		w.turns = append([]ConversationTurn(nil), w.turns[len(w.turns)-w.limit:]...)
 	}
+	w.saveLocked()
 }
 
 func (w *ConversationWindow) Snapshot() []ConversationTurn {
@@ -111,6 +113,50 @@ func (w *ConversationWindow) Reset() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.turns = nil
+	w.saveLocked()
+}
+
+// SetPath configures on-disk persistence. When set, the window saves after
+// every Add and loads existing turns on startup.
+func (w *ConversationWindow) SetPath(path string) {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.path = path
+	if path != "" {
+		w.loadLocked()
+	}
+}
+
+func (w *ConversationWindow) saveLocked() {
+	if w.path == "" {
+		return
+	}
+	data, err := json.Marshal(w.turns)
+	if err != nil {
+		return
+	}
+	tmp := w.path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return
+	}
+	os.Rename(tmp, w.path)
+}
+
+func (w *ConversationWindow) loadLocked() {
+	data, err := os.ReadFile(w.path)
+	if err != nil {
+		return
+	}
+	var turns []ConversationTurn
+	if json.Unmarshal(data, &turns) == nil && len(turns) > 0 {
+		if len(turns) > w.limit {
+			turns = turns[len(turns)-w.limit:]
+		}
+		w.turns = turns
+	}
 }
 
 func NewPersistentMemory(runtimeRoot string, factory ProviderFactory, bus engine.EventBus) (*PersistentMemory, error) {

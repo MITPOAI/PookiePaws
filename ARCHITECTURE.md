@@ -62,7 +62,7 @@ dispatches to five commands:
 | Command | Description |
 |---|---|
 | `start` | Initialises the full engine stack, starts the HTTP server, blocks until `Ctrl+C` |
-| `chat` | Terminal AI REPL — routes plain-English prompts through the brain service |
+| `chat` | Terminal AI REPL — routes plain-English prompts through the brain service using raw terminal mode (`cli.ReadLine`) for proper backspace, Ctrl+C, and escape handling |
 | `list` | Tabular listing of all installed marketing skills (built-in and workspace) |
 | `status` | HTTP-pings `/api/v1/status` on a running agent; prints a formatted summary box |
 | `run <skill>` | Boots the engine headlessly, submits a workflow, polls for completion, handles approval gates interactively |
@@ -92,7 +92,9 @@ Key design decisions:
   suppressed when `NO_COLOR` is set or `TERM=dumb`. Raw terminal mode for
   the interactive menu uses platform-specific files (`rawmode_unix.go`,
   `rawmode_windows.go`) following the same `kernel32.dll`/`syscall` pattern
-  used by `ReadSecret`.
+  used by `ReadSecret`. The `cli.ReadLine()` function exposes this raw mode
+  for the `chat` REPL, providing proper backspace, escape-sequence handling,
+  and line repainting. Falls back to buffered `ReadString` when stdin is piped.
 
 ### 1. Core Engine
 
@@ -132,6 +134,20 @@ Primary responsibilities:
 
 The UI should optimize for operator clarity, not dashboard noise. It must explain what the system is doing, what it plans to do next, and where a human decision is required.
 
+Approval and file-permission actions use optimistic UI: the DOM updates
+instantly on user click, with background server reconciliation and automatic
+rollback on failure.
+
+Performance optimizations:
+
+- Static assets served with `Cache-Control: immutable` headers, cache-busted
+  via `?v=` query param — eliminates redundant gzip compression between page
+  loads
+- `render()` uses targeted rendering: only the active view's panels are
+  updated on state changes, reducing DOM writes by ~70% on average
+- SSE and WebSocket reconnection uses exponential backoff (1s–30s) to avoid
+  thundering-herd load during server restarts
+
 ### 3. Skills And Integrations
 
 The extensibility model should use two layers:
@@ -150,6 +166,13 @@ Current built-in skills:
 - `mitpo-ba-researcher` — business analysis and competitor intelligence
 - `mitpo-creative-director` — brand voice copy generation
 - `mitpo-seo-auditor` — URL keyword density and technical SEO audit
+- `mitpo-researcher` — fetch a public URL, strip HTML, and summarize content for marketing intelligence
+- `mitpo-markdown-export` — save text content as a timestamped Markdown file to `workspace/exports/`
+
+Skills can be executed in sequence via the `run_chain` action, where the output
+of each step is merged into the input of the next. For example, the brain can
+chain `mitpo-researcher` and `mitpo-markdown-export` to research a competitor's
+pricing page and export the summary in a single prompt.
 
 Current adapter posture:
 
@@ -161,23 +184,59 @@ Current adapter posture:
 - risk-based auto-approval for low-risk skills via Smart Sandbox policy
 - no MITPO-private integration in the open-source core
 
+#### Channel Registry
+
+All marketing channel plugins now implement the unified `MarketingChannel`
+interface defined in `internal/engine/types.go`:
+
+```
+Name() string
+Kind() string  // "crm", "sms", "email", "whatsapp", "research"
+Status(secrets) ChannelProviderStatus
+Test(ctx, secrets) (ChannelProviderStatus, error)
+Execute(ctx, action, secrets) (AdapterResult, error)
+SecretKeys() []string
+```
+
+The `InMemoryChannelRegistry` in `internal/adapters/registry.go` stores
+registered channels and supports lookup by name or kind. Community developers
+extend PookiePaws by implementing this single interface.
+
+Built-in channels:
+- WhatsApp (Meta Cloud API v23) - outbound messaging and delivery tracking
+- Mitto SMS - single and bulk SMS delivery
+- SALESmanago CRM - lead routing and upsert
+- Resend - transactional and marketing email
+- HubSpot - CRM contact creation and updates
+- Firecrawl/Jina - web page to markdown research
+
+Webhook notifiers (Slack and Discord) implement the `WebhookNotifier`
+interface for delivering daily workflow summaries to team channels.
+
 ### 4. LLM Brain
 
 The current LLM bridge is implemented as a narrow dispatch service:
 
 - it calls an OpenAI-compatible completion endpoint over `net/http`
 - it instructs the model to emit strict JSON only
-- it parses that JSON into a workflow command
-- it validates the selected skill before submission
+- it parses that JSON into one of three command actions:
+  - `run_workflow` — a single marketing workflow
+  - `casual_chat` — conversational response for greetings and questions
+  - `run_chain` — multi-step pipeline where each step's output feeds into the next
+- it validates the selected skill(s) before submission
 - it publishes brain command events before routing into the normal workflow path
 
-This keeps model output constrained and reduces the amount of free-form reasoning that can leak into tool execution.
+The intent router eliminates the need for a separate classification step — the
+system prompt instructs the LLM to classify input and select the appropriate
+action format. Casual input that previously crashed the parser is now handled
+gracefully as a `casual_chat` response.
 
-The intended provider strategy is still narrow:
+The provider strategy supports six provider families through two protocol boundaries:
 
-- one OpenAI-compatible provider boundary first
-- local LLM support as a first-class path
-- direct Claude, Gemini, and OpenRouter adapters deferred until the provider boundary and redaction model are more mature
+- **OpenAI-compatible**: direct endpoint for OpenAI (GPT-5.4, o3), Anthropic (Claude Opus 4.6, Sonnet 4.6), Google (Gemini 3.1 Pro/Flash), OpenRouter (DeepSeek V3.2, R1, Qwen 3.5, Cohere Command R3, Meta Llama 4 Instruct), Ollama, and LM Studio
+- **MCP bridge**: stdio and Streamable HTTP transports for MCP-compatible model servers
+
+All model selection is externalized through secrets (`llm_model`, `llm_base_url`). The CLI `init` wizard provides curated presets but any OpenAI-compatible endpoint works. The conversation window defaults to 24 turns to leverage 1M+ token context windows available in 2026 frontier models.
 
 ### 5. Audit And Governance
 
