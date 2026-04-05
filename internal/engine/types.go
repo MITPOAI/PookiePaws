@@ -62,7 +62,7 @@ type EventBusSnapshot struct {
 type EventBus interface {
 	Subscribe(buffer int) EventSubscription
 	Unsubscribe(id uint64)
-	Publish(event Event) error
+	Publish(ctx context.Context, event Event) error
 	Snapshot() EventBusSnapshot
 	Close()
 }

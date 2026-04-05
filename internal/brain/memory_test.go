@@ -73,7 +73,7 @@ func TestDynamicServiceFlushListenerResetsWindow(t *testing.T) {
 		t.Fatalf("expected one turn, got %d", got)
 	}
 
-	if err := bus.Publish(engine.Event{Type: engine.EventContextFlush}); err != nil {
+	if err := bus.Publish(context.Background(), engine.Event{Type: engine.EventContextFlush}); err != nil {
 		t.Fatalf("publish flush event: %v", err)
 	}
 

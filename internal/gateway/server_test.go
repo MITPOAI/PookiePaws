@@ -161,7 +161,7 @@ func TestGatewayConsoleSnapshot(t *testing.T) {
 func TestGatewayStaticAssets(t *testing.T) {
 	h := newHarness(t, "127.0.0.1:18800", nil)
 
-	for _, route := range []string{"/", "/ui/style.css", "/ui/app.js", "/healthz", "/readyz"} {
+	for _, route := range []string{"/", "/ui/style.css", "/ui/app.js", "/ui/pookie-paws.webp", "/healthz", "/readyz"} {
 		request := httptest.NewRequest(http.MethodGet, route, nil)
 		recorder := httptest.NewRecorder()
 		h.server.Handler().ServeHTTP(recorder, request)
@@ -266,7 +266,7 @@ func TestGatewayEventsStreamSummaries(t *testing.T) {
 	defer response.Body.Close()
 
 	time.Sleep(20 * time.Millisecond)
-	if err := h.bus.Publish(engine.Event{
+	if err := h.bus.Publish(context.Background(), engine.Event{
 		Type:       engine.EventApprovalRequired,
 		WorkflowID: "wf_1",
 		Source:     "workflow-coordinator",

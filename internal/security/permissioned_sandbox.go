@@ -84,7 +84,7 @@ func (s *PermissionedSandbox) WriteFile(ctx context.Context, path string, data [
 }
 
 func (s *PermissionedSandbox) publishDenied(path string, mode engine.FileAccessMode, reason string) {
-	_ = s.bus.Publish(engine.Event{
+	_ = s.bus.Publish(context.Background(), engine.Event{
 		Type:   engine.EventFileAccessDenied,
 		Source: "permissioned-sandbox",
 		Payload: map[string]any{

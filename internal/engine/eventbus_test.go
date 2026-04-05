@@ -1,6 +1,9 @@
 package engine
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestEventBusPublishSubscribe(t *testing.T) {
 	bus := NewEventBus()
@@ -8,7 +11,7 @@ func TestEventBusPublishSubscribe(t *testing.T) {
 	defer bus.Close()
 
 	event := Event{Type: EventWorkflowSubmitted}
-	if err := bus.Publish(event); err != nil {
+	if err := bus.Publish(context.Background(), event); err != nil {
 		t.Fatalf("publish failed: %v", err)
 	}
 
@@ -28,10 +31,10 @@ func TestEventBusDropAccounting(t *testing.T) {
 	defer bus.Close()
 
 	_ = bus.Subscribe(1)
-	if err := bus.Publish(Event{Type: EventWorkflowSubmitted}); err != nil {
+	if err := bus.Publish(context.Background(), Event{Type: EventWorkflowSubmitted}); err != nil {
 		t.Fatalf("publish failed: %v", err)
 	}
-	if err := bus.Publish(Event{Type: EventWorkflowSubmitted}); err != nil {
+	if err := bus.Publish(context.Background(), Event{Type: EventWorkflowSubmitted}); err != nil {
 		t.Fatalf("publish failed: %v", err)
 	}
 

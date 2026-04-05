@@ -576,7 +576,7 @@ func (c *StandardWorkflowCoordinator) executeAction(ctx context.Context, workflo
 }
 
 func (c *StandardWorkflowCoordinator) publishAndAudit(ctx context.Context, event Event) {
-	_ = c.bus.Publish(event)
+	_ = c.bus.Publish(ctx, event)
 	_ = c.store.AppendAudit(ctx, event)
 }
 

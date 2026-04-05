@@ -180,7 +180,7 @@ func (m *PersistentMemory) RecordWorkflow(ctx context.Context, workflow engine.W
 		return err
 	}
 	if m.bus != nil {
-		_ = m.bus.Publish(engine.Event{
+		_ = m.bus.Publish(ctx, engine.Event{
 			Type:       engine.EventContextFlush,
 			WorkflowID: workflow.ID,
 			Source:     "brain-memory",

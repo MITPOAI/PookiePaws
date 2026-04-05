@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -63,7 +64,7 @@ func (b *StandardEventBus) Unsubscribe(id uint64) {
 	close(sub.ch)
 }
 
-func (b *StandardEventBus) Publish(event Event) error {
+func (b *StandardEventBus) Publish(ctx context.Context, event Event) error {
 	b.mu.RLock()
 	if b.closed {
 		b.mu.RUnlock()
@@ -85,6 +86,8 @@ func (b *StandardEventBus) Publish(event Event) error {
 
 	for _, ch := range subs {
 		select {
+		case <-ctx.Done():
+			return ctx.Err()
 		case ch <- event:
 		default:
 			b.statsMu.Lock()

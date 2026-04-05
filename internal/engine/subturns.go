@@ -288,7 +288,7 @@ func (m *StandardSubTurnManager) publishEvent(event Event) {
 	if m.bus == nil {
 		return
 	}
-	_ = m.bus.Publish(event)
+	_ = m.bus.Publish(context.Background(), event)
 }
 
 func errorString(err error) string {

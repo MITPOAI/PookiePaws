@@ -108,6 +108,7 @@ func printUsage() {
 	p.Plain("  -h, --help          Show this help message")
 	p.Plain("      --addr          Listen address for start/status (default 127.0.0.1:18800)")
 	p.Plain("      --home          Override runtime home directory")
+	p.Plain("      --verbose       Print request timing logs (for start)")
 	p.Blank()
 	p.Dim("Run pookie with no arguments for an interactive menu.")
 	p.Dim("Source:  github.com/mitpoai/pookiepaws")
@@ -120,6 +121,7 @@ func cmdStart(args []string) {
 	fs := flag.NewFlagSet("start", flag.ExitOnError)
 	addr := fs.String("addr", "127.0.0.1:18800", "HTTP listen address")
 	home := fs.String("home", "", "override runtime home directory")
+	verbose := fs.Bool("verbose", false, "print request timing logs")
 	_ = fs.Parse(args)
 
 	p := cli.Stdout()
@@ -171,9 +173,15 @@ func cmdStart(args []string) {
 		},
 	})
 
+	handler := api.Handler()
+	if *verbose {
+		p.Info("Verbose mode enabled — timing logs active")
+		handler = timingMiddleware(handler, p)
+	}
+
 	httpServer := &http.Server{
 		Addr:              *addr,
-		Handler:           api.Handler(),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -292,4 +300,13 @@ func startupWarnings(secrets interface {
 		warnings = append(warnings, fmt.Sprintf("%s configuration is incomplete — missing %s", check.label, strings.Join(missing, ", ")))
 	}
 	return warnings
+}
+
+func timingMiddleware(next http.Handler, p *cli.Printer) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		next.ServeHTTP(w, r)
+		elapsed := time.Since(start)
+		p.Dim("[%s] %s %s  %s", elapsed.Round(time.Microsecond), r.Method, r.URL.Path, r.RemoteAddr)
+	})
 }

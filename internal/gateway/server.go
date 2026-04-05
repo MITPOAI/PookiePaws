@@ -1,12 +1,14 @@
 package gateway
 
 import (
+	"compress/gzip"
 	"context"
 	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
 	"net"
 	"net/http"
@@ -194,6 +196,7 @@ type ThemeOption struct {
 type IndexViewModel struct {
 	Title        string
 	DefaultTheme string
+	AssetVersion string
 	ThemeOptions []ThemeOption
 }
 
@@ -232,6 +235,7 @@ func NewServer(cfg Config) *Server {
 		indexView: IndexViewModel{
 			Title:        "PookiePaws Operator Console",
 			DefaultTheme: "dark",
+			AssetVersion: fmt.Sprintf("%d", time.Now().Unix()),
 			ThemeOptions: []ThemeOption{
 				{ID: "light", Label: "Light", Hint: "Bright, crisp, and focused."},
 				{ID: "dark", Label: "Dark", Hint: "Low-glare for longer sessions."},
@@ -244,7 +248,41 @@ func NewServer(cfg Config) *Server {
 }
 
 func (s *Server) Handler() http.Handler {
-	return s.mux
+	return gzipMiddleware(s.mux)
+}
+
+type gzipResponseWriter struct {
+	io.Writer
+	http.ResponseWriter
+}
+
+func (w gzipResponseWriter) Write(b []byte) (int, error) {
+	return w.Writer.Write(b)
+}
+
+func gzipMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Skip compression for SSE streams and WebSocket upgrades — they
+		// need unbuffered delivery and http.Flusher access.
+		if strings.Contains(r.Header.Get("Accept"), "text/event-stream") ||
+			strings.EqualFold(r.Header.Get("Upgrade"), "websocket") ||
+			strings.HasSuffix(r.URL.Path, "/events") ||
+			strings.HasSuffix(r.URL.Path, "/ws") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		gz, _ := gzip.NewWriterLevel(w, gzip.DefaultCompression)
+		defer gz.Close()
+
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Del("Content-Length")
+		next.ServeHTTP(gzipResponseWriter{Writer: gz, ResponseWriter: w}, r)
+	})
 }
 
 func (s *Server) routes() {
@@ -292,6 +330,7 @@ func (s *Server) handleIndex(writer http.ResponseWriter, request *http.Request) 
 	}
 
 	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+	writer.Header().Set("Cache-Control", "no-store")
 	if err := s.indexTmpl.ExecuteTemplate(writer, "index.html", s.indexView); err != nil {
 		http.Error(writer, err.Error(), http.StatusInternalServerError)
 	}
@@ -555,7 +594,7 @@ func (s *Server) handleWhatsAppWebhook(writer http.ResponseWriter, request *http
 		// Process incoming messages and route text to the brain.
 		incoming := s.whatsApp.ParseIncomingMessages(payload)
 		for _, msg := range incoming {
-			_ = s.eventBus.Publish(engine.Event{
+			_ = s.eventBus.Publish(context.Background(), engine.Event{
 				Type:   engine.EventChannelIncoming,
 				Source: "whatsapp-webhook",
 				Payload: map[string]any{
@@ -597,7 +636,7 @@ func (s *Server) routeIncomingWhatsAppToBrain(msg engine.ChannelIncomingMessage)
 
 	result, err := s.brain.DispatchPrompt(ctx, msg.Text)
 	if err != nil {
-		_ = s.eventBus.Publish(engine.Event{
+		_ = s.eventBus.Publish(context.Background(), engine.Event{
 			Type:   engine.EventBrainCommandError,
 			Source: "whatsapp-incoming",
 			Payload: map[string]any{
@@ -620,7 +659,7 @@ func (s *Server) routeIncomingWhatsAppToBrain(msg engine.ChannelIncomingMessage)
 		payload["blocked"] = true
 		payload["reason"] = result.Blocked.Reason
 	}
-	_ = s.eventBus.Publish(engine.Event{
+	_ = s.eventBus.Publish(context.Background(), engine.Event{
 		Type:    engine.EventBrainCommand,
 		Source:  "whatsapp-incoming",
 		Payload: payload,

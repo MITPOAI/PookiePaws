@@ -2,6 +2,17 @@
 
 All notable changes to PookiePaws should be documented in this file.
 
+## [0.5.1] - Unreleased
+
+### Added
+
+- **Event bus context propagation**: `EventBus.Publish` now accepts `context.Context` so in-flight event delivery can be cancelled during graceful shutdown, saving resources on `Ctrl+C`
+- **Gzip compression middleware**: all HTTP responses (except SSE streams and WebSocket upgrades) are gzip-compressed, reducing dashboard payload sizes
+- **`--verbose` CLI flag**: `pookie start --verbose` prints millisecond-level request timing logs for debugging performance bottlenecks
+- **Skeleton loaders**: dashboard panels show shimmering placeholder cards while the initial API response loads, eliminating blank-screen flash
+- **Sidebar section labels**: navigation grouped under "Overview", "Operations", and "Governance" headings for visual hierarchy
+- **Sidebar footer**: version indicator and tagline anchored to the bottom of the sidebar
+
 ## [0.5.0] - Unreleased
 
 ### Added

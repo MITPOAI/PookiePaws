@@ -23,8 +23,8 @@ const (
 	ansiDanger    = "\033[1;38;5;203m"
 	ansiWarning   = "\033[1;38;5;221m"
 	ansiInfo      = "\033[1;38;5;117m"
-	ansiAccent    = "\033[1;38;5;218m"
-	ansiSelection = "\033[1;38;5;218m"
+	ansiAccent    = "\033[1;38;5;111m"
+	ansiSelection = "\033[1;38;5;111m"
 )
 
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -87,7 +87,7 @@ func (p *Printer) Plain(format string, args ...any) {
 	fmt.Fprintf(p.out, "  "+format+"\n", args...)
 }
 
-// Accent prints text in the soft pink Pookie accent.
+// Accent prints text in the primary operator accent.
 func (p *Printer) Accent(format string, args ...any) {
 	fmt.Fprintln(p.out, p.paint(ansiAccent, fmt.Sprintf("  "+format, args...)))
 }
@@ -117,10 +117,9 @@ func (p *Printer) Rule(label string) {
 // Banner prints the PookiePaws identity header.
 func (p *Printer) Banner() {
 	fmt.Fprintln(p.out)
-	fmt.Fprintln(p.out, p.paint(ansiAccent, "      /\\_/\\\\"))
-	fmt.Fprintln(p.out, p.paint(ansiPrimary, "     ( o.o )   PookiePaws"))
-	fmt.Fprintln(p.out, p.paint(ansiSlate, "      > ^ <    local-first marketing runtime"))
-	fmt.Fprintln(p.out, p.paint(ansiMuted, "               mitpo.io"))
+	fmt.Fprintln(p.out, p.paint(ansiPrimary, "  POOKIEPAWS"))
+	fmt.Fprintln(p.out, p.paint(ansiSlate, "  local-first operator console"))
+	fmt.Fprintln(p.out, p.paint(ansiMuted, "  mitpo.io"))
 	fmt.Fprintln(p.out)
 }
 

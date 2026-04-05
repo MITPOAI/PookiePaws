@@ -107,6 +107,7 @@ The current core engine is implemented as Go packages under `internal/engine` wi
 Key implemented components:
 
 - `EventBus` for typed, non-blocking event fan-out with drop accounting
+  and `context.Context` propagation for cancellation during graceful shutdown
 - `SubTurnManager` for concurrent subagent lifecycle management
 - `WorkflowCoordinator` for skill execution, approvals, adapter execution, and status snapshots
 
@@ -114,7 +115,11 @@ The core should remain small and defensible. Integration logic belongs at the ed
 
 ### 2. Local Web UI
 
-The current gateway is served from the same binary via `internal/gateway`. It exposes REST plus SSE endpoints and embeds a compact operator console.
+The current gateway is served from the same binary via `internal/gateway`. It
+exposes REST plus SSE endpoints and embeds a compact operator console. All
+non-streaming HTTP responses are gzip-compressed via stdlib middleware. The
+`--verbose` CLI flag enables request-level timing logs for performance
+debugging.
 
 Primary responsibilities:
 

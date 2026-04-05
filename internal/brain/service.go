@@ -102,7 +102,7 @@ func (s *Service) DispatchPrompt(ctx context.Context, prompt string) (DispatchRe
 		UserPrompt:   userPrompt,
 	})
 	if err != nil {
-		s.publishEvent(engine.EventBrainCommandError, map[string]any{
+		s.publishEvent(ctx, engine.EventBrainCommandError, map[string]any{
 			"error": err.Error(),
 		})
 		return DispatchResult{}, s.persona.Humanize(err)
@@ -110,21 +110,21 @@ func (s *Service) DispatchPrompt(ctx context.Context, prompt string) (DispatchRe
 
 	command, err := ParseCommand(response.Raw)
 	if err != nil {
-		s.publishEvent(engine.EventBrainCommandError, map[string]any{
+		s.publishEvent(ctx, engine.EventBrainCommandError, map[string]any{
 			"error": err.Error(),
 			"raw":   response.Raw,
 		})
 		return DispatchResult{}, s.persona.Humanize(err)
 	}
 	if err := command.Validate(skillNames); err != nil {
-		s.publishEvent(engine.EventBrainCommandError, map[string]any{
+		s.publishEvent(ctx, engine.EventBrainCommandError, map[string]any{
 			"error": err.Error(),
 			"raw":   response.Raw,
 		})
 		return DispatchResult{}, s.persona.Humanize(err)
 	}
 
-	s.publishEvent(engine.EventBrainCommand, map[string]any{
+	s.publishEvent(ctx, engine.EventBrainCommand, map[string]any{
 		"action": command.Action,
 		"skill":  command.Skill,
 		"model":  response.Model,
@@ -138,7 +138,7 @@ func (s *Service) DispatchPrompt(ctx context.Context, prompt string) (DispatchRe
 	if err != nil {
 		var blocked engine.WorkflowBlockedError
 		if errors.As(err, &blocked) {
-			s.publishEvent(engine.EventExecutionBlocked, map[string]any{
+			s.publishEvent(ctx, engine.EventExecutionBlocked, map[string]any{
 				"skill":     command.Skill,
 				"risk":      blocked.Decision.Risk,
 				"reason":    blocked.Decision.Reason,
@@ -164,7 +164,7 @@ func (s *Service) DispatchPrompt(ctx context.Context, prompt string) (DispatchRe
 			}
 			return result, nil
 		}
-		s.publishEvent(engine.EventBrainCommandError, map[string]any{
+		s.publishEvent(ctx, engine.EventBrainCommandError, map[string]any{
 			"error": err.Error(),
 			"skill": command.Skill,
 			"raw":   response.Raw,
@@ -185,11 +185,11 @@ func (s *Service) DispatchPrompt(ctx context.Context, prompt string) (DispatchRe
 	}, nil
 }
 
-func (s *Service) publishEvent(eventType engine.EventType, payload map[string]any) {
+func (s *Service) publishEvent(ctx context.Context, eventType engine.EventType, payload map[string]any) {
 	if s.bus == nil {
 		return
 	}
-	_ = s.bus.Publish(engine.Event{
+	_ = s.bus.Publish(ctx, engine.Event{
 		Type:    eventType,
 		Source:  "brain",
 		Payload: payload,

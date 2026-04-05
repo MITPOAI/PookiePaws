@@ -154,6 +154,7 @@
     bindForms();
     bindModal();
     bindKeyboard();
+    renderSkeletons();
     refreshConsoleState();
     startChatControlPlane();
     startAuditStream();
@@ -521,34 +522,49 @@
   function renderWorkflowQueue() {
     const workflows = (state.console && state.console.workflows) || [];
     refs.workflowQueue.innerHTML = workflows.length
-      ? workflows.slice(0, 8).map((workflow) => `
-          <article class="data-card">
-            <div>
-              <span class="skill-pill">${escapeHTML(workflow.skill)}</span>
-              <h3>${escapeHTML(workflow.name)}</h3>
-              <p>${workflow.error ? escapeHTML(workflow.error) : "Workflow state stays visible here without opening logs."}</p>
-            </div>
-            <div class="data-card__meta">
-              ${renderStatusPill(workflow.status)}
-              <span class="metric-pill">${escapeHTML(new Date(workflow.updated_at).toLocaleString())}</span>
-            </div>
-          </article>
-        `).join("")
-      : `<article class="data-card"><h3>No workflows yet</h3><p>${escapeHTML(MICROCOPY.empty.workflows)}</p></article>`;
+      ? `
+        <div class="table-card">
+          <table class="ops-table">
+            <thead>
+              <tr>
+                <th>Workflow</th>
+                <th>Skill</th>
+                <th>Status</th>
+                <th>Updated</th>
+                <th>Detail</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${workflows.slice(0, 8).map((workflow) => `
+                <tr>
+                  <td>
+                    <div class="ops-table__primary">${escapeHTML(workflow.name || "Workflow")}</div>
+                  </td>
+                  <td><span class="skill-pill">${escapeHTML(workflow.skill || "manual")}</span></td>
+                  <td>${renderStatusPill(workflow.status || "queued")}</td>
+                  <td class="ops-table__muted">${escapeHTML(formatDateTime(workflow.updated_at))}</td>
+                  <td class="ops-table__muted">${escapeHTML(workflow.error || "Workflow state remains visible without opening separate logs.")}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      `
+      : renderEmptyTable("No workflows yet", MICROCOPY.empty.workflows, 5);
   }
 
   function renderApprovals() {
     const approvals = getPendingApprovals();
     const filePermissions = getPendingFilePermissions();
     const approvalMarkup = approvals.length
-      ? approvals.map((approval) => renderApprovalCard(approval, true)).join("")
-      : `<article class="data-card"><h3>No pending approvals</h3><p>${escapeHTML(MICROCOPY.empty.approvals)}</p></article>`;
+      ? renderApprovalsTable(approvals)
+      : renderEmptyTable("No pending approvals", MICROCOPY.empty.approvals, 5);
     refs.approvalSummary.innerHTML = approvalMarkup;
     refs.approvalsList.innerHTML = approvalMarkup;
 
     const filePermissionMarkup = filePermissions.length
-      ? filePermissions.map((permission) => renderFilePermissionCard(permission)).join("")
-      : `<article class="data-card"><h3>No file requests</h3><p>${escapeHTML(MICROCOPY.empty.filePermissions)}</p></article>`;
+      ? renderFilePermissionTable(filePermissions)
+      : renderEmptyTable("No file requests", MICROCOPY.empty.filePermissions, 5);
     refs.filePermissionSummary.innerHTML = filePermissionMarkup;
     refs.filePermissionsList.innerHTML = filePermissionMarkup;
 
@@ -677,20 +693,37 @@
 
   function renderAudit() {
     if (!state.audit.length) {
-      refs.auditStream.innerHTML = `<article class="audit-entry"><div class="audit-entry__title">Waiting for runtime activity</div><p>${escapeHTML(MICROCOPY.empty.audit)}</p></article>`;
+      refs.auditStream.innerHTML = renderEmptyTable("Waiting for runtime activity", MICROCOPY.empty.audit, 5);
       return;
     }
-    refs.auditStream.innerHTML = state.audit.map((entry) => `
-      <article class="audit-entry${entry.severity === "error" ? " is-error" : entry.severity === "warning" ? " is-warning" : ""}">
-        <div class="audit-entry__meta">
-          <span>${escapeHTML(formatTime(entry.timestamp))}</span>
-          <span>${escapeHTML(entry.source || "runtime")}</span>
-          ${entry.workflow_id ? `<span>${escapeHTML(entry.workflow_id)}</span>` : ""}
-        </div>
-        <div class="audit-entry__title">${escapeHTML(entry.title || "Runtime activity")}</div>
-        <p>${escapeHTML(entry.detail || "")}</p>
-      </article>
-    `).join("");
+    refs.auditStream.innerHTML = `
+      <div class="table-card">
+        <table class="ops-table ops-table--audit">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Source</th>
+              <th>Workflow</th>
+              <th>Event</th>
+              <th>Detail</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${state.audit.map((entry) => `
+              <tr class="${entry.severity === "error" ? "is-row-error" : entry.severity === "warning" ? "is-row-warning" : ""}">
+                <td class="ops-table__muted">${escapeHTML(formatDateTime(entry.timestamp))}</td>
+                <td>${escapeHTML(entry.source || "runtime")}</td>
+                <td class="ops-table__muted">${escapeHTML(entry.workflow_id || "-")}</td>
+                <td>
+                  <div class="ops-table__primary">${escapeHTML(entry.title || "Runtime activity")}</div>
+                </td>
+                <td class="ops-table__muted">${escapeHTML(entry.detail || "")}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
   }
 
   function renderThemeSwitcher() {
@@ -1810,6 +1843,97 @@
     `;
   }
 
+  function renderApprovalsTable(approvals) {
+    return `
+      <div class="table-card">
+        <table class="ops-table">
+          <thead>
+            <tr>
+              <th>Adapter</th>
+              <th>Action</th>
+              <th>Workflow</th>
+              <th>Updated</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${approvals.map((approval) => `
+              <tr>
+                <td><span class="skill-pill">${escapeHTML(approval.adapter)}</span></td>
+                <td>
+                  <div class="ops-table__primary">${escapeHTML(approval.action)}</div>
+                  <div class="ops-table__secondary">Nothing has been sent yet.</div>
+                </td>
+                <td class="ops-table__muted">${escapeHTML(approval.workflow_id)}</td>
+                <td class="ops-table__muted">${escapeHTML(formatDateTime(approval.updated_at))}</td>
+                <td>
+                  <div class="table-actions">
+                    <button class="button secondary" type="button" data-approval-open="${escapeHTML(approval.id)}">Inspect</button>
+                    <button class="button" type="button" data-approval-approve="${escapeHTML(approval.id)}">Approve</button>
+                    <button class="button danger" type="button" data-approval-reject="${escapeHTML(approval.id)}">Reject</button>
+                  </div>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  function renderFilePermissionTable(filePermissions) {
+    return `
+      <div class="table-card">
+        <table class="ops-table">
+          <thead>
+            <tr>
+              <th>Requester</th>
+              <th>Path</th>
+              <th>Mode</th>
+              <th>Updated</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filePermissions.map((permission) => `
+              <tr>
+                <td class="ops-table__muted">${escapeHTML(permission.requester || "runtime")}</td>
+                <td>
+                  <div class="ops-table__primary">${escapeHTML(permission.path)}</div>
+                </td>
+                <td><span class="skill-pill">${escapeHTML(permission.mode)}</span></td>
+                <td class="ops-table__muted">${escapeHTML(formatDateTime(permission.updated_at))}</td>
+                <td>
+                  <div class="table-actions">
+                    <button class="button" type="button" data-file-approve="${escapeHTML(permission.id)}">Approve</button>
+                    <button class="button danger" type="button" data-file-reject="${escapeHTML(permission.id)}">Reject</button>
+                  </div>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  function renderEmptyTable(title, detail, colspan) {
+    return `
+      <div class="table-card">
+        <table class="ops-table">
+          <tbody>
+            <tr>
+              <td class="ops-table__empty" colspan="${String(colspan || 1)}">
+                <strong>${escapeHTML(title)}</strong>
+                <p>${escapeHTML(detail)}</p>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
   function approvalDiffMarkup(approval) {
     const payload = approval.payload || {};
     const lines = Object.keys(payload).map((key) => {
@@ -2154,6 +2278,14 @@
     }
   }
 
+  function formatDateTime(value) {
+    try {
+      return new Date(value).toLocaleString();
+    } catch (_error) {
+      return "";
+    }
+  }
+
   function clamp(value, min, max) {
     return Math.min(Math.max(value, min), max);
   }
@@ -2271,5 +2403,24 @@
         });
       }
     });
+  }
+
+  // ── Skeleton loaders (shown before first API response) ────────────────
+  function renderSkeletons() {
+    function skeletonCard() {
+      return '<div class="skeleton-card"><div class="skeleton-line medium"></div><div class="skeleton-line short"></div></div>';
+    }
+    function skeletonStrip(n) {
+      var html = "";
+      for (var i = 0; i < n; i++) html += '<article class="summary-card skeleton"><div class="skeleton-line short"></div><div class="skeleton-block"></div><div class="skeleton-line medium"></div></article>';
+      return html;
+    }
+
+    if (refs.summaryStrip && !refs.summaryStrip.children.length) {
+      refs.summaryStrip.innerHTML = skeletonStrip(4);
+    }
+    if (refs.workflowQueue && !refs.workflowQueue.children.length) {
+      refs.workflowQueue.innerHTML = skeletonCard() + skeletonCard();
+    }
   }
 })();
