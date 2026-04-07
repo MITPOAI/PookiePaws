@@ -133,6 +133,28 @@ func (s *DynamicService) Orchestrate(ctx context.Context, prompt string, cfg Orc
 		Orchestrate(ctx, prompt, cfg)
 }
 
+// NativeOrchestrate runs the native tool-calling loop with tool-calling support.
+// Falls back to text-JSON Orchestrate when the provider doesn't implement NativeClient.
+func (s *DynamicService) NativeOrchestrate(ctx context.Context, prompt string, cfg OrchestrateConfig) (OrchestrateResult, error) {
+	if s == nil {
+		return OrchestrateResult{}, fmt.Errorf("llm brain is not configured")
+	}
+	if s.providerFactory == nil {
+		return OrchestrateResult{}, s.persona.Humanize(ErrProviderNotConfigured)
+	}
+	client, err := s.providerFactory.New(ctx)
+	if err != nil {
+		return OrchestrateResult{}, s.persona.Humanize(err)
+	}
+	defer client.Close()
+
+	return NewService(client, s.coordinator, s.bus).
+		WithPersona(s.persona).
+		WithMemory(s.memory).
+		WithWindow(s.window).
+		NativeOrchestrate(ctx, prompt, cfg)
+}
+
 func (s *DynamicService) bindFlushListener() {
 	if s == nil || s.bus == nil || s.window == nil {
 		return

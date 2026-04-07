@@ -26,6 +26,10 @@ type OrchestrateConfig struct {
 	OnToolStart func(toolName string, input map[string]any)
 	// OnToolDone is called when a tool execution completes. May be nil.
 	OnToolDone func(toolName string, result map[string]any, err error)
+	// Validator intercepts native tool call arguments before execution.
+	// Used by NativeOrchestrate to enforce path confinement and HITL approval.
+	// If nil, no pre-execution validation is performed.
+	Validator *SecurityValidator
 }
 
 // OrchestrateResult extends DispatchResult with the tool-call iteration trace.
