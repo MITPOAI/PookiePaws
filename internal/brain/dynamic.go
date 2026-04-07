@@ -112,6 +112,27 @@ func (s *DynamicService) DispatchPrompt(ctx context.Context, prompt string) (Dis
 		DispatchPrompt(ctx, prompt)
 }
 
+// Orchestrate runs the ReAct orchestrator loop with tool-calling support.
+func (s *DynamicService) Orchestrate(ctx context.Context, prompt string, cfg OrchestrateConfig) (OrchestrateResult, error) {
+	if s == nil {
+		return OrchestrateResult{}, fmt.Errorf("llm brain is not configured")
+	}
+	if s.providerFactory == nil {
+		return OrchestrateResult{}, s.persona.Humanize(ErrProviderNotConfigured)
+	}
+	client, err := s.providerFactory.New(ctx)
+	if err != nil {
+		return OrchestrateResult{}, s.persona.Humanize(err)
+	}
+	defer client.Close()
+
+	return NewService(client, s.coordinator, s.bus).
+		WithPersona(s.persona).
+		WithMemory(s.memory).
+		WithWindow(s.window).
+		Orchestrate(ctx, prompt, cfg)
+}
+
 func (s *DynamicService) bindFlushListener() {
 	if s == nil || s.bus == nil || s.window == nil {
 		return

@@ -60,6 +60,9 @@ type Command struct {
 	Input       map[string]any `json:"input,omitempty"`
 	Explanation string         `json:"explanation,omitempty"`
 	Steps       []ChainStep    `json:"steps,omitempty"`
+	// ReAct tool-calling fields (used with action "use_tool").
+	Tool      string         `json:"tool,omitempty"`
+	ToolInput map[string]any `json:"tool_input,omitempty"`
 }
 
 type SafetyIntervention struct {
@@ -91,6 +94,12 @@ func (c Command) Validate(skillNames []string) error {
 	case "casual_chat":
 		if strings.TrimSpace(c.Explanation) == "" {
 			return fmt.Errorf("casual_chat requires an explanation")
+		}
+		return nil
+
+	case "use_tool":
+		if strings.TrimSpace(c.Tool) == "" {
+			return fmt.Errorf("use_tool requires a tool name")
 		}
 		return nil
 

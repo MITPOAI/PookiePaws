@@ -20,28 +20,38 @@ func NewPromptBuilder(mode PromptMode) PromptBuilder {
 	return PromptBuilder{mode: mode}
 }
 
-func (b PromptBuilder) BuildOperatorPrompt(name string, defs []engine.SkillDefinition, memory MemorySnapshot, turns []ConversationTurn) string {
+func (b PromptBuilder) BuildOperatorPrompt(name string, defs []engine.SkillDefinition, memory MemorySnapshot, turns []ConversationTurn, tools ...Tool) string {
+	identityLines := []string{
+		fmt.Sprintf("You are %s, an elite marketing agent from PookiePaws. You achieve goals by using tools and skills. Think step-by-step.", firstPromptValue(name, "Pookie")),
+		`You must return exactly one JSON object. Choose one of these actions:`,
+		`Workflow: {"action":"run_workflow","name":"short human title","skill":"one-skill-name","input":{...},"explanation":"short operator-facing reason"}.`,
+		`Casual chat: {"action":"casual_chat","explanation":"your friendly, helpful response here"}.`,
+		`Chained pipeline: {"action":"run_chain","name":"short title","steps":[{"skill":"skill-a","input":{...}},{"skill":"skill-b","input":{...}}],"explanation":"why this chain"}.`,
+	}
+	if len(tools) > 0 {
+		identityLines = append(identityLines,
+			`Tool call: {"action":"use_tool","tool":"tool-name","tool_input":{...},"explanation":"why this tool"}. Use this to gather data or perform an action before deciding on a final response.`,
+		)
+	}
+
+	policyLines := []string{
+		"If the operator message is a greeting, question about your capabilities, or casual conversation that does not map to any available skill, use casual_chat.",
+		"If the operator message implies a single marketing workflow goal, use run_workflow.",
+		"If the operator message requires multiple skills executed in sequence (e.g. research then export), use run_chain. Each step's output feeds into the next step's input.",
+		"Prefer read-only or approval-gated actions when intent is ambiguous or risky.",
+	}
+	if len(tools) > 0 {
+		policyLines = append(policyLines,
+			"If you need data to answer a question or complete a task, use use_tool with web_search. Never guess facts - look them up.",
+			"If you need to save data, use use_tool with export_markdown.",
+			"After a tool call you will receive the result and must decide your next action. You may call more tools or return a final action.",
+		)
+	}
+	policyLines = append(policyLines, "Never invent tools, multiple workflows, or hidden side effects.")
+
 	sections := []PromptSection{
-		{
-			Title: "[SYSTEM] Identity",
-			Lines: []string{
-				fmt.Sprintf("You are %s, the PookiePaws operator routing brain.", firstPromptValue(name, "Pookie")),
-				`You must return exactly one JSON object. Choose one of three actions:`,
-				`Workflow: {"action":"run_workflow","name":"short human title","skill":"one-skill-name","input":{...},"explanation":"short operator-facing reason"}.`,
-				`Casual chat: {"action":"casual_chat","explanation":"your friendly, helpful response here"}.`,
-				`Chained pipeline: {"action":"run_chain","name":"short title","steps":[{"skill":"skill-a","input":{...}},{"skill":"skill-b","input":{...}}],"explanation":"why this chain"}.`,
-			},
-		},
-		{
-			Title: "[SYSTEM] Policy",
-			Lines: []string{
-				"If the operator message is a greeting, question about your capabilities, or casual conversation that does not map to any available skill, use casual_chat.",
-				"If the operator message implies a single marketing workflow goal, use run_workflow.",
-				"If the operator message requires multiple skills executed in sequence (e.g. research then export), use run_chain. Each step's output feeds into the next step's input.",
-				"Never invent tools, multiple workflows, or hidden side effects.",
-				"Prefer read-only or approval-gated actions when intent is ambiguous or risky.",
-			},
-		},
+		{Title: "[SYSTEM] Identity", Lines: identityLines},
+		{Title: "[SYSTEM] Policy", Lines: policyLines},
 		{
 			Title: "[SYSTEM] Context Boundaries",
 			Lines: []string{
@@ -60,19 +70,31 @@ func (b PromptBuilder) BuildOperatorPrompt(name string, defs []engine.SkillDefin
 	if lines := turnSections(turns); len(lines) > 0 {
 		sections = append(sections, PromptSection{Title: "[OPERATOR] Session Context", Lines: lines})
 	}
-	sections = append(sections,
-		PromptSection{
-			Title: "[SYSTEM] Available Skills",
-			Lines: skillSections(defs),
+	sections = append(sections, PromptSection{
+		Title: "[SYSTEM] Available Skills",
+		Lines: skillSections(defs),
+	})
+	if len(tools) > 0 {
+		toolLines := []string{
+			"You may call tools during multi-step reasoning before choosing a final action.",
+			"After each tool call, you will receive the tool result and must decide what to do next.",
+			"When you have enough information, return a final action (casual_chat, run_workflow, or run_chain).",
+		}
+		for _, t := range tools {
+			toolLines = append(toolLines, fmt.Sprintf("%s: %s  Parameters: %s", t.Name(), t.Description(), t.ParameterSchema()))
+		}
+		sections = append(sections, PromptSection{
+			Title: "[SYSTEM] Available Tools",
+			Lines: toolLines,
+		})
+	}
+	sections = append(sections, PromptSection{
+		Title: "[SYSTEM] Output Rules",
+		Lines: []string{
+			"If required fields are missing, infer only the minimum safe values.",
+			"Keep the explanation concise, calm, and useful for an operator.",
 		},
-		PromptSection{
-			Title: "[SYSTEM] Output Rules",
-			Lines: []string{
-				"If required fields are missing, infer only the minimum safe values.",
-				"Keep the explanation concise, calm, and useful for an operator.",
-			},
-		},
-	)
+	})
 	return renderPromptSections(sections)
 }
 

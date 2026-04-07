@@ -45,7 +45,7 @@ func NewOpenAICompatibleClientFromConfig(cfg ProviderConfig) (*OpenAICompatibleC
 		model:   cfg.Model,
 		apiKey:  strings.TrimSpace(cfg.APIKey),
 		httpClient: &http.Client{
-			Timeout: 45 * time.Second,
+			Timeout: 120 * time.Second,
 		},
 	}, nil
 }

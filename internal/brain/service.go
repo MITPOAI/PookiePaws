@@ -146,7 +146,14 @@ func (s *Service) DispatchPrompt(ctx context.Context, prompt string) (DispatchRe
 		"model":  response.Model,
 	})
 
-	// Casual chat — return the conversational response directly.
+	return s.routeCommand(ctx, prompt, command, response, trace, skillDefinitions, skillNames)
+}
+
+// routeCommand handles a parsed command by routing it to the appropriate handler
+// (casual_chat, run_chain, run_workflow). Extracted from DispatchPrompt so the
+// ReAct orchestrator can reuse it for terminal actions.
+func (s *Service) routeCommand(ctx context.Context, prompt string, command Command, response CompletionResponse, trace *PromptTrace, skillDefinitions []engine.SkillDefinition, skillNames []string) (DispatchResult, error) {
+	// Casual chat - return the conversational response directly.
 	if command.Action == "casual_chat" {
 		if s.window != nil {
 			s.window.Add("user", prompt)
@@ -160,7 +167,7 @@ func (s *Service) DispatchPrompt(ctx context.Context, prompt string) (DispatchRe
 		}, nil
 	}
 
-	// Chained pipeline — execute steps sequentially.
+	// Chained pipeline - execute steps sequentially.
 	if command.Action == "run_chain" {
 		return s.executeChain(ctx, prompt, command, response, trace)
 	}

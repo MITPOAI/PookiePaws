@@ -22,6 +22,8 @@ type appStack struct {
 	store       engine.StateStore
 	secrets     *security.JSONSecretProvider
 	brainSvc    *brain.DynamicService
+	tools       *brain.ToolRegistry
+	sandbox     engine.Sandbox
 	runtimeRoot string
 	workspace   string
 }
@@ -94,6 +96,15 @@ func buildStack(runtimeRoot, workspaceRoot string) (*appStack, error) {
 		WithWindowPath(windowPath).
 		WithMemory(memory)
 
+	// Build the ReAct tool registry.
+	tools := brain.NewToolRegistry()
+	tools.Register(&brain.WebSearchTool{})
+	tools.Register(&brain.ExportMarkdownTool{Sandbox: sandbox})
+	tools.Register(&brain.OSCommandTool{
+		Guard: security.NewCommandExecGuard(),
+		// Approve is set per-caller (CLI prompts the user; HTTP auto-denies).
+	})
+
 	return &appStack{
 		bus:         bus,
 		subturns:    subturns,
@@ -101,6 +112,8 @@ func buildStack(runtimeRoot, workspaceRoot string) (*appStack, error) {
 		store:       store,
 		secrets:     secrets,
 		brainSvc:    brainSvc,
+		tools:       tools,
+		sandbox:     sandbox,
 		runtimeRoot: runtimeRoot,
 		workspace:   workspaceRoot,
 	}, nil

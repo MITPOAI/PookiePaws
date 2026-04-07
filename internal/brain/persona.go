@@ -29,8 +29,8 @@ func DefaultPookiePersona() Persona {
 	return Persona{Name: "Pookie"}
 }
 
-func (p Persona) RoutingPrompt(defs []engine.SkillDefinition, memory MemorySnapshot, turns []ConversationTurn) string {
-	return NewPromptBuilder(PromptModeOperator).BuildOperatorPrompt(p.Name, defs, memory, turns)
+func (p Persona) RoutingPrompt(defs []engine.SkillDefinition, memory MemorySnapshot, turns []ConversationTurn, tools ...Tool) string {
+	return NewPromptBuilder(PromptModeOperator).BuildOperatorPrompt(p.Name, defs, memory, turns, tools...)
 }
 
 func (p Persona) Humanize(err error) error {

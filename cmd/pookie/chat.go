@@ -201,7 +201,39 @@ func cmdChat(args []string) {
 			continue
 		}
 
-		result, err := stack.brainSvc.DispatchPrompt(ctx, line)
+		// Use the ReAct orchestrator with tool support.
+		orchResult, err := stack.brainSvc.Orchestrate(ctx, line, brain.OrchestrateConfig{
+			Tools: stack.tools,
+			ApprovalFn: func(toolName string, description string) bool {
+				spin.Stop(true, "")
+				p.Blank()
+				p.Warning("Pookie requests permission to run: %s", toolName)
+				p.Plain("  %s", description)
+				p.Blank()
+				answer, ok := cli.ReadLine(p, "Allow? (Y/n) > ")
+				if !ok {
+					return false
+				}
+				approved := strings.TrimSpace(strings.ToLower(answer)) == "y" ||
+					strings.TrimSpace(strings.ToLower(answer)) == "yes"
+				if approved {
+					spin = p.NewSpinner("Executing...")
+					spin.Start()
+				}
+				return approved
+			},
+			OnToolStart: func(toolName string, input map[string]any) {
+				spin.UpdateLabel(fmt.Sprintf("Using %s...", toolName))
+			},
+			OnToolDone: func(toolName string, result map[string]any, toolErr error) {
+				if toolErr != nil {
+					spin.UpdateLabel("Tool failed, re-thinking...")
+				} else {
+					spin.UpdateLabel("Processing result...")
+				}
+			},
+		})
+		result := orchResult.DispatchResult
 		if err != nil {
 			_ = finishChatRunFailure(ctx, stack.store, stack.brainSvc, &sessionState, run.ID, line, err)
 			spin.Stop(false, "")
