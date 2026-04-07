@@ -2,6 +2,35 @@
 
 All notable changes to PookiePaws should be documented in this file.
 
+## [1.1.0] - Unreleased
+
+### Added
+
+- **Native Tool Calling**: `NativeOrchestrate` loop sends `[]ChatMessage + []ToolDefinition`
+  to OpenAI-compatible APIs; processes `finish_reason: "tool_calls"` natively instead of
+  text-JSON parsing
+- **`JinaScraperTool` (`web_search`)**: replaces `WebSearchTool`; GETs `https://r.jina.ai/<url>`
+  for clean Markdown output, capped at 8,000 chars
+- **`ReadLocalFileTool` (`read_local_file`)**: reads workspace-sandboxed context files
+  (brand guidelines, briefs), capped at 8,000 chars
+- **`SecurityValidator`**: pre-execution middleware; path confinement for file tools +
+  HITL `[⚠]` approval gate for `os_command`
+- **`SystemPromptBase` constant**: marketing persona + 7 security rules injected as the
+  first system message in every `NativeOrchestrate` conversation
+- **`Definition() ToolDefinition`** on all four tools + `ToolRegistry.BuildDefinitions()`
+
+### Changed
+
+- `Tool` interface gains `Definition() ToolDefinition` — all built-in tools updated
+- `OrchestrateConfig` gains `Validator *SecurityValidator` (additive, nil-safe)
+- `pookie chat` uses `NativeOrchestrate`; falls back to text-JSON `Orchestrate` for MCP
+- `WebSearchTool` removed; `JinaScraperTool` registered under the same `web_search` name
+
+### Security
+
+- File path traversal validation enforced at orchestrator layer via `SecurityValidator`
+  before any tool execution begins, in addition to the existing sandbox checks inside tools
+
 ## [1.0.0] - Unreleased
 
 ### Added

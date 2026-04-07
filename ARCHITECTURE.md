@@ -238,6 +238,31 @@ The provider strategy supports six provider families through two protocol bounda
 
 All model selection is externalized through secrets (`llm_model`, `llm_base_url`). The CLI `init` wizard provides curated presets but any OpenAI-compatible endpoint works. The conversation window defaults to 24 turns to leverage 1M+ token context windows available in 2026 frontier models.
 
+#### Native Tool Calling (v1.1.0)
+
+PookiePaws v1.1.0 adds native OpenAI-compatible tool calling alongside the existing
+text-JSON ReAct loop:
+
+- **`NativeClient` interface** — `CompleteNative(ctx, []ChatMessage, []ToolDefinition)` on
+  `OpenAICompatibleClient`. MCP providers do not implement this; the orchestrator detects
+  and falls back automatically to the text-JSON `Orchestrate` path.
+- **`NativeOrchestrate` loop** — manages a stateful `[]ChatMessage` array. Sends all tool
+  schemas as JSON Schema definitions. Dispatches on `finish_reason`: `"tool_calls"` → route
+  through `SecurityValidator`, execute tool, append `role:"tool"` result message, loop;
+  `"stop"` → parse content as final response.
+- **`SecurityValidator`** — pre-execution middleware in `package brain`. Validates file paths
+  via `WorkspaceSandbox.ResolveWithinWorkspace` for `export_markdown` and `read_local_file`,
+  returning `{"error":"Security Violation: Path out of bounds."}` to the model when blocked.
+  For `os_command`, triggers the HITL prompt `[⚠] Pookie wants to run: <cmd>. Allow? [Y/n]`
+  via `ApprovalFunc` before execution. After the validator approves an `os_command`, the tool
+  is invoked with a pass-through `Approve` to prevent a second prompt.
+- **Tool set** — `web_search` (JinaScraperTool via `r.jina.ai`), `export_markdown`
+  (workspace-sandboxed write), `read_local_file` (workspace-sandboxed read),
+  `os_command` (ExecGuard-allowlisted + HITL).
+- **`Definition() ToolDefinition`** — all tools implement this method returning a JSON Schema
+  function definition. `ToolRegistry.BuildDefinitions()` collects them for the native API
+  request. The text-JSON `Orchestrate` path is unchanged and continues to use `ParameterSchema()`.
+
 ### 5. Audit And Governance
 
 Audit and governance are first-class parts of the design.
