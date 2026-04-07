@@ -10,42 +10,7 @@ import (
 	"time"
 
 	"github.com/mitpoai/pookiepaws/internal/engine"
-	"github.com/mitpoai/pookiepaws/internal/webfetch"
 )
-
-// ── WebSearchTool ──────────────────────────────────────────────────────────
-
-// WebSearchTool fetches a URL and returns its text content for research.
-type WebSearchTool struct{}
-
-var _ Tool = (*WebSearchTool)(nil)
-
-func (t *WebSearchTool) Name() string        { return "web_search" }
-func (t *WebSearchTool) Description() string {
-	return "Fetch a public URL and return its text content. Use this to research competitors, pricing pages, or industry data. Never guess facts - look them up with this tool."
-}
-func (t *WebSearchTool) ParameterSchema() string {
-	return `{"url": "string (required) - the public URL to fetch and read"}`
-}
-
-func (t *WebSearchTool) Execute(ctx context.Context, input map[string]any) (map[string]any, error) {
-	rawURL := strings.TrimSpace(asString(input["url"]))
-	if rawURL == "" {
-		return nil, fmt.Errorf("url is required")
-	}
-
-	result, err := webfetch.Fetch(ctx, rawURL, 8000)
-	if err != nil {
-		return nil, fmt.Errorf("web_search failed: %w", err)
-	}
-
-	return map[string]any{
-		"url":     result.URL,
-		"title":   result.Title,
-		"summary": result.Summary,
-		"text":    result.RawText,
-	}, nil
-}
 
 // ── ExportMarkdownTool ─────────────────────────────────────────────────────
 
@@ -62,6 +27,25 @@ func (t *ExportMarkdownTool) Description() string {
 }
 func (t *ExportMarkdownTool) ParameterSchema() string {
 	return `{"content": "string (required) - the markdown content to save", "title": "string (optional) - document title", "filename": "string (optional) - filename prefix, default export"}`
+}
+
+func (t *ExportMarkdownTool) Definition() ToolDefinition {
+	return ToolDefinition{
+		Type: "function",
+		Function: FunctionDef{
+			Name:        t.Name(),
+			Description: t.Description(),
+			Parameters: JSONSchema{
+				Type: "object",
+				Properties: map[string]SchemaProperty{
+					"content":  {Type: "string", Description: "The Markdown content to save (required)"},
+					"title":    {Type: "string", Description: "Optional document title"},
+					"filename": {Type: "string", Description: "Optional filename prefix; default: export"},
+				},
+				Required: []string{"content"},
+			},
+		},
+	}
 }
 
 func (t *ExportMarkdownTool) Execute(ctx context.Context, input map[string]any) (map[string]any, error) {
@@ -121,6 +105,24 @@ func (t *OSCommandTool) Description() string {
 }
 func (t *OSCommandTool) ParameterSchema() string {
 	return `{"command": "string (required) - the command to run, e.g. git status", "args": "array of strings (optional) - command arguments"}`
+}
+
+func (t *OSCommandTool) Definition() ToolDefinition {
+	return ToolDefinition{
+		Type: "function",
+		Function: FunctionDef{
+			Name:        t.Name(),
+			Description: t.Description(),
+			Parameters: JSONSchema{
+				Type: "object",
+				Properties: map[string]SchemaProperty{
+					"command": {Type: "string", Description: "Command to run, e.g. git status"},
+					"args":    {Type: "string", Description: "Space-separated additional arguments"},
+				},
+				Required: []string{"command"},
+			},
+		},
+	}
 }
 
 func (t *OSCommandTool) Execute(ctx context.Context, input map[string]any) (map[string]any, error) {

@@ -15,6 +15,8 @@ type Tool interface {
 	Description() string
 	// ParameterSchema describes the expected input fields for the LLM.
 	ParameterSchema() string
+	// Definition returns the JSON Schema definition used in native tool-calling API requests.
+	Definition() ToolDefinition
 	// Execute runs the tool with the given input and returns the result.
 	Execute(ctx context.Context, input map[string]any) (map[string]any, error)
 }
@@ -54,4 +56,21 @@ func (r *ToolRegistry) List() []Tool {
 		return out[i].Name() < out[j].Name()
 	})
 	return out
+}
+
+// BuildDefinitions returns ToolDefinition slices for all registered tools.
+// Uses a type-assertion guard so tools that don't yet implement Definition()
+// are silently skipped rather than causing a panic.
+func (r *ToolRegistry) BuildDefinitions() []ToolDefinition {
+	type definable interface {
+		Definition() ToolDefinition
+	}
+	tools := r.List()
+	defs := make([]ToolDefinition, 0, len(tools))
+	for _, t := range tools {
+		if d, ok := t.(definable); ok {
+			defs = append(defs, d.Definition())
+		}
+	}
+	return defs
 }
