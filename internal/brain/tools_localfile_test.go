@@ -2,27 +2,11 @@ package brain
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
-
-	"github.com/mitpoai/pookiepaws/internal/security"
 )
 
-func newFileSandbox(t *testing.T) *security.WorkspaceSandbox {
-	t.Helper()
-	root := t.TempDir()
-	sb, err := security.NewWorkspaceSandbox(
-		filepath.Join(root, ".pookiepaws"),
-		filepath.Join(root, ".pookiepaws", "workspace"),
-	)
-	if err != nil {
-		t.Fatalf("sandbox: %v", err)
-	}
-	return sb
-}
-
 func TestReadLocalFileToolHappyPath(t *testing.T) {
-	sb := newFileSandbox(t)
+	sb := newTestSandbox(t)
 	if err := sb.WriteFile(context.Background(), "brand-guidelines.txt", []byte("Be bold.")); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -37,7 +21,7 @@ func TestReadLocalFileToolHappyPath(t *testing.T) {
 }
 
 func TestReadLocalFileToolPathEscape(t *testing.T) {
-	tool := &ReadLocalFileTool{Sandbox: newFileSandbox(t)}
+	tool := &ReadLocalFileTool{Sandbox: newTestSandbox(t)}
 	_, err := tool.Execute(context.Background(), map[string]any{"path": "../outside.txt"})
 	if err == nil {
 		t.Fatal("expected error for path escape")
@@ -45,7 +29,7 @@ func TestReadLocalFileToolPathEscape(t *testing.T) {
 }
 
 func TestReadLocalFileToolMissingPath(t *testing.T) {
-	tool := &ReadLocalFileTool{Sandbox: newFileSandbox(t)}
+	tool := &ReadLocalFileTool{Sandbox: newTestSandbox(t)}
 	_, err := tool.Execute(context.Background(), map[string]any{})
 	if err == nil {
 		t.Fatal("expected error for missing path")

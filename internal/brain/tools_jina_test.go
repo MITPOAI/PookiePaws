@@ -16,6 +16,14 @@ func TestJinaScraperToolMissingURL(t *testing.T) {
 	}
 }
 
+func TestJinaScraperToolInvalidScheme(t *testing.T) {
+	tool := &JinaScraperTool{}
+	_, err := tool.Execute(context.Background(), map[string]any{"url": "example.com"})
+	if err == nil {
+		t.Fatal("expected error for URL without scheme")
+	}
+}
+
 func TestJinaScraperToolHTTPMock(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

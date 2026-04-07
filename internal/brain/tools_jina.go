@@ -51,6 +51,9 @@ func (t *JinaScraperTool) Execute(ctx context.Context, input map[string]any) (ma
 	if rawURL == "" {
 		return nil, fmt.Errorf("url is required")
 	}
+	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
+		return nil, fmt.Errorf("url must begin with http:// or https://, got: %q", rawURL)
+	}
 
 	base := t.jinaBase
 	if base == "" {

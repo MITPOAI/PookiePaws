@@ -20,13 +20,6 @@ func newTestSandbox(t *testing.T) *security.WorkspaceSandbox {
 	return sb
 }
 
-func newTestSandboxAt(t *testing.T, root string) (*security.WorkspaceSandbox, error) {
-	return security.NewWorkspaceSandbox(
-		filepath.Join(root, ".pookiepaws"),
-		filepath.Join(root, ".pookiepaws", "workspace"),
-	)
-}
-
 func TestSecurityValidatorPathInBounds(t *testing.T) {
 	v := NewSecurityValidator(newTestSandbox(t), nil)
 	blocked, err := v.Validate("export_markdown", `{"content":"hello","filename":"exports/out"}`)
