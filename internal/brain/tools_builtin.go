@@ -134,11 +134,16 @@ func (t *OSCommandTool) Execute(ctx context.Context, input map[string]any) (map[
 	// Build the full command + args list for validation.
 	parts := strings.Fields(cmdStr)
 	if rawArgs, ok := input["args"]; ok {
-		if argSlice, ok := rawArgs.([]any); ok {
-			for _, arg := range argSlice {
+		switch v := rawArgs.(type) {
+		case []any:
+			for _, arg := range v {
 				if s, ok := arg.(string); ok {
 					parts = append(parts, s)
 				}
+			}
+		case string:
+			if v != "" {
+				parts = append(parts, strings.Fields(v)...)
 			}
 		}
 	}

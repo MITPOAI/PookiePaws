@@ -98,7 +98,6 @@ func buildStack(runtimeRoot, workspaceRoot string) (*appStack, error) {
 
 	// Build the ReAct tool registry.
 	tools := brain.NewToolRegistry()
-	tools.Register(&brain.WebSearchTool{})
 	tools.Register(&brain.ExportMarkdownTool{Sandbox: sandbox})
 	tools.Register(&brain.OSCommandTool{
 		Guard: security.NewCommandExecGuard(),

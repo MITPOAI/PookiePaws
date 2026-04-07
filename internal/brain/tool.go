@@ -13,7 +13,7 @@ type Tool interface {
 	Name() string
 	// Description explains what the tool does (included in the system prompt).
 	Description() string
-	// ParameterSchema describes the expected input fields for the LLM.
+	// ParameterSchema describes the expected input fields in legacy text format (used by the text-JSON Orchestrate path). Use Definition() for native tool-calling API requests.
 	ParameterSchema() string
 	// Definition returns the JSON Schema definition used in native tool-calling API requests.
 	Definition() ToolDefinition
