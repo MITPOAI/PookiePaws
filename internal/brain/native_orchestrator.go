@@ -84,7 +84,8 @@ func (s *Service) NativeOrchestrate(ctx context.Context, prompt string, cfg Orch
 
 			tool, ok := cfg.Tools.Get(toolName)
 			if !ok {
-				msg := fmt.Sprintf(`{"error":"unknown tool %q"}`, toolName)
+				resultJSON, _ := json.Marshal(map[string]any{"error": fmt.Sprintf("unknown tool %q", toolName)})
+				msg := string(resultJSON)
 				messages = append(messages, ChatMessage{Role: "tool", ToolCallID: tc.ID, Content: msg})
 				iterations = append(iterations, iter)
 				continue
@@ -92,7 +93,8 @@ func (s *Service) NativeOrchestrate(ctx context.Context, prompt string, cfg Orch
 
 			var toolInput map[string]any
 			if err := json.Unmarshal([]byte(argsJSON), &toolInput); err != nil {
-				msg := fmt.Sprintf(`{"error":"invalid arguments: %s"}`, err.Error())
+				resultJSON, _ := json.Marshal(map[string]any{"error": "invalid arguments: " + err.Error()})
+				msg := string(resultJSON)
 				messages = append(messages, ChatMessage{Role: "tool", ToolCallID: tc.ID, Content: msg})
 				iterations = append(iterations, iter)
 				continue
