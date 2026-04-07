@@ -50,6 +50,8 @@ func main() {
 		cmdAudit(os.Args[2:])
 	case "doctor":
 		cmdDoctor(os.Args[2:])
+	case "smoke":
+		cmdSmoke(os.Args[2:])
 	case "context":
 		cmdContext(os.Args[2:])
 	case "memory":
@@ -115,6 +117,7 @@ func printUsage() {
 	p.Plain("  approvals          Review or resolve pending approvals")
 	p.Plain("  audit              Tail recent audit events from local state")
 	p.Plain("  doctor             Print local runtime diagnostics")
+	p.Plain("  smoke              Run operator smoke checks for provider, CLI, and API")
 	p.Plain("  context            Inspect the current prompt, memory, and variables")
 	p.Plain("  memory             Manage persistent brain memory (prune, inspect)")
 	p.Plain("  install <repo>     Install a skill from a GitHub repository")

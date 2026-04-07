@@ -88,7 +88,7 @@ func DefaultProviderPresets() []ProviderPreset {
 			Models: []ModelPreset{
 				{Label: "DeepSeek V3.2", ID: "deepseek/deepseek-v3.2", Hint: "Generalist frontier preset."},
 				{Label: "DeepSeek R1", ID: "deepseek/deepseek-r1", Hint: "Reasoning-heavy preset."},
-				{Label: "Qwen 3.5 Plus", ID: "qwen/qwen3.5-plus", Hint: "Strong generalist preset."},
+				{Label: "Qwen 3.5 Plus", ID: "qwen/qwen3.5-plus-02-15", Hint: "Strong generalist preset."},
 				{Label: "Cohere Command R3", ID: "cohere/command-r3", Hint: "Enterprise RAG and grounded generation."},
 				{Label: "Meta Llama 4 Instruct", ID: "meta-llama/llama-4-instruct", Hint: "Open-weight instruction-tuned model."},
 			},

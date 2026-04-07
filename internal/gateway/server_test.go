@@ -159,6 +159,36 @@ func TestGatewayConsoleSnapshot(t *testing.T) {
 	}
 }
 
+func TestGatewayDiagnosticsIncludeBrainCheck(t *testing.T) {
+	h := newHarness(t, "127.0.0.1:18800", stubBrain{})
+	if err := h.secrets.Update(map[string]string{
+		"llm_provider": "openai-compatible",
+		"llm_base_url": "http://127.0.0.1:9999/v1/chat/completions",
+		"llm_model":    "mock-model",
+	}); err != nil {
+		t.Fatalf("seed secrets: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/diagnostics", nil)
+	recorder := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var response DiagnosticsResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode diagnostics: %v", err)
+	}
+	if response.Brain.Model != "mock-model" {
+		t.Fatalf("expected diagnostics brain model, got %+v", response.Brain)
+	}
+	if response.Brain.ConfigPresent != true {
+		t.Fatalf("expected diagnostics brain config to be present, got %+v", response.Brain)
+	}
+}
+
 func TestGatewayStaticAssets(t *testing.T) {
 	h := newHarness(t, "127.0.0.1:18800", nil)
 

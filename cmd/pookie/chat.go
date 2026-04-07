@@ -50,6 +50,16 @@ func cmdChat(args []string) {
 		os.Exit(1)
 	}
 
+	ctx := context.Background()
+	health := checkStackBrainHealth(ctx, stack)
+	if !health.Healthy() {
+		p.Error("Brain provider validation failed")
+		p.Blank()
+		printBrainHealth(p, health)
+		printBrainRemediation(p, health)
+		os.Exit(1)
+	}
+
 	p.Blank()
 	p.Info("Chat with Pookie - your marketing co-pilot")
 	brainStatus := stack.brainSvc.Status()
@@ -60,7 +70,6 @@ func cmdChat(args []string) {
 	p.Dim("Commands:  /skills  /sessions  /approvals  /doctor  /clear  /exit")
 	p.Blank()
 
-	ctx := context.Background()
 	session, err := loadOrCreateChatSession(ctx, stack.store, *sessionID)
 	if err != nil {
 		p.Error("session setup: %v", err)
@@ -152,6 +161,7 @@ func cmdChat(args []string) {
 				p.Blank()
 				continue
 			}
+			health := checkStackBrainHealth(ctx, stack)
 			p.Box("Runtime", [][2]string{
 				{"workflows", fmt.Sprintf("%d", status.Workflows)},
 				{"approvals", fmt.Sprintf("%d", status.PendingApprovals)},
@@ -159,6 +169,7 @@ func cmdChat(args []string) {
 				{"brain", fmt.Sprintf("%t / %s", stack.brainSvc.Available(), stack.brainSvc.Status().Provider)},
 			})
 			p.Blank()
+			printBrainHealth(p, health)
 			continue
 
 		case "/clear":
@@ -192,9 +203,20 @@ func cmdChat(args []string) {
 
 		result, err := stack.brainSvc.DispatchPrompt(ctx, line)
 		if err != nil {
-			_ = finishChatRunFailure(ctx, stack.store, &sessionState, run.ID, err)
+			_ = finishChatRunFailure(ctx, stack.store, stack.brainSvc, &sessionState, run.ID, line, err)
 			spin.Stop(false, "")
 			p.Error("%v", err)
+			technical := technicalDispatchError(err)
+			if technical != "" && technical != err.Error() {
+				p.Dim("technical: %s", technical)
+			}
+			if strings.Contains(strings.ToLower(technical), "model") {
+				p.Dim("%s", brainHealthRemediation(brain.ProviderHealth{
+					Provider:    brainStatus.Provider,
+					Model:       brainStatus.Model,
+					FailureCode: brain.ProviderFailureModel,
+				}))
+			}
 			p.Blank()
 			continue
 		}
@@ -371,7 +393,7 @@ func beginChatRun(ctx context.Context, store engine.StateStore, sessionID string
 	return run, session, store.SaveSession(ctx, session)
 }
 
-func finishChatRunFailure(ctx context.Context, store engine.StateStore, session *engine.Session, runID string, dispatchErr error) error {
+func finishChatRunFailure(ctx context.Context, store engine.StateStore, debugPrompt interface{ DebugRoutingPrompt() string }, session *engine.Session, runID string, prompt string, dispatchErr error) error {
 	now := time.Now().UTC()
 	session.Messages = append(session.Messages, engine.SessionMessage{
 		ID:        localChatID("msg"),
@@ -382,12 +404,24 @@ func finishChatRunFailure(ctx context.Context, store engine.StateStore, session 
 		Status:    "failed",
 		CreatedAt: now,
 	})
+	technical := technicalDispatchError(dispatchErr)
+	trace := &engine.SessionPromptTrace{
+		Mode:       string(brain.PromptModeOperator),
+		UserPrompt: strings.TrimSpace(prompt),
+		Error:      technical,
+		CreatedAt:  now,
+	}
+	if debugPrompt != nil {
+		trace.SystemPrompt = strings.TrimSpace(debugPrompt.DebugRoutingPrompt())
+	}
 	for index := range session.Runs {
 		if session.Runs[index].ID != runID {
 			continue
 		}
 		session.Runs[index].Status = engine.SessionFailed
 		session.Runs[index].Error = dispatchErr.Error()
+		session.Runs[index].TechnicalError = technical
+		session.Runs[index].Trace = trace
 		session.Runs[index].FinishedAt = now
 	}
 	session.UpdatedAt = now
@@ -419,6 +453,8 @@ func finishChatRunSuccess(ctx context.Context, store engine.StateStore, session 
 		session.Runs[index].Status = status
 		session.Runs[index].WorkflowID = workflowID
 		session.Runs[index].Skill = result.Command.Skill
+		session.Runs[index].Error = ""
+		session.Runs[index].TechnicalError = ""
 		session.Runs[index].FinishedAt = now
 		session.Runs[index].Trace = translateCLITrace(result.PromptTrace)
 		session.Runs[index].AlternativeTrace = translateCLITrace(result.AltTrace)

@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-
-	"github.com/mitpoai/pookiepaws/internal/engine"
 )
 
 const (
@@ -42,11 +40,15 @@ type ProviderConfig struct {
 	MCPMethod    string
 }
 
-type SecretBackedProviderFactory struct {
-	secrets engine.SecretProvider
+type SecretReader interface {
+	Get(name string) (string, error)
 }
 
-func NewSecretBackedProviderFactory(secrets engine.SecretProvider) *SecretBackedProviderFactory {
+type SecretBackedProviderFactory struct {
+	secrets SecretReader
+}
+
+func NewSecretBackedProviderFactory(secrets SecretReader) *SecretBackedProviderFactory {
 	return &SecretBackedProviderFactory{secrets: secrets}
 }
 
@@ -83,7 +85,7 @@ func (f *SecretBackedProviderFactory) New(ctx context.Context) (Provider, error)
 	}
 }
 
-func LoadProviderConfig(secrets engine.SecretProvider) (ProviderConfig, error) {
+func LoadProviderConfig(secrets SecretReader) (ProviderConfig, error) {
 	if secrets == nil {
 		return ProviderConfig{}, ErrProviderNotConfigured
 	}
@@ -182,7 +184,7 @@ func (c ProviderConfig) Status() Status {
 	}
 }
 
-func optionalSecret(secrets engine.SecretProvider, key string) string {
+func optionalSecret(secrets SecretReader, key string) string {
 	value, err := secrets.Get(key)
 	if err != nil {
 		return ""
@@ -227,7 +229,7 @@ func parseStringMap(raw string) (map[string]string, error) {
 	return parsed, nil
 }
 
-func resolveSecretMap(values map[string]string, secrets engine.SecretProvider) (map[string]string, error) {
+func resolveSecretMap(values map[string]string, secrets SecretReader) (map[string]string, error) {
 	if len(values) == 0 {
 		return values, nil
 	}

@@ -101,6 +101,7 @@ func cmdSessions(args []string) {
 			{"workflow", firstValue(run.WorkflowID, "-")},
 			{"accepted", run.AcceptedAt.Format(time.RFC3339)},
 			{"error", firstValue(run.Error, "-")},
+			{"technical", firstValue(run.TechnicalError, "-")},
 		})
 		if *trace {
 			printTrace(p, "Prompt Trace", run.Trace)
@@ -217,6 +218,7 @@ func cmdAudit(args []string) {
 func cmdDoctor(args []string) {
 	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
 	home := fs.String("home", "", "override runtime home directory")
+	brainOnly := fs.Bool("brain", false, "validate the configured brain provider and model")
 	_ = fs.Parse(args)
 
 	p := cli.Stdout()
@@ -234,6 +236,18 @@ func cmdDoctor(args []string) {
 		os.Exit(1)
 	}
 	defer stack.Close()
+
+	brainHealth := checkStackBrainHealth(context.Background(), stack)
+	if *brainOnly {
+		printBrainHealth(p, brainHealth)
+		if brainHealth.Healthy() {
+			p.Success("Brain provider validation passed")
+			p.Blank()
+			return
+		}
+		printBrainRemediation(p, brainHealth)
+		os.Exit(1)
+	}
 
 	ctx := context.Background()
 	status, err := stack.coord.Status(ctx)
@@ -256,6 +270,10 @@ func cmdDoctor(args []string) {
 		{"brain", fmt.Sprintf("%t / %s / %s", stack.brainSvc.Available(), stack.brainSvc.Status().Provider, stack.brainSvc.Status().Mode)},
 	})
 	p.Blank()
+	printBrainHealth(p, brainHealth)
+	if !brainHealth.Healthy() {
+		printBrainRemediation(p, brainHealth)
+	}
 
 	for _, warning := range startupWarnings(stack.secrets) {
 		p.Warning("%s", warning)
@@ -501,9 +519,9 @@ func cmdMemory(args []string) {
 	if *prune {
 		memoryPath := filepath.Join(runtimeRoot, "state", "runtime", "brain-memory.json")
 		empty := map[string]any{
-			"narrative": "",
-			"variables": map[string]string{},
-			"recent":    []any{},
+			"narrative":  "",
+			"variables":  map[string]string{},
+			"recent":     []any{},
 			"last_flush": time.Now().UTC(),
 		}
 		data, _ := json.MarshalIndent(empty, "", "  ")

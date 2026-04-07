@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/mitpoai/pookiepaws/internal/brain"
 )
 
 type ConnectivityChecker struct {
@@ -39,13 +41,13 @@ func (c *ConnectivityChecker) Check(ctx context.Context, preset ProviderPreset, 
 	case CheckModeChatPing:
 		return c.chatPing(ctx, preset, model, apiKey)
 	case CheckModeListModels:
-		return c.listModels(ctx, preset, apiKey)
+		return c.listModels(ctx, preset, model, apiKey)
 	default:
 		return ConnectivityResult{Endpoint: preset.BaseURL}, fmt.Errorf("unsupported connectivity check mode %q", preset.CheckMode)
 	}
 }
 
-func (c *ConnectivityChecker) listModels(ctx context.Context, preset ProviderPreset, apiKey string) (ConnectivityResult, error) {
+func (c *ConnectivityChecker) listModels(ctx context.Context, preset ProviderPreset, model, apiKey string) (ConnectivityResult, error) {
 	endpoint := ModelsEndpoint(preset.BaseURL)
 	if endpoint == "" {
 		return ConnectivityResult{}, fmt.Errorf("could not derive a models endpoint from %s", preset.BaseURL)
@@ -80,9 +82,13 @@ func (c *ConnectivityChecker) listModels(ctx context.Context, preset ProviderPre
 	if count := len(payload.Data); count > 0 {
 		message = fmt.Sprintf("%s returned %d model(s).", preset.Label, count)
 	}
+	result, err := c.chatPing(ctx, preset, model, apiKey)
+	if err != nil {
+		return ConnectivityResult{Endpoint: endpoint}, err
+	}
 	return ConnectivityResult{
-		Endpoint: endpoint,
-		Message:  message,
+		Endpoint: result.Endpoint,
+		Message:  message + " " + result.Message,
 	}, nil
 }
 
@@ -91,40 +97,40 @@ func (c *ConnectivityChecker) chatPing(ctx context.Context, preset ProviderPrese
 	if model == "" {
 		return ConnectivityResult{Endpoint: preset.BaseURL}, fmt.Errorf("%s requires a model before it can be verified", preset.Label)
 	}
-
-	payload := map[string]any{
-		"model": model,
-		"messages": []map[string]string{
-			{"role": "user", "content": "ping"},
-		},
-		"max_tokens": 1,
+	health := brain.CheckProviderConfig(ctx, brain.ProviderConfig{
+		Type:    "openai-compatible",
+		Model:   model,
+		BaseURL: preset.BaseURL,
+		APIKey:  apiKey,
+	}, c.client)
+	if !health.Healthy() {
+		return ConnectivityResult{Endpoint: health.BaseURL}, fmt.Errorf("%s", c.healthErrorMessage(preset, health))
 	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return ConnectivityResult{Endpoint: preset.BaseURL}, err
-	}
+	return ConnectivityResult{Endpoint: health.BaseURL, Message: fmt.Sprintf("%s accepted a minimal chat request for %s.", preset.Label, model)}, nil
+}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, preset.BaseURL, bytes.NewReader(body))
-	if err != nil {
-		return ConnectivityResult{Endpoint: preset.BaseURL}, err
+func (c *ConnectivityChecker) healthErrorMessage(preset ProviderPreset, health brain.ProviderHealth) string {
+	switch health.FailureCode {
+	case brain.ProviderFailureCredentials:
+		return fmt.Sprintf("%s rejected the credentials: %s", preset.Label, health.Error)
+	case brain.ProviderFailureModel:
+		return fmt.Sprintf("%s rejected the selected model %q: %s", preset.Label, strings.TrimSpace(health.Model), health.Error)
+	case brain.ProviderFailureEndpointRejected:
+		return fmt.Sprintf("%s could not find that endpoint: %s", preset.Label, health.Error)
+	case brain.ProviderFailureEndpointUnusable:
+		return fmt.Sprintf("could not reach %s: %s", preset.Label, health.Error)
+	case brain.ProviderFailureNotConfigured:
+		return fmt.Sprintf("%s is not fully configured: %s", preset.Label, health.Error)
+	default:
+		message := strings.TrimSpace(health.Error)
+		if message == "" {
+			message = strings.TrimSpace(health.Detail)
+		}
+		if message == "" {
+			message = "unknown error"
+		}
+		return fmt.Sprintf("%s returned an error: %s", preset.Label, message)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	applyProviderHeaders(req, preset, apiKey)
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return ConnectivityResult{Endpoint: preset.BaseURL}, fmt.Errorf("could not reach %s: %w", preset.Label, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= http.StatusBadRequest {
-		return ConnectivityResult{Endpoint: preset.BaseURL}, providerHTTPError(preset, resp)
-	}
-
-	return ConnectivityResult{
-		Endpoint: preset.BaseURL,
-		Message:  fmt.Sprintf("%s accepted a minimal chat request.", preset.Label),
-	}, nil
 }
 
 func applyProviderHeaders(req *http.Request, preset ProviderPreset, apiKey string) {

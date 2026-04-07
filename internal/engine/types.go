@@ -421,6 +421,7 @@ type SessionRun struct {
 	WorkflowID       string              `json:"workflow_id,omitempty"`
 	Skill            string              `json:"skill,omitempty"`
 	Error            string              `json:"error,omitempty"`
+	TechnicalError   string              `json:"technical_error,omitempty"`
 	AcceptedAt       time.Time           `json:"accepted_at"`
 	StartedAt        time.Time           `json:"started_at,omitempty"`
 	FinishedAt       time.Time           `json:"finished_at,omitempty"`

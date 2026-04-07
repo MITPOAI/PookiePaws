@@ -47,7 +47,7 @@ func TestDefaultProviderPresets(t *testing.T) {
 		{
 			id:      "openrouter",
 			baseURL: "https://openrouter.ai/api/v1/chat/completions",
-			models:  []string{"deepseek/deepseek-v3.2", "deepseek/deepseek-r1", "qwen/qwen3.5-plus", "cohere/command-r3", "meta-llama/llama-4-instruct"},
+			models:  []string{"deepseek/deepseek-v3.2", "deepseek/deepseek-r1", "qwen/qwen3.5-plus-02-15", "cohere/command-r3", "meta-llama/llama-4-instruct"},
 		},
 		{
 			id:      "ollama",

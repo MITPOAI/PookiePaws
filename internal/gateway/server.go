@@ -137,6 +137,7 @@ type HealthResponse struct {
 type DiagnosticsResponse struct {
 	Health   HealthResponse                 `json:"health"`
 	Status   engine.StatusSnapshot          `json:"status"`
+	Brain    brain.ProviderHealth           `json:"brain"`
 	Vault    VaultStatus                    `json:"vault"`
 	Channels []engine.ChannelProviderStatus `json:"channels"`
 	Install  map[string]string              `json:"install"`
@@ -492,6 +493,7 @@ func (s *Server) handleDiagnostics(writer http.ResponseWriter, request *http.Req
 	writeJSON(writer, http.StatusOK, DiagnosticsResponse{
 		Health:   s.healthResponse(request.Context(), false),
 		Status:   status,
+		Brain:    brain.CheckProviderHealth(request.Context(), s.vault),
 		Vault:    s.currentVaultStatus(),
 		Channels: channels,
 		Install: map[string]string{
@@ -516,6 +518,8 @@ func (s *Server) handleEvents(writer http.ResponseWriter, request *http.Request)
 	writer.Header().Set("Cache-Control", "no-cache")
 	writer.Header().Set("Connection", "keep-alive")
 	writer.Header().Set("X-Accel-Buffering", "no")
+	writer.WriteHeader(http.StatusOK)
+	flusher.Flush()
 
 	ticker := time.NewTicker(20 * time.Second)
 	defer ticker.Stop()

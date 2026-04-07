@@ -171,7 +171,7 @@ func (s *chatStore) MarkRunRunning(ctx context.Context, sessionID string, runID 
 	return run, err
 }
 
-func (s *chatStore) CompleteRun(ctx context.Context, sessionID string, runID string, status engine.SessionStatus, workflowID string, skill string, promptTrace *brain.PromptTrace, altTrace *brain.PromptTrace, errText string) (ChatRun, error) {
+func (s *chatStore) CompleteRun(ctx context.Context, sessionID string, runID string, status engine.SessionStatus, workflowID string, skill string, promptTrace *brain.PromptTrace, altTrace *brain.PromptTrace, errText string, technicalErr string) (ChatRun, error) {
 	var run ChatRun
 	_, err := s.withSession(ctx, sessionID, func(session *ChatSession) error {
 		index := sessionRunIndex(session.Runs, runID)
@@ -182,6 +182,7 @@ func (s *chatStore) CompleteRun(ctx context.Context, sessionID string, runID str
 		session.Runs[index].WorkflowID = strings.TrimSpace(workflowID)
 		session.Runs[index].Skill = strings.TrimSpace(skill)
 		session.Runs[index].Error = strings.TrimSpace(errText)
+		session.Runs[index].TechnicalError = strings.TrimSpace(technicalErr)
 		session.Runs[index].FinishedAt = time.Now().UTC()
 		if session.Runs[index].StartedAt.IsZero() {
 			session.Runs[index].StartedAt = session.Runs[index].AcceptedAt
@@ -401,6 +402,9 @@ func (s *Server) processChatPrompt(ctx context.Context, sessionID string, prompt
 
 	result, err := s.brain.DispatchPrompt(ctx, prompt)
 	if err != nil {
+		technicalErr := technicalDispatchError(err)
+		trace := ensurePromptTrace(nil, prompt, brainModelStatus(s.brain), "")
+		trace.Error = technicalErr
 		assistant := ChatMessage{
 			ID:        generateID("msg"),
 			SessionID: session.ID,
@@ -413,8 +417,8 @@ func (s *Server) processChatPrompt(ctx context.Context, sessionID string, prompt
 		if _, appendErr := s.chat.AppendMessage(ctx, session.ID, assistant); appendErr != nil {
 			return ChatDispatchResponse{}, appendErr
 		}
-		run, _ = s.chat.CompleteRun(ctx, session.ID, run.ID, engine.SessionFailed, "", "", nil, nil, err.Error())
-		steps = append(steps, newChatStep(session.ID, "failed", "Routing paused", err.Error(), "error", ""))
+		run, _ = s.chat.CompleteRun(ctx, session.ID, run.ID, engine.SessionFailed, "", "", trace, nil, err.Error(), technicalErr)
+		steps = append(steps, newChatStep(session.ID, "failed", "Routing paused", technicalErr, "error", ""))
 		finalSession, _ := s.chat.Get(ctx, session.ID)
 		return ChatDispatchResponse{
 			Session:          finalSession.SessionSummary,
@@ -453,7 +457,7 @@ func (s *Server) processChatPrompt(ctx context.Context, sessionID string, prompt
 		}
 	}
 
-	run, err = s.chat.CompleteRun(ctx, session.ID, run.ID, runStatus, runWorkflowID, result.Command.Skill, result.PromptTrace, result.AltTrace, "")
+	run, err = s.chat.CompleteRun(ctx, session.ID, run.ID, runStatus, runWorkflowID, result.Command.Skill, result.PromptTrace, result.AltTrace, "", "")
 	if err != nil {
 		return ChatDispatchResponse{}, err
 	}
@@ -589,6 +593,21 @@ func ensurePromptTrace(trace *brain.PromptTrace, prompt string, model string, ra
 		trace.Mode = brain.PromptModeOperator
 	}
 	return trace
+}
+
+func technicalDispatchError(err error) string {
+	var friendly brain.FriendlyError
+	if errors.As(err, &friendly) && friendly.Technical != nil {
+		return strings.TrimSpace(friendly.Technical.Error())
+	}
+	return strings.TrimSpace(err.Error())
+}
+
+func brainModelStatus(dispatcher PromptDispatcher) string {
+	if dispatcher == nil {
+		return ""
+	}
+	return strings.TrimSpace(dispatcher.Status().Model)
 }
 
 type httpStatusError struct {

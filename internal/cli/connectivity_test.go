@@ -10,15 +10,28 @@ import (
 
 func TestConnectivityCheckerListModels(t *testing.T) {
 	var gotAuth string
-	var gotPath string
+	var gotPaths []string
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPaths = append(gotPaths, r.URL.Path)
 		gotAuth = r.Header.Get("Authorization")
-		gotPath = r.URL.Path
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"data": []map[string]string{{"id": "gpt-5.1"}},
-		})
+		switch r.URL.Path {
+		case "/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data": []map[string]string{{"id": "gpt-5.1"}},
+			})
+		case "/v1/chat/completions":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"model": "gpt-5.1",
+				"choices": []map[string]any{
+					{"message": map[string]string{"content": "ok"}},
+				},
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
 	}))
 	defer server.Close()
 
@@ -35,13 +48,13 @@ func TestConnectivityCheckerListModels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connectivity check failed: %v", err)
 	}
-	if gotPath != "/v1/models" {
-		t.Fatalf("expected path /v1/models, got %q", gotPath)
+	if len(gotPaths) != 2 || gotPaths[0] != "/v1/models" || gotPaths[1] != "/v1/chat/completions" {
+		t.Fatalf("unexpected request sequence: %#v", gotPaths)
 	}
 	if gotAuth != "Bearer sk-test" {
 		t.Fatalf("expected bearer auth, got %q", gotAuth)
 	}
-	if result.Endpoint != server.URL+"/v1/models" {
+	if result.Endpoint != server.URL+"/v1/chat/completions" {
 		t.Fatalf("unexpected endpoint %q", result.Endpoint)
 	}
 }

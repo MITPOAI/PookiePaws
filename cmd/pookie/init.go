@@ -38,6 +38,7 @@ const (
 	brainConnectivityContinueLocal
 	brainConnectivityRetry
 	brainConnectivityReenter
+	brainConnectivityBack
 	brainConnectivitySkip
 )
 
@@ -297,6 +298,8 @@ providerSelection:
 						candidateAPIKey = trimmed
 					}
 					continue
+				case brainConnectivityBack:
+					continue providerSelection
 				case brainConnectivityContinueLocal:
 					next["llm_provider"] = qs.ProviderKind
 					next["llm_base_url"] = qs.BaseURL
@@ -371,6 +374,8 @@ providerSelection:
 						continue checkConnectivity
 					case brainConnectivityReenter:
 						continue promptKey
+					case brainConnectivityBack:
+						continue providerSelection
 					case brainConnectivitySkip:
 						p.Warning("Brain setup skipped for now.")
 						p.Blank()
@@ -455,6 +460,13 @@ func runBrainConnectivityCheck(p *cli.Printer, wizard *cli.Wizard, checker *cli.
 			outcome: brainConnectivityContinueLocal,
 		})
 	}
+	options = append(options, option{
+		item: cli.MenuItem{
+			Label: "Choose another provider or model",
+			Hint:  "Return to brain selection instead of saving a broken model configuration.",
+		},
+		outcome: brainConnectivityBack,
+	})
 	options = append(options, option{
 		item: cli.MenuItem{
 			Label: "Skip brain setup for now",
