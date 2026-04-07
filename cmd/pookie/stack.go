@@ -98,7 +98,9 @@ func buildStack(runtimeRoot, workspaceRoot string) (*appStack, error) {
 
 	// Build the ReAct tool registry.
 	tools := brain.NewToolRegistry()
+	tools.Register(&brain.JinaScraperTool{})
 	tools.Register(&brain.ExportMarkdownTool{Sandbox: sandbox})
+	tools.Register(&brain.ReadLocalFileTool{Sandbox: sandbox})
 	tools.Register(&brain.OSCommandTool{
 		Guard: security.NewCommandExecGuard(),
 		// Approve is set per-caller (CLI prompts the user; HTTP auto-denies).

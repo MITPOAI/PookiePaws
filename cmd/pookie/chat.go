@@ -201,27 +201,29 @@ func cmdChat(args []string) {
 			continue
 		}
 
-		// Use the ReAct orchestrator with tool support.
-		orchResult, err := stack.brainSvc.Orchestrate(ctx, line, brain.OrchestrateConfig{
-			Tools: stack.tools,
-			ApprovalFn: func(toolName string, description string) bool {
-				spin.Stop(true, "")
-				p.Blank()
-				p.Warning("Pookie requests permission to run: %s", toolName)
-				p.Plain("  %s", description)
-				p.Blank()
-				answer, ok := cli.ReadLine(p, "Allow? (Y/n) > ")
-				if !ok {
-					return false
-				}
-				approved := strings.TrimSpace(strings.ToLower(answer)) == "y" ||
-					strings.TrimSpace(strings.ToLower(answer)) == "yes"
-				if approved {
-					spin = p.NewSpinner("Executing...")
-					spin.Start()
-				}
-				return approved
-			},
+		// Use the native tool-calling orchestrator with tool support.
+		approvalFn := func(toolName string, description string) bool {
+			spin.Stop(true, "")
+			p.Blank()
+			p.Warning("Pookie requests permission to run: %s", toolName)
+			p.Plain("  %s", description)
+			p.Blank()
+			answer, ok := cli.ReadLine(p, "Allow? (Y/n) > ")
+			if !ok {
+				return false
+			}
+			approved := strings.TrimSpace(strings.ToLower(answer)) == "y" ||
+				strings.TrimSpace(strings.ToLower(answer)) == "yes"
+			if approved {
+				spin = p.NewSpinner("Executing...")
+				spin.Start()
+			}
+			return approved
+		}
+		orchResult, err := stack.brainSvc.NativeOrchestrate(ctx, line, brain.OrchestrateConfig{
+			Tools:      stack.tools,
+			ApprovalFn: approvalFn,
+			Validator:  brain.NewSecurityValidator(stack.sandbox, approvalFn),
 			OnToolStart: func(toolName string, input map[string]any) {
 				spin.UpdateLabel(fmt.Sprintf("Using %s...", toolName))
 			},
