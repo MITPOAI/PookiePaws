@@ -38,7 +38,16 @@ type Config struct {
 	Dossier         *dossier.Service
 	Address         string
 	RequestShutdown func()
+	// MaxBodyBytes caps incoming request body size. 0 uses the default
+	// (1 MiB, matching nginx's client_max_body_size). A negative value
+	// disables the cap entirely.
+	MaxBodyBytes int64
 }
+
+// DefaultMaxBodyBytes is the default cap on inbound request bodies for the
+// gateway. Workflow JSON, vault settings, and watchlist apply payloads all
+// fit comfortably under 1 MiB.
+const DefaultMaxBodyBytes int64 = 1 << 20
 
 type PromptDispatcher interface {
 	Available() bool
@@ -255,6 +264,7 @@ type Server struct {
 	requestShutdown func()
 	chat            *chatStore
 	address         string
+	maxBodyBytes    int64 // 0 = no cap
 	mux             *http.ServeMux
 	indexTmpl       *template.Template
 	indexView       IndexViewModel
@@ -267,6 +277,14 @@ func NewServer(cfg Config) *Server {
 		panic(err)
 	}
 
+	maxBody := cfg.MaxBodyBytes
+	switch {
+	case maxBody == 0:
+		maxBody = DefaultMaxBodyBytes
+	case maxBody < 0:
+		maxBody = 0 // explicitly disabled
+	}
+
 	server := &Server{
 		coordinator:     cfg.Coordinator,
 		eventBus:        cfg.EventBus,
@@ -277,6 +295,7 @@ func NewServer(cfg Config) *Server {
 		requestShutdown: cfg.RequestShutdown,
 		chat:            newChatStore(cfg.Store),
 		address:         cfg.Address,
+		maxBodyBytes:    maxBody,
 		mux:             http.NewServeMux(),
 		indexTmpl:       indexTmpl,
 		indexView: IndexViewModel{
@@ -295,7 +314,30 @@ func NewServer(cfg Config) *Server {
 }
 
 func (s *Server) Handler() http.Handler {
-	return gzipMiddleware(s.mux)
+	// Middleware order: outermost wraps innermost. Body cap runs first
+	// so oversized payloads are rejected before any handler reads them.
+	var handler http.Handler = s.mux
+	handler = gzipMiddleware(handler)
+	if s.maxBodyBytes > 0 {
+		handler = maxBytesMiddleware(s.maxBodyBytes)(handler)
+	}
+	return handler
+}
+
+// maxBytesMiddleware caps the request body using http.MaxBytesReader.
+// Handlers that read the body will see an http.MaxBytesError once the
+// limit is exceeded; in practice the JSON decoder returns it as a
+// decode failure that handlers convert to HTTP 400. Only request bodies
+// are limited — SSE/streaming response handlers are unaffected.
+func maxBytesMiddleware(maxBytes int64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Body != nil {
+				r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 type gzipResponseWriter struct {

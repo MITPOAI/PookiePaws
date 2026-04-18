@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -151,6 +152,7 @@ func cmdStart(args []string) {
 	addr := fs.String("addr", "127.0.0.1:18800", "HTTP listen address")
 	home := fs.String("home", "", "override runtime home directory")
 	verbose := fs.Bool("verbose", false, "print request timing logs")
+	maxBody := fs.Int64("max-body-bytes", gateway.DefaultMaxBodyBytes, "max gateway request body size in bytes (-1 disables)")
 	_ = fs.Parse(args)
 
 	p := cli.Stdout()
@@ -185,6 +187,9 @@ func cmdStart(args []string) {
 	for _, warning := range startupWarnings(stack.secrets) {
 		p.Warning(warning)
 	}
+	if !isLoopbackAddr(*addr) {
+		p.Warning("listening on a non-loopback address (%s) — gateway is unauthenticated; only do this on a trusted network", *addr)
+	}
 
 	if migrated, err := dossier.MigrateLegacyWatchlists(context.Background(), stack.dossier, stack.secrets); err != nil {
 		slog.Warn("legacy watchlist migration failed", "err", err)
@@ -207,14 +212,15 @@ func cmdStart(args []string) {
 
 	shutdown := make(chan struct{}, 1)
 	api := gateway.NewServer(gateway.Config{
-		Coordinator: stack.coord,
-		EventBus:    stack.bus,
-		Brain:       stack.brainSvc,
-		Store:       stack.store,
-		Vault:       stack.secrets,
-		WhatsApp:    adapters.NewWhatsAppAdapter(),
-		Dossier:     stack.dossier,
-		Address:     *addr,
+		Coordinator:  stack.coord,
+		EventBus:     stack.bus,
+		Brain:        stack.brainSvc,
+		Store:        stack.store,
+		Vault:        stack.secrets,
+		WhatsApp:     adapters.NewWhatsAppAdapter(),
+		Dossier:      stack.dossier,
+		Address:      *addr,
+		MaxBodyBytes: *maxBody,
 		RequestShutdown: func() {
 			select {
 			case shutdown <- struct{}{}:
@@ -233,6 +239,12 @@ func cmdStart(args []string) {
 		Addr:              *addr,
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
+		// WriteTimeout is intentionally unset (0): the SSE handler at
+		// /api/v1/events holds connections open indefinitely with a 20s
+		// keepalive. A global write deadline would tear those streams
+		// down. Real protection comes from ReadHeaderTimeout, IdleTimeout,
+		// and the request-body cap installed by the gateway.
+		IdleTimeout: 60 * time.Second,
 	}
 
 	p.Success("Console ready at  http://%s", *addr)
@@ -394,4 +406,28 @@ func timingMiddleware(next http.Handler, p *cli.Printer) http.Handler {
 		elapsed := time.Since(start)
 		p.Dim("[%s] %s %s  %s", elapsed.Round(time.Microsecond), r.Method, r.URL.Path, r.RemoteAddr)
 	})
+}
+
+// isLoopbackAddr reports whether the given listen address binds only to a
+// loopback interface. An empty host (":18800") binds to all interfaces and
+// is therefore not loopback-only.
+func isLoopbackAddr(addr string) bool {
+	addr = strings.TrimSpace(addr)
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	host = strings.TrimSpace(host)
+	if host == "" {
+		// ":port" — binds to all interfaces.
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback()
 }
