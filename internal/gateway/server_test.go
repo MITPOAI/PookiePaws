@@ -210,6 +210,62 @@ func TestGatewayConsoleSnapshotIncludesScheduler(t *testing.T) {
 	if snapshot.Scheduler.LastWorkflow != "wf-123" {
 		t.Fatalf("expected last_workflow=wf-123, got %q", snapshot.Scheduler.LastWorkflow)
 	}
+	// With only schedule + last_workflow set, the zero timestamps must be
+	// omitted from the JSON payload (encoding/json does not honour
+	// `omitempty` for non-pointer time.Time, so SchedulerStatus uses
+	// *time.Time fields to make this work).
+	for _, field := range []string{"last_tick_at", "last_success_at", "next_due_at"} {
+		if strings.Contains(body, `"`+field+`"`) {
+			t.Fatalf("expected %q to be omitted from JSON when zero, body=%s", field, body)
+		}
+	}
+	if snapshot.Scheduler.LastTickAt != nil {
+		t.Fatalf("expected LastTickAt to be nil, got %v", snapshot.Scheduler.LastTickAt)
+	}
+	if snapshot.Scheduler.LastSuccessAt != nil {
+		t.Fatalf("expected LastSuccessAt to be nil, got %v", snapshot.Scheduler.LastSuccessAt)
+	}
+	if snapshot.Scheduler.NextDueAt != nil {
+		t.Fatalf("expected NextDueAt to be nil, got %v", snapshot.Scheduler.NextDueAt)
+	}
+}
+
+func TestGatewayConsoleSnapshotSchedulerIncludesTimestamps(t *testing.T) {
+	h := newHarness(t, "127.0.0.1:18800", stubBrain{})
+
+	statePath := scheduler.DefaultStatePath(h.runtimeRoot)
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
+		t.Fatalf("mkdir scheduler state dir: %v", err)
+	}
+	payload := []byte(`{"schedule":"hourly","last_tick_at":"2026-04-18T10:00:00Z","last_success_at":"2026-04-18T10:00:05Z","next_due_at":"2026-04-18T11:00:00Z","last_workflow":"wf-456"}`)
+	if err := os.WriteFile(statePath, payload, 0o600); err != nil {
+		t.Fatalf("write scheduler state: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/console", nil)
+	recorder := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var snapshot ConsoleSnapshot
+	if err := json.Unmarshal(recorder.Body.Bytes(), &snapshot); err != nil {
+		t.Fatalf("decode console snapshot: %v", err)
+	}
+	if snapshot.Scheduler == nil {
+		t.Fatalf("expected scheduler snapshot to be populated")
+	}
+	if snapshot.Scheduler.LastTickAt == nil || snapshot.Scheduler.LastTickAt.IsZero() {
+		t.Fatalf("expected LastTickAt to be set, got %v", snapshot.Scheduler.LastTickAt)
+	}
+	if snapshot.Scheduler.LastSuccessAt == nil || snapshot.Scheduler.LastSuccessAt.IsZero() {
+		t.Fatalf("expected LastSuccessAt to be set, got %v", snapshot.Scheduler.LastSuccessAt)
+	}
+	if snapshot.Scheduler.NextDueAt == nil || snapshot.Scheduler.NextDueAt.IsZero() {
+		t.Fatalf("expected NextDueAt to be set, got %v", snapshot.Scheduler.NextDueAt)
+	}
 }
 
 func TestGatewayDiagnosticsIncludeBrainCheck(t *testing.T) {

@@ -85,12 +85,12 @@ type VaultStatus struct {
 }
 
 type SchedulerStatus struct {
-	Schedule      string    `json:"schedule"`
-	LastTickAt    time.Time `json:"last_tick_at,omitempty"`
-	LastSuccessAt time.Time `json:"last_success_at,omitempty"`
-	NextDueAt     time.Time `json:"next_due_at,omitempty"`
-	LastWorkflow  string    `json:"last_workflow,omitempty"`
-	LastError     string    `json:"last_error,omitempty"`
+	Schedule      string     `json:"schedule"`
+	LastTickAt    *time.Time `json:"last_tick_at,omitempty"`
+	LastSuccessAt *time.Time `json:"last_success_at,omitempty"`
+	NextDueAt     *time.Time `json:"next_due_at,omitempty"`
+	LastWorkflow  string     `json:"last_workflow,omitempty"`
+	LastError     string     `json:"last_error,omitempty"`
 }
 
 type ConsoleSnapshot struct {
@@ -1471,12 +1471,19 @@ func loadSchedulerSnapshot(runtimeRoot string) *SchedulerStatus {
 	}
 	return &SchedulerStatus{
 		Schedule:      st.Schedule,
-		LastTickAt:    st.LastTickAt,
-		LastSuccessAt: st.LastSuccessAt,
-		NextDueAt:     st.NextDueAt,
+		LastTickAt:    timePtrOrNil(st.LastTickAt),
+		LastSuccessAt: timePtrOrNil(st.LastSuccessAt),
+		NextDueAt:     timePtrOrNil(st.NextDueAt),
 		LastWorkflow:  st.LastWorkflow,
 		LastError:     st.LastError,
 	}
+}
+
+func timePtrOrNil(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
 }
 
 func parseQueryInt(raw string, fallback int) int {

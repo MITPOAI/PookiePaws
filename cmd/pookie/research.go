@@ -151,6 +151,16 @@ func cmdResearchRefresh(args []string) {
 	}
 	defer stack.Close()
 
+	wls, err := stack.dossier.ListWatchlists(context.Background())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "list watchlists: %v\n", err)
+		os.Exit(1)
+	}
+	if len(wls) == 0 {
+		fmt.Fprintln(os.Stderr, "no watchlists configured — apply some first with: pookie research watchlists apply --file <json>")
+		os.Exit(1)
+	}
+
 	wf, err := stack.coord.SubmitWorkflow(context.Background(), engine.WorkflowDefinition{
 		Name:  "Manual watchlist refresh",
 		Skill: scheduler.SkillName,
@@ -199,10 +209,14 @@ func cmdResearchStatus(args []string) {
 		os.Exit(1)
 	}
 	svc := mustDossierService()
-	wls, _ := svc.ListWatchlists(context.Background())
 
 	fmt.Printf("schedule:        %s\n", emptyDash(st.Schedule))
-	fmt.Printf("watchlists:      %d\n", len(wls))
+	wls, err := svc.ListWatchlists(context.Background())
+	if err != nil {
+		fmt.Printf("watchlists:      ? (load error: %v)\n", err)
+	} else {
+		fmt.Printf("watchlists:      %d\n", len(wls))
+	}
 	fmt.Printf("last tick:       %s\n", formatTime(st.LastTickAt))
 	fmt.Printf("last success:    %s\n", formatTime(st.LastSuccessAt))
 	fmt.Printf("last workflow:   %s\n", emptyDash(st.LastWorkflow))
@@ -216,6 +230,18 @@ func cmdResearchRecommendations(args []string) {
 	fs := flag.NewFlagSet("recommendations", flag.ExitOnError)
 	status := fs.String("status", "", "Filter by status (draft|queued|submitted|discarded)")
 	_ = fs.Parse(args)
+
+	switch *status {
+	case "",
+		string(dossier.RecommendationDraft),
+		string(dossier.RecommendationQueued),
+		string(dossier.RecommendationSubmitted),
+		string(dossier.RecommendationDiscarded):
+		// ok
+	default:
+		fmt.Fprintf(os.Stderr, "invalid status %q; valid: draft|queued|submitted|discarded\n", *status)
+		os.Exit(2)
+	}
 
 	svc := mustDossierService()
 	recs, err := svc.ListRecommendations(context.Background(), dossier.RecommendationStatus(*status), 100)
