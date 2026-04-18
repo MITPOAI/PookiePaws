@@ -22,6 +22,7 @@ import (
 	"github.com/mitpoai/pookiepaws/internal/dossier"
 	"github.com/mitpoai/pookiepaws/internal/engine"
 	"github.com/mitpoai/pookiepaws/internal/persistence"
+	"github.com/mitpoai/pookiepaws/internal/scheduler"
 )
 
 //go:embed ui/*
@@ -83,10 +84,20 @@ type VaultStatus struct {
 	WhatsApp         IntegrationVaultStatus `json:"whatsapp"`
 }
 
+type SchedulerStatus struct {
+	Schedule      string     `json:"schedule"`
+	LastTickAt    *time.Time `json:"last_tick_at,omitempty"`
+	LastSuccessAt *time.Time `json:"last_success_at,omitempty"`
+	NextDueAt     *time.Time `json:"next_due_at,omitempty"`
+	LastWorkflow  string     `json:"last_workflow,omitempty"`
+	LastError     string     `json:"last_error,omitempty"`
+}
+
 type ConsoleSnapshot struct {
 	Status            engine.StatusSnapshot          `json:"status"`
 	Brain             brain.Status                   `json:"brain"`
 	Vault             VaultStatus                    `json:"vault"`
+	Scheduler         *SchedulerStatus               `json:"scheduler,omitempty"`
 	DemoSmoke         *demo.Result                   `json:"demo_smoke,omitempty"`
 	LiveResearchSmoke *demo.Result                   `json:"live_research_smoke,omitempty"`
 	Watchlists        []dossier.Watchlist            `json:"watchlists,omitempty"`
@@ -514,11 +525,13 @@ func (s *Server) handleConsole(writer http.ResponseWriter, request *http.Request
 		writeJSONError(writer, err, http.StatusInternalServerError)
 		return
 	}
+	schedSnapshot := loadSchedulerSnapshot(status.RuntimeRoot)
 
 	writeJSON(writer, http.StatusOK, ConsoleSnapshot{
 		Status:            status,
 		Brain:             brainStatus,
 		Vault:             s.currentVaultStatus(),
+		Scheduler:         schedSnapshot,
 		DemoSmoke:         latestDemo,
 		LiveResearchSmoke: latestLive,
 		Watchlists:        researchState.Watchlists,
@@ -1442,6 +1455,35 @@ func loadResearchSnapshot(ctx context.Context, runtimeRoot string) (dossier.Snap
 		return dossier.Snapshot{}, err
 	}
 	return service.Snapshot(ctx)
+}
+
+func loadSchedulerSnapshot(runtimeRoot string) *SchedulerStatus {
+	if runtimeRoot == "" {
+		return nil
+	}
+	store := scheduler.NewStateStore(scheduler.DefaultStatePath(runtimeRoot))
+	st, err := store.Load()
+	if err != nil {
+		return nil
+	}
+	if st.LastTickAt.IsZero() && st.Schedule == "" {
+		return nil
+	}
+	return &SchedulerStatus{
+		Schedule:      st.Schedule,
+		LastTickAt:    timePtrOrNil(st.LastTickAt),
+		LastSuccessAt: timePtrOrNil(st.LastSuccessAt),
+		NextDueAt:     timePtrOrNil(st.NextDueAt),
+		LastWorkflow:  st.LastWorkflow,
+		LastError:     st.LastError,
+	}
+}
+
+func timePtrOrNil(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
 }
 
 func parseQueryInt(raw string, fallback int) int {

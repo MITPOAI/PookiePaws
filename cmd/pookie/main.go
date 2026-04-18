@@ -15,6 +15,7 @@ import (
 	"github.com/mitpoai/pookiepaws/internal/adapters"
 	"github.com/mitpoai/pookiepaws/internal/cli"
 	"github.com/mitpoai/pookiepaws/internal/gateway"
+	"github.com/mitpoai/pookiepaws/internal/scheduler"
 )
 
 var version = "0.5.2"
@@ -31,6 +32,8 @@ func main() {
 		cmdStart(os.Args[2:])
 	case "status":
 		cmdStatus(os.Args[2:])
+	case "research":
+		cmdResearch(os.Args[2:])
 	case "run":
 		cmdRun(os.Args[2:])
 	case "install":
@@ -107,6 +110,7 @@ func printUsage() {
 	p.Plain("  start              Boot the local agent and open the web console")
 	p.Plain("  chat               Talk to Pookie in your terminal (AI mode)")
 	p.Plain("  list               Show all installed marketing skills")
+	p.Plain("  research <sub>     Manage research watchlists, scheduler, and dossiers")
 	p.Plain("  run <skill>        Execute a marketing skill in this terminal")
 	p.Plain("  status             Check whether the agent is running")
 	p.Plain("  sessions           Inspect persisted control-plane sessions")
@@ -175,6 +179,21 @@ func cmdStart(args []string) {
 		p.Warning(warning)
 	}
 
+	schedCtx, cancelSched := context.WithCancel(context.Background())
+	defer cancelSched()
+	go func() {
+		sched := scheduler.New(scheduler.Config{
+			Coordinator:  stack.coord,
+			Secrets:      stack.secrets,
+			StateStore:   scheduler.NewStateStore(scheduler.DefaultStatePath(runtimeRoot)),
+			MaxLastRunAt: stack.dossier.MaxLastRunAt,
+			Logger: func(level, msg string, kvs ...any) {
+				fmt.Fprintf(os.Stderr, "[scheduler:%s] %s %v\n", level, msg, kvs)
+			},
+		})
+		sched.Run(schedCtx)
+	}()
+
 	shutdown := make(chan struct{}, 1)
 	api := gateway.NewServer(gateway.Config{
 		Coordinator: stack.coord,
@@ -226,6 +245,7 @@ func cmdStart(args []string) {
 	p.Blank()
 	p.Info("Shutting down gracefully…")
 
+	cancelSched()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := httpServer.Shutdown(ctx); err != nil {

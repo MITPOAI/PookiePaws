@@ -14,6 +14,7 @@ import (
 	"github.com/mitpoai/pookiepaws/internal/brain"
 	"github.com/mitpoai/pookiepaws/internal/cli"
 	"github.com/mitpoai/pookiepaws/internal/engine"
+	"github.com/mitpoai/pookiepaws/internal/scheduler"
 	"github.com/mitpoai/pookiepaws/internal/state"
 )
 
@@ -277,6 +278,18 @@ func cmdDoctor(args []string) {
 		{"brain", fmt.Sprintf("%t / %s / %s", stack.brainSvc.Available(), stack.brainSvc.Status().Provider, stack.brainSvc.Status().Mode)},
 	})
 	p.Blank()
+
+	schedState, _ := scheduler.NewStateStore(scheduler.DefaultStatePath(runtimeRoot)).Load()
+	p.Box("Research Scheduler", [][2]string{
+		{"schedule", emptyDash(schedState.Schedule)},
+		{"last tick", formatTime(schedState.LastTickAt)},
+		{"last success", formatTime(schedState.LastSuccessAt)},
+		{"next due", formatTime(schedState.NextDueAt)},
+		{"last workflow", emptyDash(schedState.LastWorkflow)},
+		{"last error", emptyDash(schedState.LastError)},
+	})
+	p.Blank()
+
 	printBrainHealth(p, brainHealth)
 	if !brainHealth.Healthy() {
 		printBrainRemediation(p, brainHealth)

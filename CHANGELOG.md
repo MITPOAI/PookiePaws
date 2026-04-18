@@ -28,6 +28,17 @@ All notable changes to PookiePaws should be documented in this file.
   under `os.UserCacheDir()/pookiepaws/update-check.json` (overridable via
   `POOKIEPAWS_UPDATE_CACHE_PATH`), and an upgrade hint that prefers `winget`/`brew`
   when on `PATH` and falls back to the install scripts otherwise
+- **`pookie research` subcommand**: `watchlists list|apply`, `refresh`, `schedule`,
+  `status`, `recommendations` — full CLI surface for managing watchlists, the
+  scheduler, and dossier recommendations from the terminal
+- **Research scheduler**: daemon-only ticker (60s cadence) that submits
+  `mitpo-watchlist-refresh` workflows according to the configured `research_schedule`
+  (`manual|hourly|daily`); skips when a refresh is already in flight
+- **`internal/scheduler` package**: pure decision function (manual/hourly/daily),
+  atomic JSON state at `<runtime-root>/state/research/scheduler.json` with
+  PID-unique tmp + corrupt-tolerant Load, ticker loop with in-flight suppression
+- **Scheduler diagnostics**: `pookie doctor` prints scheduler state;
+  `/api/v1/console` JSON includes a `scheduler` object when state exists
 
 ### Changed
 
@@ -37,6 +48,11 @@ All notable changes to PookiePaws should be documented in this file.
 - `WebSearchTool` removed; `JinaScraperTool` registered under the same `web_search` name
 - `pookie version` output now includes the cached upgrade hint when a newer release
   is known, in addition to the existing OS/arch and Go build info
+- `dossier.Service` gained `GetWatchlist`, `DeleteWatchlist`, and `MaxLastRunAt`
+  (used by the scheduler and CLI)
+- `appStack` now constructs and exposes a shared `dossier.Service` instance
+  (gateway endpoints continue to use their own instances; consolidation deferred)
+- `pookie start` now launches the research scheduler goroutine alongside the HTTP server
 
 ### Security
 
