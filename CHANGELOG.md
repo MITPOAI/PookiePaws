@@ -39,6 +39,12 @@ All notable changes to PookiePaws should be documented in this file.
   PID-unique tmp + corrupt-tolerant Load, ticker loop with in-flight suppression
 - **Scheduler diagnostics**: `pookie doctor` prints scheduler state;
   `/api/v1/console` JSON includes a `scheduler` object when state exists
+- **Console scheduler card**: web console diagnostics panel showing schedule,
+  last tick, last success, next due, last workflow, and last error
+- **Legacy watchlist migration**: on first daemon startup, an existing
+  `research_watchlists` vault value is imported into
+  `state/research/watchlists/` exactly once (no-op when state is non-empty);
+  a stderr line reports the count
 
 ### Changed
 
@@ -53,6 +59,12 @@ All notable changes to PookiePaws should be documented in this file.
 - `appStack` now constructs and exposes a shared `dossier.Service` instance
   (gateway endpoints continue to use their own instances; consolidation deferred)
 - `pookie start` now launches the research scheduler goroutine alongside the HTTP server
+- `PUT /api/v1/settings/vault` rejects non-empty `research_watchlists` with
+  HTTP 400 — watchlists are now written via `POST /api/v1/research/watchlists`
+  or `pookie research watchlists apply`. Empty values still accepted to keep
+  stale form posts working.
+- Web settings form no longer contains a watchlist textarea; a deprecation
+  notice links to the Research panel and the CLI
 
 ### Security
 
