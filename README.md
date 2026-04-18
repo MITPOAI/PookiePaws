@@ -211,6 +211,7 @@ pookie run <skill>        Execute a skill directly in this terminal
 pookie status             Check whether the agent is running
 pookie install <repo>     Install a skill from GitHub
 pookie init               First-run setup wizard
+pookie research <sub>     Manage watchlists, scheduler, and dossier recommendations
 pookie -v, --version      Print version and build info (use --check to force a live release lookup)
 pookie -h, --help         Show help
 ```
@@ -268,6 +269,36 @@ setx POOKIEPAWS_NO_UPDATE_NOTIFIER 1
 **Cache location.** The notifier caches the latest-release lookup at `os.UserCacheDir()/pookiepaws/update-check.json` with a 24-hour TTL and atomic writes. Set `POOKIEPAWS_UPDATE_CACHE_PATH` to redirect the cache file (used by tests, but also a documented escape hatch for sandboxed environments).
 
 **Upgrade hint.** When a newer release is detected, the printed hint prefers `winget` or `brew` if either is on `PATH`; otherwise it points back at the install scripts (`install.sh` / `install.ps1`).
+
+## Research Automation
+
+`pookie research` manages watchlists, dossier generation, and the periodic refresh scheduler. The scheduler runs *only* inside `pookie start` — one-shot commands (`run`, `version`, `doctor`) never trigger it.
+
+```bash
+# Configure the schedule (manual is the default — pick hourly or daily to enable)
+pookie research schedule --mode hourly
+
+# Replace your watchlists from a JSON file
+pookie research watchlists apply --file watchlists.json
+
+# Or pipe from stdin
+cat watchlists.json | pookie research watchlists apply --stdin
+
+# Submit a refresh right now (mirrors what the scheduler does on its tick)
+pookie research refresh
+
+# Inspect scheduler state
+pookie research status
+
+# Browse recommendations produced by recent dossiers
+pookie research recommendations --status draft
+```
+
+**Schedule modes.** `manual` (default; the scheduler logs and idles), `hourly` (60-minute minimum gap between runs), `daily` (24-hour minimum gap). The scheduler skips if a `mitpo-watchlist-refresh` workflow is already `Queued`, `Running`, or `WaitingApproval` — duplicate runs are not possible.
+
+**State location.** `<runtime-root>/state/research/scheduler.json` — atomic writes, PID-unique tmp. Corrupt or missing state is treated as zero, never crashes the daemon.
+
+**Diagnostics.** `pookie doctor` prints a "Research Scheduler" panel; the `/api/v1/console` JSON returned by the gateway includes a `scheduler` object that the web UI surfaces.
 
 ## Run Sample Workflows
 
