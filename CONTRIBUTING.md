@@ -191,6 +191,21 @@ Reviewers look for:
 - Security and governance implications
 - Binary size impact (must stay under 10MB)
 
+## Packaging
+
+Distribution channels (Homebrew tap, WinGet, install scripts) are described
+in `packaging/`. The release flow is documented in `RELEASE_CHECKLIST.md`.
+External registry submissions (winget-pkgs PRs, tap-repo updates) are done
+manually at release time — they are not automated in CI today.
+
+## Adding a CLI subcommand
+
+1. Add a `case "<name>": cmd<Name>(os.Args[2:])` in `cmd/pookie/main.go`.
+2. Implement `cmd<Name>` in a new file `cmd/pookie/<name>.go`.
+3. Update the CLI table in both `README.md` and `ARCHITECTURE.md`.
+4. If the command is interactive, attach `defer maybeShowUpdateNotice(...)`
+   to its body; non-interactive commands must not call it.
+
 ## Community Conduct
 
 By participating in this repository, you agree to follow [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md).

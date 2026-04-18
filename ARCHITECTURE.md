@@ -57,17 +57,36 @@ This keeps the core narrow, the UI accessible, and the integration surface exten
 
 The `pookie` binary is the single distributable artefact. It implements a
 lightweight stdlib-based command router (no third-party CLI framework) and
-dispatches to five commands:
+dispatches to the following commands:
 
-| Command | Description |
-|---|---|
-| `start` | Initialises the full engine stack, starts the HTTP server, blocks until `Ctrl+C` |
-| `chat` | Terminal AI REPL — routes plain-English prompts through the brain service using raw terminal mode (`cli.ReadLine`) for proper backspace, Ctrl+C, and escape handling |
-| `list` | Tabular listing of all installed marketing skills (built-in and workspace) |
-| `status` | HTTP-pings `/api/v1/status` on a running agent; prints a formatted summary box |
-| `run <skill>` | Boots the engine headlessly, submits a workflow, polls for completion, handles approval gates interactively |
-| `install <owner/repo>` | Downloads and validates a remote `SKILL.md`; saves to `workspace/skills/` |
-| `init` | Interactive wizard that writes `~/.pookiepaws/.security.json` (mode 0600) |
+```
+pookie                        Launch interactive menu (arrow keys)
+pookie start                  Run the daemon + web console (with research scheduler)
+pookie chat                   Talk to Pookie in your terminal (AI mode)
+pookie list                   Show all installed marketing skills
+pookie run <skill>            Execute a skill directly in this terminal
+pookie status                 Check whether the agent is running
+pookie research <sub>         Watchlists, schedule, refresh, status, recommendations
+pookie sessions               Inspect persisted control-plane sessions
+pookie approvals              Review or resolve pending approvals
+pookie audit                  Tail recent audit events from local state
+pookie doctor                 Print local runtime diagnostics
+pookie smoke                  Run operator smoke checks
+pookie context                Inspect prompt, memory, variables
+pookie memory                 Manage persistent brain memory
+pookie install <repo>         Install a skill from GitHub
+pookie init                   First-run setup wizard
+pookie version [--check]      Print version; --check forces live release lookup
+pookie -v, --version          Aliases for `pookie version`
+pookie -h, --help             Show help
+```
+
+The CLI dispatcher is a custom switch in `cmd/pookie/main.go` (no external
+flag library beyond `flag`). Subcommands are implemented as `cmdX(args
+[]string)` handlers in sibling files like `cmd/pookie/research.go`. New
+subcommands add a `case` to the switch and a corresponding `cmdX.go` file.
+The daemon (`pookie start`) is the only command that launches background
+goroutines (HTTP server, research scheduler).
 
 When invoked with no arguments, `pookie` presents an interactive arrow-key
 selection menu instead of printing help text. The menu is implemented using
@@ -331,6 +350,22 @@ The current phase should not introduce:
 - bundled private assets, credentials, or proprietary MITPO internals
 - direct code fusion from OpenClaw or NemoClaw
 - live vendor coupling that would force private APIs or heavy dependencies
+
+## Packaging and Distribution
+
+The `pookie` binary is shipped through several channels, all driven by
+goreleaser-built artefacts:
+
+- WinGet manifests live in `packaging/winget/`. The Homebrew formula
+  template is in `packaging/homebrew/`, with `cmd/render-formula` filling
+  SHA256s from goreleaser's `dist/checksums.txt`. Both publish surfaces
+  are documented in `RELEASE_CHECKLIST.md`.
+- POSIX (`install.sh`) and PowerShell (`install.ps1`) install scripts at
+  the repository root resolve the latest release from the GitHub Releases
+  API and place the binary on `PATH`.
+- `pookie version --check` and the cached background notifier (see
+  `internal/updatecheck`) keep installed binaries informed of newer
+  releases without coupling the runtime to any specific package manager.
 
 ## Documentation Contract
 

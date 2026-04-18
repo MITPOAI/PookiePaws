@@ -44,21 +44,37 @@ PookiePaws is a pure-Go, stdlib-first marketing automation runtime built around 
 - Approval-gated workspace reads and writes through `PermissionedSandbox`
 - Runtime state and audit records stored under `~/.pookiepaws/`
 
-## Install
+## Installation
 
-### One-liner (recommended)
+### macOS / Linux
 
-**Windows** — paste into PowerShell:
-```powershell
-powershell -c "irm https://raw.githubusercontent.com/MITPOAI/PookiePaws/main/install.ps1 | iex"
+```bash
+brew install mitpoai/pookiepaws/pookie
 ```
 
-**macOS / Linux** — paste into Terminal:
+Or use the install script directly:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/MITPOAI/PookiePaws/main/install.sh | bash
 ```
 
-The installer automatically detects your OS and architecture, downloads the right binary from the [latest release](https://github.com/MITPOAI/PookiePaws/releases/latest), and adds `pookie` to your PATH. No Go toolchain required.
+### Windows
+
+```powershell
+winget install MITPOAI.PookiePaws
+```
+
+Or use PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/MITPOAI/PookiePaws/main/install.ps1 | iex
+```
+
+### From source
+
+```bash
+go install github.com/mitpoai/pookiepaws/cmd/pookie@latest
+```
 
 ### Manual download
 
@@ -66,11 +82,26 @@ Download the binary for your platform from the [Releases page](https://github.co
 
 | Platform | File |
 |----------|------|
-| Windows 64-bit | `pookie_*_windows_amd64.zip` |
-| macOS Apple Silicon | `pookie_*_darwin_arm64.tar.gz` |
-| macOS Intel | `pookie_*_darwin_amd64.tar.gz` |
-| Linux 64-bit | `pookie_*_linux_amd64.tar.gz` |
-| Linux ARM | `pookie_*_linux_arm64.tar.gz` |
+| Windows 64-bit | `pookie_<version>_windows_amd64.zip` |
+| macOS Apple Silicon | `pookie_<version>_darwin_arm64.tar.gz` |
+| macOS Intel | `pookie_<version>_darwin_amd64.tar.gz` |
+| Linux 64-bit | `pookie_<version>_linux_amd64.tar.gz` |
+| Linux ARM | `pookie_<version>_linux_arm64.tar.gz` |
+
+The installer scripts automatically detect your OS and architecture, download the right binary, and add `pookie` to your PATH. No Go toolchain required.
+
+## Updating
+
+| Channel        | Command                                          |
+|----------------|--------------------------------------------------|
+| Homebrew tap   | `brew upgrade mitpoai/pookiepaws/pookie`         |
+| WinGet         | `winget upgrade MITPOAI.PookiePaws`              |
+| Install script | re-run `install.sh` or `install.ps1`             |
+
+`pookie version --check` performs a live lookup against GitHub Releases.
+A short notice on stderr also appears during interactive commands when an
+update is available; opt out with `POOKIEPAWS_NO_UPDATE_NOTIFIER=1`
+(see the "Update Notifications" section).
 
 ## Quick Start
 
@@ -203,17 +234,25 @@ Invoke-RestMethod http://127.0.0.1:18800/api/v1/diagnostics
 ## CLI Commands
 
 ```
-pookie                    Launch the interactive menu (arrow keys + Enter)
-pookie start              Boot the agent (foreground; Ctrl+C to stop)
-pookie chat               Talk to Pookie in your terminal (AI mode)
-pookie list               Show all installed marketing skills
-pookie run <skill>        Execute a skill directly in this terminal
-pookie status             Check whether the agent is running
-pookie install <repo>     Install a skill from GitHub
-pookie init               First-run setup wizard
-pookie research <sub>     Manage watchlists, scheduler, and dossier recommendations
-pookie -v, --version      Print version and build info (use --check to force a live release lookup)
-pookie -h, --help         Show help
+pookie                        Launch interactive menu (arrow keys)
+pookie start                  Run the daemon + web console (with research scheduler)
+pookie chat                   Talk to Pookie in your terminal (AI mode)
+pookie list                   Show all installed marketing skills
+pookie run <skill>            Execute a skill directly in this terminal
+pookie status                 Check whether the agent is running
+pookie research <sub>         Watchlists, schedule, refresh, status, recommendations
+pookie sessions               Inspect persisted control-plane sessions
+pookie approvals              Review or resolve pending approvals
+pookie audit                  Tail recent audit events from local state
+pookie doctor                 Print local runtime diagnostics
+pookie smoke                  Run operator smoke checks
+pookie context                Inspect prompt, memory, variables
+pookie memory                 Manage persistent brain memory
+pookie install <repo>         Install a skill from GitHub
+pookie init                   First-run setup wizard
+pookie version [--check]      Print version; --check forces live release lookup
+pookie -v, --version          Aliases for `pookie version`
+pookie -h, --help             Show help
 ```
 
 **Interactive menu:** Running `pookie` with no arguments opens an arrow-key

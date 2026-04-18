@@ -45,6 +45,9 @@ All notable changes to PookiePaws should be documented in this file.
   `research_watchlists` vault value is imported into
   `state/research/watchlists/` exactly once (no-op when state is non-empty);
   a stderr line reports the count
+- **WinGet manifest skeleton** at `packaging/winget/MITPOAI.PookiePaws.{yaml,installer.yaml,locale.en-US.yaml}` for Microsoft's package registry
+- **Homebrew formula template** at `packaging/homebrew/pookie.rb.tmpl` plus `cmd/render-formula` to fill SHA256s from goreleaser checksums
+- **Release checklist** now covers WinGet and Homebrew publish steps
 
 ### Changed
 

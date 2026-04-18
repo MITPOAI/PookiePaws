@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+
+PackageIdentifier: MITPOAI.PookiePaws
+PackageVersion: 0.5.2
+PackageLocale: en-US
+Publisher: MITPO AI
+PublisherUrl: https://github.com/MITPOAI
+PublisherSupportUrl: https://github.com/MITPOAI/PookiePaws/issues
+PackageName: PookiePaws
+PackageUrl: https://github.com/MITPOAI/PookiePaws
+License: See LICENSE
+LicenseUrl: https://github.com/MITPOAI/PookiePaws/blob/main/LICENSE
+ShortDescription: Local-first AI agent for orchestrating skills, research, and outreach.
+Description: |
+  PookiePaws (binary: pookie) is an open-source AI agent that runs locally,
+  exposes a web console, and orchestrates research, dossier generation, and
+  outbound actions through a pluggable skill system.
+Tags:
+  - ai
+  - agent
+  - automation
+  - cli
+  - research
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0
