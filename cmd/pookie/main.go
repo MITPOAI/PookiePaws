@@ -121,7 +121,7 @@ func printUsage() {
 	p.Blank()
 	p.Accent("Flags:")
 	p.Blank()
-	p.Plain("  -v, --version       Print version and build info")
+	p.Plain("  -v, --version       Print version and build info (use --check to force a live release lookup)")
 	p.Plain("  -h, --help          Show this help message")
 	p.Plain("      --addr          Listen address for start/status (default 127.0.0.1:18800)")
 	p.Plain("      --home          Override runtime home directory")

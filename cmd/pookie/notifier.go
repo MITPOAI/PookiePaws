@@ -20,6 +20,9 @@ func maybeShowUpdateNotice(ctx context.Context, currentVersion string, stderr io
 	if updatecheck.ShouldSkip() {
 		return
 	}
+	// POOKIEPAWS_UPDATE_CACHE_PATH lets tests redirect the update-check
+	// cache to a temp file. It is also a documented escape hatch for users
+	// who want to pin the cache to a non-default location (see README).
 	cachePath := os.Getenv("POOKIEPAWS_UPDATE_CACHE_PATH")
 	if cachePath == "" {
 		cachePath = updatecheck.DefaultCachePath()
@@ -27,6 +30,9 @@ func maybeShowUpdateNotice(ctx context.Context, currentVersion string, stderr io
 	checkCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
 	defer cancel()
 
+	// Both ctx-deadline and Options.Timeout are required: ctx covers
+	// cancellation propagation; Options.Timeout configures the underlying
+	// HTTP client's transport-level timeout.
 	notice, err := updatecheck.Check(checkCtx, updatecheck.Options{
 		CurrentVersion: currentVersion,
 		BaseURL:        baseURL,
