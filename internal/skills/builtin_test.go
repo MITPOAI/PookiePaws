@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -182,5 +183,69 @@ func TestDossierGenerateAndWatchlistRefreshSkills(t *testing.T) {
 	}
 	if count, _ := refreshResult.Output["watchlist_count"].(int); count == 0 {
 		t.Fatalf("expected refreshed watchlists, got %+v", refreshResult.Output)
+	}
+}
+
+// TestParseWatchlistsInputIgnoresVaultKey asserts that parseWatchlistsInput no
+// longer reads from the deprecated `research_watchlists` vault key. Plan 3 +
+// quality-polish demote that key to import-only; the skill must rely on
+// explicit input or the dossier service's state-backed storage.
+func TestParseWatchlistsInputIgnoresVaultKey(t *testing.T) {
+	secrets := mapSecrets{
+		"research_watchlists": `[{"id":"wl-vault","name":"vault","topic":"x"}]`,
+	}
+	got, err := parseWatchlistsInput(map[string]any{}, secrets)
+	if err != nil {
+		t.Fatalf("parseWatchlistsInput err = %v, want nil", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected empty result (vault key must be ignored), got %d watchlists: %+v", len(got), got)
+	}
+}
+
+// TestParseWatchlistsInputAcceptsInputSlice asserts the explicit-input path
+// still works after the vault fallback was removed.
+func TestParseWatchlistsInputAcceptsInputSlice(t *testing.T) {
+	input := map[string]any{
+		"watchlists": []any{
+			map[string]any{"id": "wl-1", "name": "alpha", "topic": "AI"},
+		},
+	}
+	got, err := parseWatchlistsInput(input, noopSecrets{})
+	if err != nil {
+		t.Fatalf("parseWatchlistsInput err = %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "wl-1" {
+		t.Fatalf("expected one watchlist with ID wl-1, got %+v", got)
+	}
+}
+
+// TestWatchlistRefreshSkillNoWatchlistsErrors asserts that when neither input
+// nor state-backed storage has watchlists, the skill returns the actionable
+// error pointing operators to the apply CLI command.
+func TestWatchlistRefreshSkillNoWatchlistsErrors(t *testing.T) {
+	root := t.TempDir()
+	runtimeRoot := filepath.Join(root, ".pookiepaws")
+	workspaceRoot := filepath.Join(runtimeRoot, "workspace")
+	sandbox, err := security.NewWorkspaceSandbox(runtimeRoot, workspaceRoot)
+	if err != nil {
+		t.Fatalf("sandbox: %v", err)
+	}
+
+	refresh := NewWatchlistRefreshSkill(Manifest{Name: "mitpo-watchlist-refresh"})
+	_, err = refresh.Execute(context.Background(), engine.SkillRequest{
+		Input: map[string]any{},
+		// Vault has a value but it must be ignored — state is empty.
+		Sandbox: sandbox,
+		Secrets: mapSecrets{
+			"research_watchlists": `[{"id":"wl-vault","name":"vault","topic":"x"}]`,
+		},
+		Now: time.Now(),
+	})
+	if err == nil {
+		t.Fatal("expected error when no watchlists in input or state")
+	}
+	if msg := err.Error(); !strings.Contains(msg, "research watchlists apply") || !strings.Contains(msg, "import-only") {
+		t.Fatalf("expected actionable error mentioning apply CLI and import-only, got: %v", err)
 	}
 }

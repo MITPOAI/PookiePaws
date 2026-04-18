@@ -42,6 +42,10 @@ func (c blockingCoordinator) ListWorkflows(context.Context) ([]engine.Workflow, 
 	return nil, nil
 }
 
+func (c blockingCoordinator) ListWorkflowsByStatus(context.Context, ...engine.WorkflowStatus) ([]engine.Workflow, error) {
+	return nil, nil
+}
+
 func (c blockingCoordinator) ListApprovals(context.Context) ([]engine.Approval, error) {
 	return nil, nil
 }

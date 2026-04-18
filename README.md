@@ -90,6 +90,15 @@ Download the binary for your platform from the [Releases page](https://github.co
 
 The installer scripts automatically detect your OS and architecture, download the right binary, and add `pookie` to your PATH. No Go toolchain required.
 
+### Shell completion
+
+```bash
+pookie completion bash > /etc/bash_completion.d/pookie    # then re-source
+pookie completion zsh  > "${fpath[1]}/_pookie"            # zsh
+pookie completion fish > ~/.config/fish/completions/pookie.fish
+pookie completion powershell >> $PROFILE                  # Windows
+```
+
 ## Updating
 
 | Channel        | Command                                          |
@@ -206,6 +215,8 @@ the binary size significantly. Drop those flags if you need a debuggable build.
 
 ## Format, Vet, Test, And Build
 
+> **Tip:** Common dev tasks are wrapped in `make` targets — see `make help`.
+
 The repository root does not contain Go source files, so commands such as `go vet` must be run with package patterns like `./...` or explicit package paths.
 
 ```powershell
@@ -308,6 +319,15 @@ setx POOKIEPAWS_NO_UPDATE_NOTIFIER 1
 **Cache location.** The notifier caches the latest-release lookup at `os.UserCacheDir()/pookiepaws/update-check.json` with a 24-hour TTL and atomic writes. Set `POOKIEPAWS_UPDATE_CACHE_PATH` to redirect the cache file (used by tests, but also a documented escape hatch for sandboxed environments).
 
 **Upgrade hint.** When a newer release is detected, the printed hint prefers `winget` or `brew` if either is on `PATH`; otherwise it points back at the install scripts (`install.sh` / `install.ps1`).
+
+## Logging
+
+Operational logs from the CLI go through `log/slog` and are written to stderr. Two env vars control the output:
+
+- `POOKIEPAWS_LOG_FORMAT`: `text` (default, human-friendly) or `json` for structured shipping
+- `POOKIEPAWS_LOG_LEVEL`: `debug`, `info` (default), `warn`, `error`
+
+User-facing CLI output (the pretty box renderer, banners, command results) is unaffected — only operational warnings, errors, and scheduler events route through slog.
 
 ## Research Automation
 

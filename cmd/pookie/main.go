@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -22,6 +24,7 @@ import (
 var version = "0.5.2"
 
 func main() {
+	initLogger()
 	// No arguments → launch interactive menu.
 	if len(os.Args) < 2 {
 		launchInteractiveMenu()
@@ -59,12 +62,14 @@ func main() {
 		cmdContext(os.Args[2:])
 	case "memory":
 		cmdMemory(os.Args[2:])
+	case "completion":
+		cmdCompletion(os.Args[2:])
 	case "version", "--version", "-v":
 		cmdVersion(os.Args[2:])
 	case "help", "--help", "-h":
 		printUsage()
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", os.Args[1])
+		slog.Error("unknown command", "command", os.Args[1])
 		printUsage()
 		os.Exit(1)
 	}
@@ -123,6 +128,7 @@ func printUsage() {
 	p.Plain("  memory             Manage persistent brain memory (prune, inspect)")
 	p.Plain("  install <repo>     Install a skill from a GitHub repository")
 	p.Plain("  init               Interactive first-run setup wizard")
+	p.Plain("  completion <shell> Generate shell completion (bash|zsh|fish|powershell)")
 	p.Blank()
 	p.Accent("Flags:")
 	p.Blank()
@@ -132,6 +138,7 @@ func printUsage() {
 	p.Plain("      --home          Override runtime home directory")
 	p.Plain("      --verbose       Print request timing logs (for start)")
 	p.Blank()
+	p.Dim("Most diagnostic commands accept --json for machine-readable output.")
 	p.Dim("Run pookie with no arguments for an interactive menu.")
 	p.Dim("Source:  github.com/mitpoai/pookiepaws")
 	p.Blank()
@@ -145,6 +152,7 @@ func cmdStart(args []string) {
 	addr := fs.String("addr", "127.0.0.1:18800", "HTTP listen address")
 	home := fs.String("home", "", "override runtime home directory")
 	verbose := fs.Bool("verbose", false, "print request timing logs")
+	maxBody := fs.Int64("max-body-bytes", gateway.DefaultMaxBodyBytes, "max gateway request body size in bytes (-1 disables)")
 	_ = fs.Parse(args)
 
 	p := cli.Stdout()
@@ -179,11 +187,14 @@ func cmdStart(args []string) {
 	for _, warning := range startupWarnings(stack.secrets) {
 		p.Warning(warning)
 	}
+	if !isLoopbackAddr(*addr) {
+		p.Warning("listening on a non-loopback address (%s) — gateway is unauthenticated; only do this on a trusted network", *addr)
+	}
 
 	if migrated, err := dossier.MigrateLegacyWatchlists(context.Background(), stack.dossier, stack.secrets); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: legacy watchlist migration failed: %v\n", err)
+		slog.Warn("legacy watchlist migration failed", "err", err)
 	} else if migrated > 0 {
-		fmt.Fprintf(os.Stderr, "migrated %d legacy watchlist(s) from vault into state\n", migrated)
+		slog.Info("migrated legacy watchlists", "count", migrated)
 	}
 
 	schedCtx, cancelSched := context.WithCancel(context.Background())
@@ -194,22 +205,22 @@ func cmdStart(args []string) {
 			Secrets:      stack.secrets,
 			StateStore:   scheduler.NewStateStore(scheduler.DefaultStatePath(runtimeRoot)),
 			MaxLastRunAt: stack.dossier.MaxLastRunAt,
-			Logger: func(level, msg string, kvs ...any) {
-				fmt.Fprintf(os.Stderr, "[scheduler:%s] %s %v\n", level, msg, kvs)
-			},
+			Logger: schedulerLoggerAdapter(slog.Default()),
 		})
 		sched.Run(schedCtx)
 	}()
 
 	shutdown := make(chan struct{}, 1)
 	api := gateway.NewServer(gateway.Config{
-		Coordinator: stack.coord,
-		EventBus:    stack.bus,
-		Brain:       stack.brainSvc,
-		Store:       stack.store,
-		Vault:       stack.secrets,
-		WhatsApp:    adapters.NewWhatsAppAdapter(),
-		Address:     *addr,
+		Coordinator:  stack.coord,
+		EventBus:     stack.bus,
+		Brain:        stack.brainSvc,
+		Store:        stack.store,
+		Vault:        stack.secrets,
+		WhatsApp:     adapters.NewWhatsAppAdapter(),
+		Dossier:      stack.dossier,
+		Address:      *addr,
+		MaxBodyBytes: *maxBody,
 		RequestShutdown: func() {
 			select {
 			case shutdown <- struct{}{}:
@@ -228,6 +239,12 @@ func cmdStart(args []string) {
 		Addr:              *addr,
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
+		// WriteTimeout is intentionally unset (0): the SSE handler at
+		// /api/v1/events holds connections open indefinitely with a 20s
+		// keepalive. A global write deadline would tear those streams
+		// down. Real protection comes from ReadHeaderTimeout, IdleTimeout,
+		// and the request-body cap installed by the gateway.
+		IdleTimeout: 60 * time.Second,
 	}
 
 	p.Success("Console ready at  http://%s", *addr)
@@ -268,14 +285,25 @@ func cmdStart(args []string) {
 func cmdStatus(args []string) {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
 	addr := fs.String("addr", "127.0.0.1:18800", "agent address")
+	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
 	_ = fs.Parse(args)
 
 	p := cli.Stdout()
-	p.Banner()
+	if !*jsonOut {
+		p.Banner()
+	}
 
 	client := &http.Client{Timeout: 3 * time.Second}
 	resp, err := client.Get("http://" + *addr + "/api/v1/status")
 	if err != nil {
+		if *jsonOut {
+			emitJSONOrExit(map[string]any{
+				"running": false,
+				"address": *addr,
+				"error":   err.Error(),
+			})
+			os.Exit(1)
+		}
 		p.Error("Agent is not running at %s", *addr)
 		p.Blank()
 		p.Dim("Start it with:  pookie start")
@@ -293,8 +321,31 @@ func cmdStatus(args []string) {
 		StartedAt              time.Time `json:"started_at"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&snap); err != nil {
+		if *jsonOut {
+			emitJSONOrExit(map[string]any{
+				"running": true,
+				"address": *addr,
+				"error":   "decode: " + err.Error(),
+			})
+			os.Exit(1)
+		}
 		p.Error("Could not parse status response: %v", err)
 		os.Exit(1)
+	}
+
+	if *jsonOut {
+		emitJSONOrExit(map[string]any{
+			"running":                  true,
+			"address":                  *addr,
+			"uptime_seconds":           int64(time.Since(snap.StartedAt).Seconds()),
+			"runtime_root":             snap.RuntimeRoot,
+			"workspace_root":           snap.WorkspaceRoot,
+			"workflows":                snap.Workflows,
+			"pending_approvals":        snap.PendingApprovals,
+			"pending_file_permissions": snap.PendingFilePermissions,
+			"started_at":               snap.StartedAt,
+		})
+		return
 	}
 
 	uptime := time.Since(snap.StartedAt).Round(time.Second)
@@ -355,4 +406,28 @@ func timingMiddleware(next http.Handler, p *cli.Printer) http.Handler {
 		elapsed := time.Since(start)
 		p.Dim("[%s] %s %s  %s", elapsed.Round(time.Microsecond), r.Method, r.URL.Path, r.RemoteAddr)
 	})
+}
+
+// isLoopbackAddr reports whether the given listen address binds only to a
+// loopback interface. An empty host (":18800") binds to all interfaces and
+// is therefore not loopback-only.
+func isLoopbackAddr(addr string) bool {
+	addr = strings.TrimSpace(addr)
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	host = strings.TrimSpace(host)
+	if host == "" {
+		// ":port" — binds to all interfaces.
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback()
 }

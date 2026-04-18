@@ -517,19 +517,67 @@
     ].join("");
   }
 
+  function formatRelativeTime(date) {
+    const diffMs = Date.now() - date.getTime();
+    const absSec = Math.abs(diffMs / 1000);
+    const future = diffMs < 0;
+    let value, unit;
+    if (absSec < 60) { value = Math.round(absSec); unit = "s"; }
+    else if (absSec < 3600) { value = Math.round(absSec / 60); unit = "m"; }
+    else if (absSec < 86400) { value = Math.round(absSec / 3600); unit = "h"; }
+    else { value = Math.round(absSec / 86400); unit = "d"; }
+    return future ? `in ${value}${unit}` : `${value}${unit} ago`;
+  }
+
+  function formatTimestamp(iso) {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return { absolute: String(iso), relative: null };
+    return { absolute: d.toLocaleString(), relative: formatRelativeTime(d) };
+  }
+
   function renderSchedulerStatus(payload) {
     const sched = (payload && payload.scheduler) || {};
     const setText = (id, value) => {
       const el = document.getElementById(id);
       if (!el) return;
       el.textContent = value && String(value).trim() ? String(value) : "\u2014";
+      el.className = "";
+    };
+    const setTimestamp = (id, iso) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.className = "";
+      const f = formatTimestamp(iso);
+      if (!f) {
+        el.textContent = "\u2014";
+        return;
+      }
+      el.textContent = f.absolute;
+      if (f.relative) {
+        const span = document.createElement("span");
+        span.className = "relative";
+        span.textContent = ` (${f.relative})`;
+        el.appendChild(span);
+      }
+    };
+    const setError = (id, value) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (value && String(value).trim()) {
+        el.textContent = String(value);
+        el.className = "error";
+      } else {
+        el.textContent = "\u2014";
+        el.className = "";
+      }
     };
     setText("sched-mode", sched.schedule);
-    setText("sched-last-tick", sched.last_tick_at);
-    setText("sched-last-success", sched.last_success_at);
-    setText("sched-next-due", sched.next_due_at);
+    setTimestamp("sched-last-tick", sched.last_tick_at);
+    setTimestamp("sched-last-success", sched.last_success_at);
+    setTimestamp("sched-next-due", sched.next_due_at);
     setText("sched-last-workflow", sched.last_workflow);
-    setText("sched-last-error", sched.last_error);
+    setError("sched-last-error", sched.last_error);
   }
 
   function renderSummaryStrip() {

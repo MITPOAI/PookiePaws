@@ -262,13 +262,18 @@ func (s *Service) SaveWatchlists(_ context.Context, watchlists []Watchlist) ([]W
 	return items, nil
 }
 
+// RefreshConfiguredWatchlists refreshes every watchlist currently saved in
+// state-backed storage. The deprecated `research_watchlists` vault key is no
+// longer consulted at refresh time; MigrateLegacyWatchlists handles one-shot
+// import on daemon startup, and writes go through SaveWatchlists / the
+// research API.
 func (s *Service) RefreshConfiguredWatchlists(ctx context.Context, secrets engine.SecretProvider) (RefreshResult, error) {
-	watchlists, err := watchlistsFromSecrets(secrets)
+	watchlists, err := s.ListWatchlists(ctx)
 	if err != nil {
-		return RefreshResult{}, err
+		return RefreshResult{}, fmt.Errorf("list watchlists: %w", err)
 	}
 	if len(watchlists) == 0 {
-		return RefreshResult{}, fmt.Errorf("research_watchlists is empty; save at least one watchlist before running refresh")
+		return RefreshResult{}, fmt.Errorf("no watchlists configured; save at least one watchlist (POST /api/v1/research/watchlists or `pookie research watchlists apply`) before running refresh")
 	}
 	return s.RefreshWatchlists(ctx, watchlists, secrets)
 }
@@ -519,15 +524,6 @@ func (s *Service) latestEvidenceByWatchlist(ctx context.Context, watchlistID str
 		records[item.SourceURL] = item
 	}
 	return records, nil
-}
-
-func watchlistsFromSecrets(secrets engine.SecretProvider) ([]Watchlist, error) {
-	if secrets == nil {
-		return nil, nil
-	}
-	trusted := trustedDomainsFromSecrets(secrets)
-	raw, _ := secrets.Get("research_watchlists")
-	return ParseWatchlists(raw, trusted)
 }
 
 func trustedDomainsFromSecrets(secrets engine.SecretProvider) []string {

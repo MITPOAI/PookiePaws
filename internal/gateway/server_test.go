@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -49,6 +50,7 @@ type harness struct {
 	bus         engine.EventBus
 	coord       engine.WorkflowCoordinator
 	secrets     *security.JSONSecretProvider
+	dossier     *dossier.Service
 	runtimeRoot string
 }
 
@@ -99,6 +101,10 @@ func newHarness(t *testing.T, address string, promptBrain PromptDispatcher) harn
 	if err != nil {
 		t.Fatalf("create coordinator: %v", err)
 	}
+	dossierSvc, err := dossier.NewService(runtimeRoot)
+	if err != nil {
+		t.Fatalf("create dossier service: %v", err)
+	}
 
 	return harness{
 		server: NewServer(Config{
@@ -108,11 +114,13 @@ func newHarness(t *testing.T, address string, promptBrain PromptDispatcher) harn
 			Store:       store,
 			Vault:       secrets,
 			WhatsApp:    adapters.NewMockWhatsAppAdapter(),
+			Dossier:     dossierSvc,
 			Address:     address,
 		}),
 		bus:         bus,
 		coord:       coord,
 		secrets:     secrets,
+		dossier:     dossierSvc,
 		runtimeRoot: runtimeRoot,
 	}
 }
@@ -676,6 +684,15 @@ func TestGatewayResearchControlPlaneLifecycle(t *testing.T) {
 		t.Fatalf("seed research settings: %v", err)
 	}
 
+	// Mirror the daemon startup flow: import the legacy `research_watchlists`
+	// vault key into state-backed storage. The refresh endpoint no longer
+	// reads the vault key directly — it consults state via the dossier
+	// service, so this migration step is required for the test to exercise
+	// the production code path.
+	if _, err := dossier.MigrateLegacyWatchlists(context.Background(), h.dossier, h.secrets); err != nil {
+		t.Fatalf("migrate legacy watchlists: %v", err)
+	}
+
 	refreshRequest := httptest.NewRequest(http.MethodPost, "/api/v1/research/watchlists/refresh", nil)
 	refreshRecorder := httptest.NewRecorder()
 	h.server.Handler().ServeHTTP(refreshRecorder, refreshRequest)
@@ -776,5 +793,103 @@ func TestVaultPUTStillValidatesSchedule(t *testing.T) {
 
 	if resp.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400; body=%s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestMaxBytesMiddlewareRejectsOversizedBody(t *testing.T) {
+	const limit = 64
+	called := false
+	wrapped := maxBytesMiddleware(limit)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		_, err := io.ReadAll(r.Body)
+		if err == nil {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		// http.MaxBytesReader returns *http.MaxBytesError once the cap is
+		// exceeded; surface it as a 413 so callers see the limit fire.
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			http.Error(w, "too big", http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	}))
+
+	oversized := strings.Repeat("a", limit*4)
+	req := httptest.NewRequest(http.MethodPost, "/x", strings.NewReader(oversized))
+	resp := httptest.NewRecorder()
+	wrapped.ServeHTTP(resp, req)
+
+	if !called {
+		t.Fatalf("inner handler was not invoked")
+	}
+	if resp.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413; body=%s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestGatewayHandlerAppliesBodyCap(t *testing.T) {
+	root := t.TempDir()
+	bus := engine.NewEventBus()
+	store, err := state.NewFileStore(filepath.Join(root, "state"))
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	dossierSvc, err := dossier.NewService(root)
+	if err != nil {
+		t.Fatalf("create dossier service: %v", err)
+	}
+	srv := NewServer(Config{
+		EventBus:     bus,
+		Store:        store,
+		Dossier:      dossierSvc,
+		WhatsApp:     adapters.NewMockWhatsAppAdapter(),
+		Address:      "127.0.0.1:0",
+		MaxBodyBytes: 32, // tiny cap so any real JSON payload trips it
+	})
+
+	// /api/v1/workflows POST handler reads JSON; an oversized body must
+	// not produce a 2xx success.
+	body := strings.Repeat("x", 1024)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/workflows", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(resp, req)
+
+	if resp.Code >= 200 && resp.Code < 300 {
+		t.Fatalf("oversized body got success status %d; expected rejection", resp.Code)
+	}
+}
+
+func TestGatewayMaxBodyBytesDefaults(t *testing.T) {
+	root := t.TempDir()
+	bus := engine.NewEventBus()
+	store, err := state.NewFileStore(filepath.Join(root, "state"))
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	dossierSvc, err := dossier.NewService(root)
+	if err != nil {
+		t.Fatalf("create dossier service: %v", err)
+	}
+
+	// Zero ⇒ default 1 MiB.
+	def := NewServer(Config{
+		EventBus: bus, Store: store, Dossier: dossierSvc,
+		WhatsApp: adapters.NewMockWhatsAppAdapter(), Address: "127.0.0.1:0",
+	})
+	if def.maxBodyBytes != DefaultMaxBodyBytes {
+		t.Fatalf("default maxBodyBytes = %d, want %d", def.maxBodyBytes, DefaultMaxBodyBytes)
+	}
+
+	// Negative ⇒ disabled.
+	off := NewServer(Config{
+		EventBus: bus, Store: store, Dossier: dossierSvc,
+		WhatsApp: adapters.NewMockWhatsAppAdapter(), Address: "127.0.0.1:0",
+		MaxBodyBytes: -1,
+	})
+	if off.maxBodyBytes != 0 {
+		t.Fatalf("disabled maxBodyBytes = %d, want 0", off.maxBodyBytes)
 	}
 }

@@ -35,9 +35,19 @@ type Config struct {
 	Store           engine.StateStore
 	Vault           Vault
 	WhatsApp        engine.ChannelAdapter
+	Dossier         *dossier.Service
 	Address         string
 	RequestShutdown func()
+	// MaxBodyBytes caps incoming request body size. 0 uses the default
+	// (1 MiB, matching nginx's client_max_body_size). A negative value
+	// disables the cap entirely.
+	MaxBodyBytes int64
 }
+
+// DefaultMaxBodyBytes is the default cap on inbound request bodies for the
+// gateway. Workflow JSON, vault settings, and watchlist apply payloads all
+// fit comfortably under 1 MiB.
+const DefaultMaxBodyBytes int64 = 1 << 20
 
 type PromptDispatcher interface {
 	Available() bool
@@ -250,9 +260,11 @@ type Server struct {
 	brain           PromptDispatcher
 	vault           Vault
 	whatsApp        engine.ChannelAdapter
+	dossier         *dossier.Service
 	requestShutdown func()
 	chat            *chatStore
 	address         string
+	maxBodyBytes    int64 // 0 = no cap
 	mux             *http.ServeMux
 	indexTmpl       *template.Template
 	indexView       IndexViewModel
@@ -265,15 +277,25 @@ func NewServer(cfg Config) *Server {
 		panic(err)
 	}
 
+	maxBody := cfg.MaxBodyBytes
+	switch {
+	case maxBody == 0:
+		maxBody = DefaultMaxBodyBytes
+	case maxBody < 0:
+		maxBody = 0 // explicitly disabled
+	}
+
 	server := &Server{
 		coordinator:     cfg.Coordinator,
 		eventBus:        cfg.EventBus,
 		brain:           cfg.Brain,
 		vault:           cfg.Vault,
 		whatsApp:        cfg.WhatsApp,
+		dossier:         cfg.Dossier,
 		requestShutdown: cfg.RequestShutdown,
 		chat:            newChatStore(cfg.Store),
 		address:         cfg.Address,
+		maxBodyBytes:    maxBody,
 		mux:             http.NewServeMux(),
 		indexTmpl:       indexTmpl,
 		indexView: IndexViewModel{
@@ -292,7 +314,30 @@ func NewServer(cfg Config) *Server {
 }
 
 func (s *Server) Handler() http.Handler {
-	return gzipMiddleware(s.mux)
+	// Middleware order: outermost wraps innermost. Body cap runs first
+	// so oversized payloads are rejected before any handler reads them.
+	var handler http.Handler = s.mux
+	handler = gzipMiddleware(handler)
+	if s.maxBodyBytes > 0 {
+		handler = maxBytesMiddleware(s.maxBodyBytes)(handler)
+	}
+	return handler
+}
+
+// maxBytesMiddleware caps the request body using http.MaxBytesReader.
+// Handlers that read the body will see an http.MaxBytesError once the
+// limit is exceeded; in practice the JSON decoder returns it as a
+// decode failure that handlers convert to HTTP 400. Only request bodies
+// are limited — SSE/streaming response handlers are unaffected.
+func maxBytesMiddleware(maxBytes int64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Body != nil {
+				r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 type gzipResponseWriter struct {
@@ -519,7 +564,7 @@ func (s *Server) handleConsole(writer http.ResponseWriter, request *http.Request
 		writeJSONError(writer, err, http.StatusInternalServerError)
 		return
 	}
-	researchState, err := loadResearchSnapshot(request.Context(), status.RuntimeRoot)
+	researchState, err := s.loadResearchSnapshot(request.Context())
 	if err != nil {
 		writeJSONError(writer, err, http.StatusInternalServerError)
 		return
@@ -1073,12 +1118,7 @@ func (s *Server) handleDemoSmoke(writer http.ResponseWriter, request *http.Reque
 }
 
 func (s *Server) handleResearchWatchlists(writer http.ResponseWriter, request *http.Request) {
-	status, err := s.coordinator.Status(request.Context())
-	if err != nil {
-		writeJSONError(writer, err, http.StatusInternalServerError)
-		return
-	}
-	service, err := dossier.NewService(status.RuntimeRoot)
+	service, err := s.dossierService()
 	if err != nil {
 		writeJSONError(writer, err, http.StatusInternalServerError)
 		return
@@ -1149,12 +1189,7 @@ func (s *Server) handleResearchWatchlistRefresh(writer http.ResponseWriter, requ
 }
 
 func (s *Server) handleResearchDossiers(writer http.ResponseWriter, request *http.Request) {
-	status, err := s.coordinator.Status(request.Context())
-	if err != nil {
-		writeJSONError(writer, err, http.StatusInternalServerError)
-		return
-	}
-	service, err := dossier.NewService(status.RuntimeRoot)
+	service, err := s.dossierService()
 	if err != nil {
 		writeJSONError(writer, err, http.StatusInternalServerError)
 		return
@@ -1203,12 +1238,7 @@ func (s *Server) handleResearchEvidence(writer http.ResponseWriter, request *htt
 		writer.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	status, err := s.coordinator.Status(request.Context())
-	if err != nil {
-		writeJSONError(writer, err, http.StatusInternalServerError)
-		return
-	}
-	service, err := dossier.NewService(status.RuntimeRoot)
+	service, err := s.dossierService()
 	if err != nil {
 		writeJSONError(writer, err, http.StatusInternalServerError)
 		return
@@ -1226,12 +1256,7 @@ func (s *Server) handleResearchChanges(writer http.ResponseWriter, request *http
 		writer.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	status, err := s.coordinator.Status(request.Context())
-	if err != nil {
-		writeJSONError(writer, err, http.StatusInternalServerError)
-		return
-	}
-	service, err := dossier.NewService(status.RuntimeRoot)
+	service, err := s.dossierService()
 	if err != nil {
 		writeJSONError(writer, err, http.StatusInternalServerError)
 		return
@@ -1249,12 +1274,7 @@ func (s *Server) handleResearchRecommendations(writer http.ResponseWriter, reque
 		writer.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	status, err := s.coordinator.Status(request.Context())
-	if err != nil {
-		writeJSONError(writer, err, http.StatusInternalServerError)
-		return
-	}
-	service, err := dossier.NewService(status.RuntimeRoot)
+	service, err := s.dossierService()
 	if err != nil {
 		writeJSONError(writer, err, http.StatusInternalServerError)
 		return
@@ -1268,12 +1288,7 @@ func (s *Server) handleResearchRecommendations(writer http.ResponseWriter, reque
 }
 
 func (s *Server) handleResearchRecommendationAction(writer http.ResponseWriter, request *http.Request) {
-	status, err := s.coordinator.Status(request.Context())
-	if err != nil {
-		writeJSONError(writer, err, http.StatusInternalServerError)
-		return
-	}
-	service, err := dossier.NewService(status.RuntimeRoot)
+	service, err := s.dossierService()
 	if err != nil {
 		writeJSONError(writer, err, http.StatusInternalServerError)
 		return
@@ -1453,8 +1468,15 @@ func (s *Server) handleAutoApproval(writer http.ResponseWriter, request *http.Re
 	}
 }
 
-func loadResearchSnapshot(ctx context.Context, runtimeRoot string) (dossier.Snapshot, error) {
-	service, err := dossier.NewService(runtimeRoot)
+func (s *Server) dossierService() (*dossier.Service, error) {
+	if s.dossier == nil {
+		return nil, fmt.Errorf("dossier service not configured")
+	}
+	return s.dossier, nil
+}
+
+func (s *Server) loadResearchSnapshot(ctx context.Context) (dossier.Snapshot, error) {
+	service, err := s.dossierService()
 	if err != nil {
 		return dossier.Snapshot{}, err
 	}

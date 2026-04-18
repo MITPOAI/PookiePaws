@@ -40,6 +40,27 @@ func (f *fakeCoord) ListWorkflows(_ context.Context) ([]engine.Workflow, error) 
 	return out, nil
 }
 
+func (f *fakeCoord) ListWorkflowsByStatus(_ context.Context, statuses ...engine.WorkflowStatus) ([]engine.Workflow, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(statuses) == 0 {
+		out := make([]engine.Workflow, len(f.listResult))
+		copy(out, f.listResult)
+		return out, nil
+	}
+	set := make(map[engine.WorkflowStatus]struct{}, len(statuses))
+	for _, s := range statuses {
+		set[s] = struct{}{}
+	}
+	out := make([]engine.Workflow, 0, len(f.listResult))
+	for _, wf := range f.listResult {
+		if _, ok := set[wf.Status]; ok {
+			out = append(out, wf)
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeCoord) submittedSkills() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()

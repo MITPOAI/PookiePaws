@@ -23,6 +23,22 @@ Every contribution should:
 - Keep the compiled binary under 10MB
 - Use atomic writes for all file operations
 
+## Makefile
+
+The repo ships a `Makefile` with the common dev targets:
+
+| Target           | What it does                                       |
+|------------------|----------------------------------------------------|
+| `make build`     | Compile `pookie` into `./bin/`                     |
+| `make test`      | Run all tests                                      |
+| `make test-race` | Run tests with the race detector (requires gcc)   |
+| `make vet`       | Run `go vet`                                       |
+| `make fmt`       | Format Go sources with `gofmt`                    |
+| `make smoke`     | Build + run `pookie smoke` operator checks        |
+| `make release-snapshot` | Goreleaser snapshot build                  |
+
+Run `make help` for the full list. On Windows without git-bash, use `mingw32-make`.
+
 ## Documentation Governance
 
 Unless clearly not applicable, the same pull request must review and update:
@@ -213,3 +229,13 @@ By participating in this repository, you agree to follow [CODE_OF_CONDUCT.md](./
 ## Security
 
 If your contribution touches trust boundaries, secrets, integrations, or execution policy, read [SECURITY.md](./SECURITY.md) before opening a pull request.
+
+### Future: signed skill manifests
+
+`pookie install <repo>` currently fetches skill manifests from `raw.githubusercontent.com` over HTTPS without signature verification. The integration point for future cryptographic verification (e.g. Sigstore cosign attestations or detached PGP signatures) is `cmd/pookie/install.go` `fetchSkillMD`. A signed-skill design proposal should:
+
+- Define the signature artifact location relative to the manifest (sibling file vs. transparency log)
+- Specify a key-distribution model (TOFU, pinned root keys, OIDC-bound identities)
+- Make verification mandatory by default once shipped, with an opt-out flag for development
+
+Until that lands, treat installed skills as code you've audited — the existing path-traversal validation and shell-tool blocking in `install.go` are necessary but not sufficient defenses.

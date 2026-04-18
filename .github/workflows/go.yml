@@ -34,8 +34,44 @@ jobs:
       - name: Run tests
         run: go test ./...
 
+      - name: Run tests with race detector
+        run: go test -race ./...
+        env:
+          CGO_ENABLED: "1"
+
       - name: Build runtime (pookie)
         run: go build -v ./cmd/pookie/...
 
       - name: Build legacy entrypoint (pookiepaws)
         run: go build -v ./cmd/pookiepaws/...
+
+      - name: Smoke test render-formula tool
+        run: |
+          mkdir -p /tmp/render-smoke
+          {
+            printf '%s  %s\n' '0000000000000000000000000000000000000000000000000000000000000000' 'pookie_0.5.2_darwin_arm64.tar.gz'
+            printf '%s  %s\n' '1111111111111111111111111111111111111111111111111111111111111111' 'pookie_0.5.2_darwin_amd64.tar.gz'
+            printf '%s  %s\n' '2222222222222222222222222222222222222222222222222222222222222222' 'pookie_0.5.2_linux_arm64.tar.gz'
+            printf '%s  %s\n' '3333333333333333333333333333333333333333333333333333333333333333' 'pookie_0.5.2_linux_amd64.tar.gz'
+          } > /tmp/render-smoke/checksums.txt
+          out=$(go run ./cmd/render-formula --dist /tmp/render-smoke --version 0.5.2 --template packaging/homebrew/pookie.rb.tmpl)
+          echo "$out" | grep -q 'pookie_0.5.2_darwin_arm64.tar.gz' || (echo "render-formula output missing darwin_arm64 URL"; exit 1)
+          echo "$out" | grep -q 'pookie_0.5.2_linux_amd64.tar.gz' || (echo "render-formula output missing linux_amd64 URL"; exit 1)
+          echo "render-formula smoke OK"
+
+  validate-packaging:
+    runs-on: windows-latest
+    needs: test
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate WinGet manifests
+        shell: pwsh
+        run: |
+          if (Get-Command winget -ErrorAction SilentlyContinue) {
+            winget validate --manifest packaging\winget
+          } else {
+            Write-Host "winget not available on this runner - skipping validation"
+          }
