@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -147,4 +148,49 @@ func optionalSecret(secrets *security.JSONSecretProvider, key string) string {
 func (s *appStack) Close() {
 	_ = s.subturns.Close()
 	s.bus.Close()
+}
+
+// currentHome returns the user's home directory, or "." if it cannot be
+// determined. Used by the single-result resolver helpers below so one-shot
+// CLI subcommands can derive runtime paths without juggling errors.
+func currentHome() string {
+	if h, err := os.UserHomeDir(); err == nil {
+		return h
+	}
+	return "."
+}
+
+// resolveRuntimeRoot returns the runtime root for one-shot CLI subcommands
+// that don't accept a --home flag. Honours POOKIEPAWS_HOME via resolveRoots.
+func resolveRuntimeRoot() string {
+	rt, _, _ := resolveRoots("")
+	if rt != "" {
+		return rt
+	}
+	rt, _, _ = resolveRoots(currentHome())
+	return rt
+}
+
+// resolveWorkspaceRoot mirrors resolveRuntimeRoot for the workspace path.
+func resolveWorkspaceRoot() string {
+	_, ws, _ := resolveRoots("")
+	if ws != "" {
+		return ws
+	}
+	_, ws, _ = resolveRoots(currentHome())
+	return ws
+}
+
+// writeVaultSecret updates a single secret in the on-disk JSON vault while
+// preserving every other key. Uses the canonical JSONSecretProvider.Update
+// path so the file format and locking semantics match the rest of the app.
+func writeVaultSecret(key, value string) error {
+	provider, err := security.NewJSONSecretProvider(resolveRuntimeRoot())
+	if err != nil {
+		return fmt.Errorf("open vault: %w", err)
+	}
+	if err := provider.Update(map[string]string{key: value}); err != nil {
+		return fmt.Errorf("update vault: %w", err)
+	}
+	return nil
 }
