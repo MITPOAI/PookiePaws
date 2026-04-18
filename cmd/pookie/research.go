@@ -442,7 +442,10 @@ func cmdResearchSchedule(args []string) {
 // --- status ---
 
 func cmdResearchStatus(args []string) {
-	_ = args
+	fs := flag.NewFlagSet("status", flag.ExitOnError)
+	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
+	_ = fs.Parse(args)
+
 	store := scheduler.NewStateStore(scheduler.DefaultStatePath(resolveRuntimeRoot()))
 	st, err := store.Load()
 	if err != nil {
@@ -450,11 +453,24 @@ func cmdResearchStatus(args []string) {
 		os.Exit(1)
 	}
 	svc := mustDossierService()
+	wls, wlErr := svc.ListWatchlists(context.Background())
+
+	if *jsonOut {
+		payload := map[string]any{
+			"scheduler": st,
+		}
+		if wlErr != nil {
+			payload["watchlists_error"] = wlErr.Error()
+		} else {
+			payload["watchlists"] = len(wls)
+		}
+		emitJSONOrExit(payload)
+		return
+	}
 
 	fmt.Printf("schedule:        %s\n", emptyDash(st.Schedule))
-	wls, err := svc.ListWatchlists(context.Background())
-	if err != nil {
-		fmt.Printf("watchlists:      ? (load error: %v)\n", err)
+	if wlErr != nil {
+		fmt.Printf("watchlists:      ? (load error: %v)\n", wlErr)
 	} else {
 		fmt.Printf("watchlists:      %d\n", len(wls))
 	}

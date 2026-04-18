@@ -132,6 +132,7 @@ func printUsage() {
 	p.Plain("      --home          Override runtime home directory")
 	p.Plain("      --verbose       Print request timing logs (for start)")
 	p.Blank()
+	p.Dim("Most diagnostic commands accept --json for machine-readable output.")
 	p.Dim("Run pookie with no arguments for an interactive menu.")
 	p.Dim("Source:  github.com/mitpoai/pookiepaws")
 	p.Blank()
@@ -268,14 +269,25 @@ func cmdStart(args []string) {
 func cmdStatus(args []string) {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
 	addr := fs.String("addr", "127.0.0.1:18800", "agent address")
+	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
 	_ = fs.Parse(args)
 
 	p := cli.Stdout()
-	p.Banner()
+	if !*jsonOut {
+		p.Banner()
+	}
 
 	client := &http.Client{Timeout: 3 * time.Second}
 	resp, err := client.Get("http://" + *addr + "/api/v1/status")
 	if err != nil {
+		if *jsonOut {
+			emitJSONOrExit(map[string]any{
+				"running": false,
+				"address": *addr,
+				"error":   err.Error(),
+			})
+			os.Exit(1)
+		}
 		p.Error("Agent is not running at %s", *addr)
 		p.Blank()
 		p.Dim("Start it with:  pookie start")
@@ -293,8 +305,31 @@ func cmdStatus(args []string) {
 		StartedAt              time.Time `json:"started_at"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&snap); err != nil {
+		if *jsonOut {
+			emitJSONOrExit(map[string]any{
+				"running": true,
+				"address": *addr,
+				"error":   "decode: " + err.Error(),
+			})
+			os.Exit(1)
+		}
 		p.Error("Could not parse status response: %v", err)
 		os.Exit(1)
+	}
+
+	if *jsonOut {
+		emitJSONOrExit(map[string]any{
+			"running":                  true,
+			"address":                  *addr,
+			"uptime_seconds":           int64(time.Since(snap.StartedAt).Seconds()),
+			"runtime_root":             snap.RuntimeRoot,
+			"workspace_root":           snap.WorkspaceRoot,
+			"workflows":                snap.Workflows,
+			"pending_approvals":        snap.PendingApprovals,
+			"pending_file_permissions": snap.PendingFilePermissions,
+			"started_at":               snap.StartedAt,
+		})
+		return
 	}
 
 	uptime := time.Since(snap.StartedAt).Round(time.Second)

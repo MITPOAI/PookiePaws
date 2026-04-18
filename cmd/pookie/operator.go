@@ -23,10 +23,13 @@ func cmdSessions(args []string) {
 	home := fs.String("home", "", "override runtime home directory")
 	sessionID := fs.String("id", "", "show one session in detail")
 	trace := fs.Bool("trace", false, "include prompt traces when showing one session")
+	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
 	_ = fs.Parse(args)
 
 	p := cli.Stdout()
-	p.Banner()
+	if !*jsonOut {
+		p.Banner()
+	}
 
 	runtimeRoot, workspaceRoot, err := resolveRoots(*home)
 	if err != nil {
@@ -44,6 +47,20 @@ func cmdSessions(args []string) {
 	sessions, err := stack.store.ListSessions(context.Background())
 	if err != nil {
 		p.Error("list sessions: %v", err)
+		os.Exit(1)
+	}
+	if *jsonOut {
+		if *sessionID == "" {
+			emitJSONOrExit(map[string]any{"sessions": sessions})
+			return
+		}
+		for index := range sessions {
+			if sessions[index].ID == *sessionID {
+				emitJSONOrExit(sessions[index])
+				return
+			}
+		}
+		p.Error("session %s not found", *sessionID)
 		os.Exit(1)
 	}
 	if *sessionID == "" {
@@ -119,10 +136,13 @@ func cmdApprovals(args []string) {
 	home := fs.String("home", "", "override runtime home directory")
 	approveID := fs.String("approve", "", "approve a pending approval id")
 	rejectID := fs.String("reject", "", "reject a pending approval id")
+	jsonOut := fs.Bool("json", false, "emit machine-readable JSON (read-only — ignored when --approve/--reject is set)")
 	_ = fs.Parse(args)
 
 	p := cli.Stdout()
-	p.Banner()
+	if !*jsonOut || *approveID != "" || *rejectID != "" {
+		p.Banner()
+	}
 
 	runtimeRoot, workspaceRoot, err := resolveRoots(*home)
 	if err != nil {
@@ -164,6 +184,19 @@ func cmdApprovals(args []string) {
 		p.Error("list approvals: %v", err)
 		os.Exit(1)
 	}
+	if *jsonOut {
+		pendingList := make([]engine.Approval, 0, len(approvals))
+		for _, approval := range approvals {
+			if approval.State == engine.ApprovalPending {
+				pendingList = append(pendingList, approval)
+			}
+		}
+		emitJSONOrExit(map[string]any{
+			"pending": pendingList,
+			"count":   len(pendingList),
+		})
+		return
+	}
 	pending := 0
 	for _, approval := range approvals {
 		if approval.State != engine.ApprovalPending {
@@ -190,10 +223,13 @@ func cmdAudit(args []string) {
 	fs := flag.NewFlagSet("audit", flag.ExitOnError)
 	home := fs.String("home", "", "override runtime home directory")
 	lines := fs.Int("n", 20, "number of recent audit lines to show")
+	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
 	_ = fs.Parse(args)
 
 	p := cli.Stdout()
-	p.Banner()
+	if !*jsonOut {
+		p.Banner()
+	}
 
 	runtimeRoot, _, err := resolveRoots(*home)
 	if err != nil {
@@ -205,6 +241,13 @@ func cmdAudit(args []string) {
 	if err != nil {
 		p.Error("read audit log: %v", err)
 		os.Exit(1)
+	}
+	if *jsonOut {
+		emitJSONOrExit(map[string]any{
+			"entries": entries,
+			"count":   len(entries),
+		})
+		return
 	}
 	if len(entries) == 0 {
 		p.Warning("No audit entries recorded yet")
@@ -227,10 +270,13 @@ func cmdDoctor(args []string) {
 	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
 	home := fs.String("home", "", "override runtime home directory")
 	brainOnly := fs.Bool("brain", false, "validate the configured brain provider and model")
+	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
 	_ = fs.Parse(args)
 
 	p := cli.Stdout()
-	p.Banner()
+	if !*jsonOut {
+		p.Banner()
+	}
 
 	runtimeRoot, workspaceRoot, err := resolveRoots(*home)
 	if err != nil {
@@ -247,6 +293,16 @@ func cmdDoctor(args []string) {
 
 	brainHealth := checkStackBrainHealth(context.Background(), stack)
 	if *brainOnly {
+		if *jsonOut {
+			emitJSONOrExit(map[string]any{
+				"brain_health": brainHealth,
+				"healthy":      brainHealth.Healthy(),
+			})
+			if !brainHealth.Healthy() {
+				os.Exit(1)
+			}
+			return
+		}
 		printBrainHealth(p, brainHealth)
 		if brainHealth.Healthy() {
 			p.Success("Brain provider validation passed")
@@ -267,6 +323,21 @@ func cmdDoctor(args []string) {
 	if err != nil {
 		p.Error("read channels: %v", err)
 		os.Exit(1)
+	}
+
+	if *jsonOut {
+		schedState, _ := scheduler.NewStateStore(scheduler.DefaultStatePath(runtimeRoot)).Load()
+		brainStatus := stack.brainSvc.Status()
+		emitJSONOrExit(map[string]any{
+			"version":      version,
+			"runtime":      status,
+			"brain_status": brainStatus,
+			"brain_health": brainHealth,
+			"scheduler":    schedState,
+			"channels":     channels,
+			"warnings":     startupWarnings(stack.secrets),
+		})
+		return
 	}
 
 	p.Box("Runtime", [][2]string{
