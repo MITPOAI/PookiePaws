@@ -13,17 +13,30 @@ import (
 	"sync"
 
 	"github.com/mitpoai/pookiepaws/internal/engine"
+	"github.com/mitpoai/pookiepaws/internal/persistence"
 )
 
+type Options struct {
+	Format persistence.Format
+}
+
 type FileStore struct {
-	root string
-	mu   sync.Mutex
+	root   string
+	format persistence.Format
+	mu     sync.Mutex
 }
 
 var _ engine.StateStore = (*FileStore)(nil)
 
 func NewFileStore(root string) (*FileStore, error) {
-	store := &FileStore{root: root}
+	return NewFileStoreWithOptions(root, Options{})
+}
+
+func NewFileStoreWithOptions(root string, opts Options) (*FileStore, error) {
+	store := &FileStore{
+		root:   root,
+		format: persistence.NormalizeFormat(string(opts.Format)),
+	}
 	for _, dir := range []string{
 		root,
 		filepath.Join(root, "workflows"),
@@ -42,12 +55,11 @@ func NewFileStore(root string) (*FileStore, error) {
 }
 
 func (s *FileStore) SaveWorkflow(_ context.Context, workflow engine.Workflow) error {
-	return s.writeJSON(filepath.Join(s.root, "workflows", workflow.ID+".json"), workflow)
+	return saveRecord(s, filepath.Join(s.root, "workflows"), workflow.ID, workflow, encodeWorkflowCompact)
 }
 
 func (s *FileStore) GetWorkflow(_ context.Context, id string) (engine.Workflow, error) {
-	var workflow engine.Workflow
-	err := s.readJSON(filepath.Join(s.root, "workflows", id+".json"), &workflow)
+	workflow, err := loadRecord(s, filepath.Join(s.root, "workflows"), id, decodeWorkflowCompact)
 	if errors.Is(err, fs.ErrNotExist) {
 		return engine.Workflow{}, engine.ErrNotFound
 	}
@@ -55,8 +67,8 @@ func (s *FileStore) GetWorkflow(_ context.Context, id string) (engine.Workflow, 
 }
 
 func (s *FileStore) ListWorkflows(_ context.Context) ([]engine.Workflow, error) {
-	var workflows []engine.Workflow
-	if err := s.readDirJSON(filepath.Join(s.root, "workflows"), &workflows); err != nil {
+	workflows, err := listRecords(s, filepath.Join(s.root, "workflows"), decodeWorkflowCompact)
+	if err != nil {
 		return nil, err
 	}
 	sort.Slice(workflows, func(i, j int) bool {
@@ -66,12 +78,11 @@ func (s *FileStore) ListWorkflows(_ context.Context) ([]engine.Workflow, error) 
 }
 
 func (s *FileStore) SaveApproval(_ context.Context, approval engine.Approval) error {
-	return s.writeJSON(filepath.Join(s.root, "approvals", approval.ID+".json"), approval)
+	return saveRecord(s, filepath.Join(s.root, "approvals"), approval.ID, approval, encodeApprovalCompact)
 }
 
 func (s *FileStore) GetApproval(_ context.Context, id string) (engine.Approval, error) {
-	var approval engine.Approval
-	err := s.readJSON(filepath.Join(s.root, "approvals", id+".json"), &approval)
+	approval, err := loadRecord(s, filepath.Join(s.root, "approvals"), id, decodeApprovalCompact)
 	if errors.Is(err, fs.ErrNotExist) {
 		return engine.Approval{}, engine.ErrNotFound
 	}
@@ -79,8 +90,8 @@ func (s *FileStore) GetApproval(_ context.Context, id string) (engine.Approval, 
 }
 
 func (s *FileStore) ListApprovals(_ context.Context) ([]engine.Approval, error) {
-	var approvals []engine.Approval
-	if err := s.readDirJSON(filepath.Join(s.root, "approvals"), &approvals); err != nil {
+	approvals, err := listRecords(s, filepath.Join(s.root, "approvals"), decodeApprovalCompact)
+	if err != nil {
 		return nil, err
 	}
 	sort.Slice(approvals, func(i, j int) bool {
@@ -90,12 +101,11 @@ func (s *FileStore) ListApprovals(_ context.Context) ([]engine.Approval, error) 
 }
 
 func (s *FileStore) SaveFilePermission(_ context.Context, perm engine.FilePermission) error {
-	return s.writeJSON(filepath.Join(s.root, "filepermissions", perm.ID+".json"), perm)
+	return saveRecord(s, filepath.Join(s.root, "filepermissions"), perm.ID, perm, encodeFilePermissionCompact)
 }
 
 func (s *FileStore) GetFilePermission(_ context.Context, id string) (engine.FilePermission, error) {
-	var perm engine.FilePermission
-	err := s.readJSON(filepath.Join(s.root, "filepermissions", id+".json"), &perm)
+	perm, err := loadRecord(s, filepath.Join(s.root, "filepermissions"), id, decodeFilePermissionCompact)
 	if errors.Is(err, fs.ErrNotExist) {
 		return engine.FilePermission{}, engine.ErrNotFound
 	}
@@ -103,8 +113,8 @@ func (s *FileStore) GetFilePermission(_ context.Context, id string) (engine.File
 }
 
 func (s *FileStore) ListFilePermissions(_ context.Context) ([]engine.FilePermission, error) {
-	var perms []engine.FilePermission
-	if err := s.readDirJSON(filepath.Join(s.root, "filepermissions"), &perms); err != nil {
+	perms, err := listRecords(s, filepath.Join(s.root, "filepermissions"), decodeFilePermissionCompact)
+	if err != nil {
 		return nil, err
 	}
 	sort.Slice(perms, func(i, j int) bool {
@@ -114,16 +124,15 @@ func (s *FileStore) ListFilePermissions(_ context.Context) ([]engine.FilePermiss
 }
 
 func (s *FileStore) SaveStatus(_ context.Context, status engine.StatusSnapshot) error {
-	return s.writeJSON(filepath.Join(s.root, "runtime", "status.json"), status)
+	return saveRecord(s, filepath.Join(s.root, "runtime"), "status", status, encodeStatusCompact)
 }
 
 func (s *FileStore) SaveMessage(_ context.Context, message engine.Message) error {
-	return s.writeJSON(filepath.Join(s.root, "messages", message.ID+".json"), message)
+	return saveRecord(s, filepath.Join(s.root, "messages"), message.ID, message, encodeMessageCompact)
 }
 
 func (s *FileStore) GetMessage(_ context.Context, id string) (engine.Message, error) {
-	var message engine.Message
-	err := s.readJSON(filepath.Join(s.root, "messages", id+".json"), &message)
+	message, err := loadRecord(s, filepath.Join(s.root, "messages"), id, decodeMessageCompact)
 	if errors.Is(err, fs.ErrNotExist) {
 		return engine.Message{}, engine.ErrNotFound
 	}
@@ -131,8 +140,8 @@ func (s *FileStore) GetMessage(_ context.Context, id string) (engine.Message, er
 }
 
 func (s *FileStore) ListMessages(_ context.Context) ([]engine.Message, error) {
-	var messages []engine.Message
-	if err := s.readDirJSON(filepath.Join(s.root, "messages"), &messages); err != nil {
+	messages, err := listRecords(s, filepath.Join(s.root, "messages"), decodeMessageCompact)
+	if err != nil {
 		return nil, err
 	}
 	sort.Slice(messages, func(i, j int) bool {
@@ -179,11 +188,25 @@ func (s *FileStore) AppendAudit(_ context.Context, event engine.Event) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.format == persistence.FormatJSON {
+		return s.appendJSONAuditLocked(event)
+	}
+
+	path := filepath.Join(s.root, "audits", activeAuditChunk)
+	if info, statErr := os.Stat(path); statErr == nil && info.Size() >= maxAuditBytes {
+		if err := rotateCompactAudit(path); err != nil {
+			return err
+		}
+	}
+	return appendCompactAudit(path, event)
+}
+
+func (s *FileStore) appendJSONAuditLocked(event engine.Event) error {
+	normalizeEventTime(&event)
 	path := filepath.Join(s.root, "audits", "audit.jsonl")
 
-	// Check rotation before appending.
 	if info, statErr := os.Stat(path); statErr == nil && info.Size() >= maxAuditBytes {
-		s.rotateAuditLocked(path)
+		s.rotateJSONAuditLocked(path)
 	}
 
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
@@ -200,34 +223,156 @@ func (s *FileStore) AppendAudit(_ context.Context, event engine.Event) error {
 	return err
 }
 
-// rotateAuditLocked shifts audit files: audit.jsonl → audit.1.jsonl → audit.2.jsonl → ...
-// Oldest file beyond maxAuditRotations is deleted. Caller must hold s.mu.
-func (s *FileStore) rotateAuditLocked(path string) {
+func (s *FileStore) rotateJSONAuditLocked(path string) {
 	dir := filepath.Dir(path)
 	base := filepath.Base(path)
 	ext := filepath.Ext(base)
 	stem := strings.TrimSuffix(base, ext)
 
-	// Remove the oldest file if it exists.
 	oldest := filepath.Join(dir, fmt.Sprintf("%s.%d%s", stem, maxAuditRotations, ext))
-	os.Remove(oldest)
+	_ = os.Remove(oldest)
 
-	// Shift numbered files up: N-1 → N.
 	for i := maxAuditRotations - 1; i >= 1; i-- {
 		from := filepath.Join(dir, fmt.Sprintf("%s.%d%s", stem, i, ext))
 		to := filepath.Join(dir, fmt.Sprintf("%s.%d%s", stem, i+1, ext))
-		os.Rename(from, to)
+		_ = os.Rename(from, to)
 	}
 
-	// Rotate current file to .1.
 	first := filepath.Join(dir, fmt.Sprintf("%s.1%s", stem, ext))
-	os.Rename(path, first)
+	_ = os.Rename(path, first)
 }
 
-func (s *FileStore) writeJSON(path string, value any) error {
+func saveRecord[T any](s *FileStore, dir string, id string, value T, encodeCompact func(T) ([]byte, error)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.format == persistence.FormatJSON {
+		if err := s.writeJSON(filepath.Join(dir, id+".json"), value); err != nil {
+			return err
+		}
+		_ = os.Remove(filepath.Join(dir, id+persistence.FileExtension(persistence.FormatCompactV1)))
+		return nil
+	}
+
+	data, err := encodeCompact(value)
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(dir, id+persistence.FileExtension(persistence.FormatCompactV1))
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	_ = os.Remove(filepath.Join(dir, id+".json"))
+	return nil
+}
+
+func loadRecord[T any](s *FileStore, dir string, id string, decodeCompact func([]byte) (T, error)) (T, error) {
+	for _, format := range persistence.PreferredReadOrder(s.format) {
+		path := filepath.Join(dir, id+persistence.FileExtension(format))
+		switch format {
+		case persistence.FormatJSON:
+			var value T
+			err := s.readJSON(path, &value)
+			if err == nil {
+				return value, nil
+			}
+			if !errors.Is(err, fs.ErrNotExist) {
+				return value, err
+			}
+		default:
+			data, err := os.ReadFile(path)
+			if err == nil {
+				return decodeCompact(data)
+			}
+			if !errors.Is(err, fs.ErrNotExist) {
+				var zero T
+				return zero, err
+			}
+		}
+	}
+	var zero T
+	return zero, fs.ErrNotExist
+}
+
+func listRecords[T any](s *FileStore, dir string, decodeCompact func([]byte) (T, error)) ([]T, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	type candidate struct {
+		name   string
+		format persistence.Format
+	}
+	candidates := map[string]candidate{}
+	preference := map[persistence.Format]int{}
+	for index, format := range persistence.PreferredReadOrder(s.format) {
+		preference[format] = index
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		format, stem, ok := recordFormatFromName(name)
+		if !ok {
+			continue
+		}
+		current, exists := candidates[stem]
+		if !exists || preference[format] < preference[current.format] {
+			candidates[stem] = candidate{name: name, format: format}
+		}
+	}
+
+	keys := make([]string, 0, len(candidates))
+	for key := range candidates {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	items := make([]T, 0, len(keys))
+	for _, key := range keys {
+		current := candidates[key]
+		path := filepath.Join(dir, current.name)
+		switch current.format {
+		case persistence.FormatJSON:
+			var item T
+			if err := s.readJSON(path, &item); err != nil {
+				return nil, err
+			}
+			items = append(items, item)
+		default:
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return nil, err
+			}
+			item, err := decodeCompact(data)
+			if err != nil {
+				return nil, err
+			}
+			items = append(items, item)
+		}
+	}
+	return items, nil
+}
+
+func recordFormatFromName(name string) (persistence.Format, string, bool) {
+	switch {
+	case strings.HasSuffix(name, ".json"):
+		return persistence.FormatJSON, strings.TrimSuffix(name, ".json"), true
+	case strings.HasSuffix(name, persistence.FileExtension(persistence.FormatCompactV1)):
+		return persistence.FormatCompactV1, strings.TrimSuffix(name, persistence.FileExtension(persistence.FormatCompactV1)), true
+	default:
+		return "", "", false
+	}
+}
+
+func (s *FileStore) writeJSON(path string, value any) error {
 	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return err
@@ -256,7 +401,7 @@ func (s *FileStore) readDirJSON(path string, dest any) error {
 
 	items := make([]json.RawMessage, 0, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(path, entry.Name()))
