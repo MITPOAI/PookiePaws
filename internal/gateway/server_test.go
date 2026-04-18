@@ -735,3 +735,46 @@ func TestGatewayResearchControlPlaneLifecycle(t *testing.T) {
 		t.Fatalf("unexpected discard status %d body=%s", discardRecorder.Code, discardRecorder.Body.String())
 	}
 }
+
+func TestVaultPUTRejectsResearchWatchlists(t *testing.T) {
+	h := newHarness(t, "127.0.0.1:0", nil)
+	body := `{"research_watchlists":"[{\"id\":\"wl-1\",\"name\":\"x\"}]"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/settings/vault", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), "research_watchlists") {
+		t.Errorf("expected error to mention the deprecated key: %s", resp.Body.String())
+	}
+}
+
+func TestVaultPUTAllowsEmptyResearchWatchlists(t *testing.T) {
+	// Empty value remains accepted so stale form posts succeed.
+	h := newHarness(t, "127.0.0.1:0", nil)
+	body := `{"research_watchlists":"","research_schedule":"hourly"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/settings/vault", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestVaultPUTStillValidatesSchedule(t *testing.T) {
+	h := newHarness(t, "127.0.0.1:0", nil)
+	body := `{"research_schedule":"weekly"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/settings/vault", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", resp.Code, resp.Body.String())
+	}
+}
