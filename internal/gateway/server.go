@@ -142,7 +142,6 @@ func (r VaultUpdateRequest) ToMap() map[string]string {
 	values := map[string]string{}
 	appendIfValue(values, "storage_format", r.StorageFormat)
 	appendIfValue(values, "research_provider", r.ResearchProvider)
-	appendIfValue(values, "research_watchlists", r.ResearchWatchlists)
 	appendIfValue(values, "research_schedule", r.ResearchSchedule)
 	appendIfValue(values, "autonomy_policy", r.AutonomyPolicy)
 	appendIfValue(values, "trusted_domains", r.TrustedDomains)
@@ -1371,6 +1370,17 @@ func (s *Server) handleSettingsVault(writer http.ResponseWriter, request *http.R
 			writeJSONError(writer, err, http.StatusBadRequest)
 			return
 		}
+		// research_watchlists is deprecated as a writable vault field. Watchlists
+		// now live under state/research/watchlists/ and are edited via
+		// POST /api/v1/research/watchlists or `pookie research watchlists apply`.
+		// Empty values remain accepted so that stale form posts continue to succeed.
+		// This check runs before the len(values) == 0 guard so payloads that only
+		// carry the deprecated key surface the descriptive 400 instead of the
+		// generic "at least one non-empty setting is required" error.
+		if raw := strings.TrimSpace(payload.ResearchWatchlists); raw != "" {
+			writeJSONError(writer, fmt.Errorf("research_watchlists is no longer writable via /api/v1/settings/vault — use POST /api/v1/research/watchlists or `pookie research watchlists apply`"), http.StatusBadRequest)
+			return
+		}
 		values := payload.ToMap()
 		if len(values) == 0 {
 			writeJSONError(writer, fmt.Errorf("at least one non-empty setting is required"), http.StatusBadRequest)
@@ -1404,12 +1414,6 @@ func (s *Server) handleSettingsVault(writer http.ResponseWriter, request *http.R
 		if raw := strings.TrimSpace(payload.ActionPolicy); raw != "" {
 			if normalizeActionPolicy(raw) == "" {
 				writeJSONError(writer, fmt.Errorf("action_policy must be %q or %q", "approval_gated", "adapter_rules"), http.StatusBadRequest)
-				return
-			}
-		}
-		if raw := strings.TrimSpace(payload.ResearchWatchlists); raw != "" {
-			if _, err := dossier.ParseWatchlists(raw, dossier.ParseTrustedDomains(payload.TrustedDomains)); err != nil {
-				writeJSONError(writer, fmt.Errorf("research_watchlists must be valid JSON: %w", err), http.StatusBadRequest)
 				return
 			}
 		}

@@ -14,6 +14,7 @@ import (
 
 	"github.com/mitpoai/pookiepaws/internal/adapters"
 	"github.com/mitpoai/pookiepaws/internal/cli"
+	"github.com/mitpoai/pookiepaws/internal/dossier"
 	"github.com/mitpoai/pookiepaws/internal/gateway"
 	"github.com/mitpoai/pookiepaws/internal/scheduler"
 )
@@ -177,6 +178,12 @@ func cmdStart(args []string) {
 	}
 	for _, warning := range startupWarnings(stack.secrets) {
 		p.Warning(warning)
+	}
+
+	if migrated, err := dossier.MigrateLegacyWatchlists(context.Background(), stack.dossier, stack.secrets); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: legacy watchlist migration failed: %v\n", err)
+	} else if migrated > 0 {
+		fmt.Fprintf(os.Stderr, "migrated %d legacy watchlist(s) from vault into state\n", migrated)
 	}
 
 	schedCtx, cancelSched := context.WithCancel(context.Background())

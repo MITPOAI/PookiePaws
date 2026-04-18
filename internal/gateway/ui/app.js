@@ -434,6 +434,7 @@
     renderNavigation();
     renderThemeSwitcher();
     renderSidebarStatus();
+    renderSchedulerStatus(state.console);
 
     if (!initialRenderDone) {
       // First render populates all views so content is ready when switching tabs.
@@ -514,6 +515,21 @@
       renderProviderFlag("Mitto", state.vault && state.vault.mitto && state.vault.mitto.configured),
       renderProviderFlag("WhatsApp", state.vault && state.vault.whatsapp && state.vault.whatsapp.configured)
     ].join("");
+  }
+
+  function renderSchedulerStatus(payload) {
+    const sched = (payload && payload.scheduler) || {};
+    const setText = (id, value) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = value && String(value).trim() ? String(value) : "\u2014";
+    };
+    setText("sched-mode", sched.schedule);
+    setText("sched-last-tick", sched.last_tick_at);
+    setText("sched-last-success", sched.last_success_at);
+    setText("sched-next-due", sched.next_due_at);
+    setText("sched-last-workflow", sched.last_workflow);
+    setText("sched-last-error", sched.last_error);
   }
 
   function renderSummaryStrip() {

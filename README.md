@@ -300,6 +300,16 @@ pookie research recommendations --status draft
 
 **Diagnostics.** `pookie doctor` prints a "Research Scheduler" panel; the `/api/v1/console` JSON returned by the gateway includes a `scheduler` object that the web UI surfaces.
 
+> **Migration note.** Earlier versions stored watchlists in the
+> `research_watchlists` vault key. That value is now imported into
+> `state/research/watchlists/` once on first startup; afterwards the vault
+> field is read-only and `PUT /api/v1/settings/vault` will return HTTP 400
+> if you try to write to it. Edit watchlists via:
+>
+>     pookie research watchlists apply --file watchlists.json
+>
+> or the Research panel in the web console.
+
 ## Run Sample Workflows
 
 ```powershell
