@@ -1677,3 +1677,20 @@ pre {
     font-size: 20px;
   }
 }
+
+.setting-deprecated {
+  border-left: 3px solid #c69300;
+  background: #fff8e1;
+  padding: 0.6rem 0.8rem;
+  margin: 0.5rem 0;
+  font-size: 0.9rem;
+  border-radius: 4px;
+}
+.setting-deprecated p {
+  margin: 0;
+}
+.setting-deprecated code {
+  background: #f3eccc;
+  padding: 0 0.3em;
+  border-radius: 3px;
+}

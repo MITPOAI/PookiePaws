@@ -465,7 +465,11 @@
                       <label class="field">Action policy<input name="action_policy" type="text" placeholder="approval_gated"></label>
                       <label class="field field-span-2">Trusted domains<textarea name="trusted_domains" placeholder="example.com&#10;docs.example.com"></textarea></label>
                       <label class="field field-span-2">Storage format<input name="storage_format" type="text" placeholder="compact_v1"></label>
-                      <label class="field field-span-2">Research watchlists JSON<textarea name="research_watchlists" placeholder='[{"name":"OpenClaw core watchlist","topic":"OpenClaw","company":"PookiePaws","competitors":["OpenClaw"],"domains":["openclaw.example"],"pages":["https://openclaw.example/pricing"],"market":"AU pet gifting","focus_areas":["pricing","positioning","offers"]}]'></textarea></label>
+                      <div class="setting-deprecated field-span-2">
+                        <p><strong>Watchlists moved.</strong> Edit them in the
+                        <a href="#research">Research panel</a> or via
+                        <code>pookie research watchlists apply --file watchlists.json</code>.</p>
+                      </div>
                     </div>
                   </section>
 
