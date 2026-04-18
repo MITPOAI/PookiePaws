@@ -398,6 +398,7 @@ func runAPISmoke() ([]smokeCheck, bool) {
 		Store:       stack.store,
 		Vault:       stack.secrets,
 		WhatsApp:    adapters.NewMockWhatsAppAdapter(),
+		Dossier:     stack.dossier,
 		Address:     "127.0.0.1:0",
 	})
 	httpServer := httptest.NewServer(server.Handler())

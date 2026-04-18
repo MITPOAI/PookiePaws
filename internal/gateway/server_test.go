@@ -99,6 +99,10 @@ func newHarness(t *testing.T, address string, promptBrain PromptDispatcher) harn
 	if err != nil {
 		t.Fatalf("create coordinator: %v", err)
 	}
+	dossierSvc, err := dossier.NewService(runtimeRoot)
+	if err != nil {
+		t.Fatalf("create dossier service: %v", err)
+	}
 
 	return harness{
 		server: NewServer(Config{
@@ -108,6 +112,7 @@ func newHarness(t *testing.T, address string, promptBrain PromptDispatcher) harn
 			Store:       store,
 			Vault:       secrets,
 			WhatsApp:    adapters.NewMockWhatsAppAdapter(),
+			Dossier:     dossierSvc,
 			Address:     address,
 		}),
 		bus:         bus,

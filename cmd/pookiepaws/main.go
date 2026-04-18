@@ -13,6 +13,7 @@ import (
 
 	"github.com/mitpoai/pookiepaws/internal/adapters"
 	"github.com/mitpoai/pookiepaws/internal/brain"
+	"github.com/mitpoai/pookiepaws/internal/dossier"
 	"github.com/mitpoai/pookiepaws/internal/engine"
 	"github.com/mitpoai/pookiepaws/internal/gateway"
 	"github.com/mitpoai/pookiepaws/internal/persistence"
@@ -97,6 +98,11 @@ func main() {
 		log.Printf("brain disabled: no LLM provider configured")
 	}
 
+	dossierSvc, err := dossier.NewService(runtimeRoot)
+	if err != nil {
+		log.Fatalf("create dossier service: %v", err)
+	}
+
 	shutdown := make(chan struct{}, 1)
 	api := gateway.NewServer(gateway.Config{
 		Coordinator: coord,
@@ -105,6 +111,7 @@ func main() {
 		Store:       store,
 		Vault:       secrets,
 		WhatsApp:    adapters.NewWhatsAppAdapter(),
+		Dossier:     dossierSvc,
 		Address:     *addr,
 		RequestShutdown: func() {
 			select {

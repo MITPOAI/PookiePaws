@@ -35,6 +35,7 @@ type Config struct {
 	Store           engine.StateStore
 	Vault           Vault
 	WhatsApp        engine.ChannelAdapter
+	Dossier         *dossier.Service
 	Address         string
 	RequestShutdown func()
 }
@@ -250,6 +251,7 @@ type Server struct {
 	brain           PromptDispatcher
 	vault           Vault
 	whatsApp        engine.ChannelAdapter
+	dossier         *dossier.Service
 	requestShutdown func()
 	chat            *chatStore
 	address         string
@@ -271,6 +273,7 @@ func NewServer(cfg Config) *Server {
 		brain:           cfg.Brain,
 		vault:           cfg.Vault,
 		whatsApp:        cfg.WhatsApp,
+		dossier:         cfg.Dossier,
 		requestShutdown: cfg.RequestShutdown,
 		chat:            newChatStore(cfg.Store),
 		address:         cfg.Address,
@@ -519,7 +522,7 @@ func (s *Server) handleConsole(writer http.ResponseWriter, request *http.Request
 		writeJSONError(writer, err, http.StatusInternalServerError)
 		return
 	}
-	researchState, err := loadResearchSnapshot(request.Context(), status.RuntimeRoot)
+	researchState, err := s.loadResearchSnapshot(request.Context())
 	if err != nil {
 		writeJSONError(writer, err, http.StatusInternalServerError)
 		return
@@ -1073,12 +1076,7 @@ func (s *Server) handleDemoSmoke(writer http.ResponseWriter, request *http.Reque
 }
 
 func (s *Server) handleResearchWatchlists(writer http.ResponseWriter, request *http.Request) {
-	status, err := s.coordinator.Status(request.Context())
-	if err != nil {
-		writeJSONError(writer, err, http.StatusInternalServerError)
-		return
-	}
-	service, err := dossier.NewService(status.RuntimeRoot)
+	service, err := s.dossierService()
 	if err != nil {
 		writeJSONError(writer, err, http.StatusInternalServerError)
 		return
@@ -1149,12 +1147,7 @@ func (s *Server) handleResearchWatchlistRefresh(writer http.ResponseWriter, requ
 }
 
 func (s *Server) handleResearchDossiers(writer http.ResponseWriter, request *http.Request) {
-	status, err := s.coordinator.Status(request.Context())
-	if err != nil {
-		writeJSONError(writer, err, http.StatusInternalServerError)
-		return
-	}
-	service, err := dossier.NewService(status.RuntimeRoot)
+	service, err := s.dossierService()
 	if err != nil {
 		writeJSONError(writer, err, http.StatusInternalServerError)
 		return
@@ -1203,12 +1196,7 @@ func (s *Server) handleResearchEvidence(writer http.ResponseWriter, request *htt
 		writer.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	status, err := s.coordinator.Status(request.Context())
-	if err != nil {
-		writeJSONError(writer, err, http.StatusInternalServerError)
-		return
-	}
-	service, err := dossier.NewService(status.RuntimeRoot)
+	service, err := s.dossierService()
 	if err != nil {
 		writeJSONError(writer, err, http.StatusInternalServerError)
 		return
@@ -1226,12 +1214,7 @@ func (s *Server) handleResearchChanges(writer http.ResponseWriter, request *http
 		writer.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	status, err := s.coordinator.Status(request.Context())
-	if err != nil {
-		writeJSONError(writer, err, http.StatusInternalServerError)
-		return
-	}
-	service, err := dossier.NewService(status.RuntimeRoot)
+	service, err := s.dossierService()
 	if err != nil {
 		writeJSONError(writer, err, http.StatusInternalServerError)
 		return
@@ -1249,12 +1232,7 @@ func (s *Server) handleResearchRecommendations(writer http.ResponseWriter, reque
 		writer.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	status, err := s.coordinator.Status(request.Context())
-	if err != nil {
-		writeJSONError(writer, err, http.StatusInternalServerError)
-		return
-	}
-	service, err := dossier.NewService(status.RuntimeRoot)
+	service, err := s.dossierService()
 	if err != nil {
 		writeJSONError(writer, err, http.StatusInternalServerError)
 		return
@@ -1268,12 +1246,7 @@ func (s *Server) handleResearchRecommendations(writer http.ResponseWriter, reque
 }
 
 func (s *Server) handleResearchRecommendationAction(writer http.ResponseWriter, request *http.Request) {
-	status, err := s.coordinator.Status(request.Context())
-	if err != nil {
-		writeJSONError(writer, err, http.StatusInternalServerError)
-		return
-	}
-	service, err := dossier.NewService(status.RuntimeRoot)
+	service, err := s.dossierService()
 	if err != nil {
 		writeJSONError(writer, err, http.StatusInternalServerError)
 		return
@@ -1453,8 +1426,15 @@ func (s *Server) handleAutoApproval(writer http.ResponseWriter, request *http.Re
 	}
 }
 
-func loadResearchSnapshot(ctx context.Context, runtimeRoot string) (dossier.Snapshot, error) {
-	service, err := dossier.NewService(runtimeRoot)
+func (s *Server) dossierService() (*dossier.Service, error) {
+	if s.dossier == nil {
+		return nil, fmt.Errorf("dossier service not configured")
+	}
+	return s.dossier, nil
+}
+
+func (s *Server) loadResearchSnapshot(ctx context.Context) (dossier.Snapshot, error) {
+	service, err := s.dossierService()
 	if err != nil {
 		return dossier.Snapshot{}, err
 	}

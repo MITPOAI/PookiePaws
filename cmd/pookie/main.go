@@ -213,6 +213,7 @@ func cmdStart(args []string) {
 		Store:       stack.store,
 		Vault:       stack.secrets,
 		WhatsApp:    adapters.NewWhatsAppAdapter(),
+		Dossier:     stack.dossier,
 		Address:     *addr,
 		RequestShutdown: func() {
 			select {
