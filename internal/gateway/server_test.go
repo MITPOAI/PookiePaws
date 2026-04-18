@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"github.com/mitpoai/pookiepaws/internal/brain"
 	"github.com/mitpoai/pookiepaws/internal/dossier"
 	"github.com/mitpoai/pookiepaws/internal/engine"
+	"github.com/mitpoai/pookiepaws/internal/scheduler"
 	"github.com/mitpoai/pookiepaws/internal/security"
 	"github.com/mitpoai/pookiepaws/internal/skills"
 	"github.com/mitpoai/pookiepaws/internal/state"
@@ -43,10 +45,11 @@ func (stubBrain) DispatchPrompt(_ context.Context, _ string) (brain.DispatchResu
 }
 
 type harness struct {
-	server  *Server
-	bus     engine.EventBus
-	coord   engine.WorkflowCoordinator
-	secrets *security.JSONSecretProvider
+	server      *Server
+	bus         engine.EventBus
+	coord       engine.WorkflowCoordinator
+	secrets     *security.JSONSecretProvider
+	runtimeRoot string
 }
 
 func newHarness(t *testing.T, address string, promptBrain PromptDispatcher) harness {
@@ -107,9 +110,10 @@ func newHarness(t *testing.T, address string, promptBrain PromptDispatcher) harn
 			WhatsApp:    adapters.NewMockWhatsAppAdapter(),
 			Address:     address,
 		}),
-		bus:     bus,
-		coord:   coord,
-		secrets: secrets,
+		bus:         bus,
+		coord:       coord,
+		secrets:     secrets,
+		runtimeRoot: runtimeRoot,
 	}
 }
 
@@ -163,6 +167,48 @@ func TestGatewayConsoleSnapshot(t *testing.T) {
 	}
 	if snapshot.LiveResearchSmoke != nil {
 		t.Fatalf("expected no live research smoke before it has been run")
+	}
+}
+
+func TestGatewayConsoleSnapshotIncludesScheduler(t *testing.T) {
+	h := newHarness(t, "127.0.0.1:18800", stubBrain{})
+
+	statePath := scheduler.DefaultStatePath(h.runtimeRoot)
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
+		t.Fatalf("mkdir scheduler state dir: %v", err)
+	}
+	payload := []byte(`{"schedule":"hourly","last_workflow":"wf-123"}`)
+	if err := os.WriteFile(statePath, payload, 0o600); err != nil {
+		t.Fatalf("write scheduler state: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/console", nil)
+	recorder := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"scheduler"`) {
+		t.Fatalf("expected scheduler field in response body: %s", body)
+	}
+	if !strings.Contains(body, `"schedule":"hourly"`) {
+		t.Fatalf("expected schedule=hourly in response body: %s", body)
+	}
+
+	var snapshot ConsoleSnapshot
+	if err := json.Unmarshal(recorder.Body.Bytes(), &snapshot); err != nil {
+		t.Fatalf("decode console snapshot: %v", err)
+	}
+	if snapshot.Scheduler == nil {
+		t.Fatalf("expected scheduler snapshot to be populated")
+	}
+	if snapshot.Scheduler.Schedule != "hourly" {
+		t.Fatalf("expected schedule=hourly, got %q", snapshot.Scheduler.Schedule)
+	}
+	if snapshot.Scheduler.LastWorkflow != "wf-123" {
+		t.Fatalf("expected last_workflow=wf-123, got %q", snapshot.Scheduler.LastWorkflow)
 	}
 }
 
