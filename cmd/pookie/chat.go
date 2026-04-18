@@ -17,6 +17,7 @@ import (
 // through the PookiePaws brain service. Each prompt may produce a workflow
 // submission, a safety intervention, or a friendly error.
 func cmdChat(args []string) {
+	defer maybeShowUpdateNotice(context.Background(), version, os.Stderr, "")
 	fs := flag.NewFlagSet("chat", flag.ExitOnError)
 	home := fs.String("home", "", "override runtime home directory")
 	sessionID := fs.String("session", "", "resume an existing session id")

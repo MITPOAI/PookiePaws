@@ -103,3 +103,50 @@ func TestVersionConfigDefaults(t *testing.T) {
 
 // Smoke: the package-level shim that the dispatcher calls is wired correctly.
 var _ = updatecheck.DefaultCachePath
+
+func TestMaybeShowUpdateNoticeRespectsSkip(t *testing.T) {
+	t.Setenv("CI", "true")
+	var stderr bytes.Buffer
+	maybeShowUpdateNotice(context.Background(), "0.5.2", &stderr, "https://invalid.invalid")
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no output when CI=true, got %q", stderr.String())
+	}
+}
+
+func TestMaybeShowUpdateNoticePrintsWhenNewer(t *testing.T) {
+	t.Setenv("CI", "")
+	t.Setenv("POOKIEPAWS_NO_UPDATE_NOTIFIER", "")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"tag_name":"v9.9.9","html_url":"https://x"}`))
+	}))
+	defer srv.Close()
+
+	// Override the cache path to a fresh tmp file so we always hit the network.
+	t.Setenv("POOKIEPAWS_UPDATE_CACHE_PATH", filepath.Join(t.TempDir(), "uc.json"))
+
+	var stderr bytes.Buffer
+	maybeShowUpdateNotice(context.Background(), "0.5.2", &stderr, srv.URL)
+
+	got := stderr.String()
+	if !strings.Contains(got, "update available") {
+		t.Fatalf("expected update notice, got %q", got)
+	}
+}
+
+func TestMaybeShowUpdateNoticeSilentOnError(t *testing.T) {
+	t.Setenv("CI", "")
+	t.Setenv("POOKIEPAWS_NO_UPDATE_NOTIFIER", "")
+	t.Setenv("POOKIEPAWS_UPDATE_CACHE_PATH", filepath.Join(t.TempDir(), "uc.json"))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(500)
+	}))
+	defer srv.Close()
+
+	var stderr bytes.Buffer
+	maybeShowUpdateNotice(context.Background(), "0.5.2", &stderr, srv.URL)
+	if stderr.Len() != 0 {
+		t.Fatalf("expected silent failure, got %q", stderr.String())
+	}
+}

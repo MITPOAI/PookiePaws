@@ -17,6 +17,7 @@ import (
 // and provider URLs, explains how they are stored, and writes
 // ~/.pookiepaws/.security.json with mode 0600.
 func cmdInit(args []string) {
+	defer maybeShowUpdateNotice(context.Background(), version, os.Stderr, "")
 	p := cli.Stdout()
 	p.PinkBanner()
 	p.Accent("Pookie setup")

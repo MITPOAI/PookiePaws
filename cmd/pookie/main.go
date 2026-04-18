@@ -67,6 +67,7 @@ func main() {
 }
 
 func launchInteractiveMenu() {
+	defer maybeShowUpdateNotice(context.Background(), version, os.Stderr, "")
 	p := cli.Stdout()
 	p.Banner()
 
@@ -134,6 +135,7 @@ func printUsage() {
 // ── pookie start ─────────────────────────────────────────────────────────────
 
 func cmdStart(args []string) {
+	defer maybeShowUpdateNotice(context.Background(), version, os.Stderr, "")
 	fs := flag.NewFlagSet("start", flag.ExitOnError)
 	addr := fs.String("addr", "127.0.0.1:18800", "HTTP listen address")
 	home := fs.String("home", "", "override runtime home directory")

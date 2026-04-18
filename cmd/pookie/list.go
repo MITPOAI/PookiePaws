@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -25,6 +26,7 @@ type skillEntry struct {
 // It combines the built-in skills from the embedded registry with any
 // additional skills installed in the workspace/skills directory.
 func cmdList(args []string) {
+	defer maybeShowUpdateNotice(context.Background(), version, os.Stderr, "")
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
 	home := fs.String("home", "", "override runtime home directory")
 	_ = fs.Parse(args)
