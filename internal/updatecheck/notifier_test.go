@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -121,10 +122,18 @@ func TestCheckReturnsNilWhenUpToDate(t *testing.T) {
 
 func TestUpgradeHintFallback(t *testing.T) {
 	// With an empty PATH, both winget and brew lookups fail; we expect the
-	// install-script fallback hint.
+	// install-script fallback hint. Assert the substring so the test fails
+	// if winget/brew leak in via PATHEXT or App Paths.
 	t.Setenv("PATH", "")
 	hint := UpgradeHint(runtime.GOOS)
 	if hint == "" {
 		t.Fatal("expected non-empty fallback hint")
+	}
+	wantSubstring := "install.sh"
+	if runtime.GOOS == "windows" {
+		wantSubstring = "install.ps1"
+	}
+	if !strings.Contains(hint, wantSubstring) {
+		t.Fatalf("expected fallback hint to mention %q, got %q", wantSubstring, hint)
 	}
 }

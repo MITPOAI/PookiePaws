@@ -67,7 +67,10 @@ func Check(ctx context.Context, opts Options) (*Notice, error) {
 
 	var rel *Release
 	if !opts.Force {
-		entry, _ := opts.Cache.Load()
+		entry, err := opts.Cache.Load()
+		if err != nil {
+			return nil, fmt.Errorf("load cache: %w", err)
+		}
 		if entry != nil && !entry.IsExpired(opts.TTL, time.Now().UTC()) {
 			r := entry.Release
 			rel = &r
@@ -82,10 +85,12 @@ func Check(ctx context.Context, opts Options) (*Notice, error) {
 		if err != nil {
 			return nil, err
 		}
-		_ = opts.Cache.Save(&CacheEntry{
+		if err := opts.Cache.Save(&CacheEntry{
 			CheckedAt: time.Now().UTC(),
 			Release:   *fetched,
-		})
+		}); err != nil {
+			return nil, fmt.Errorf("save cache: %w", err)
+		}
 		rel = fetched
 	}
 
@@ -118,7 +123,8 @@ func UpgradeHint(goos string) string {
 	}
 }
 
-// FormatNotice renders a one-line message suitable for stderr.
+// FormatNotice renders a two-line stderr message: the headline on the first
+// line and the upgrade hint on the second.
 func (n *Notice) FormatNotice() string {
 	return fmt.Sprintf("update available: %s → %s  (%s)\n  upgrade: %s",
 		n.Current, n.Latest, n.URL, n.Hint)
