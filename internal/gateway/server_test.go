@@ -49,6 +49,7 @@ type harness struct {
 	bus         engine.EventBus
 	coord       engine.WorkflowCoordinator
 	secrets     *security.JSONSecretProvider
+	dossier     *dossier.Service
 	runtimeRoot string
 }
 
@@ -118,6 +119,7 @@ func newHarness(t *testing.T, address string, promptBrain PromptDispatcher) harn
 		bus:         bus,
 		coord:       coord,
 		secrets:     secrets,
+		dossier:     dossierSvc,
 		runtimeRoot: runtimeRoot,
 	}
 }
@@ -679,6 +681,15 @@ func TestGatewayResearchControlPlaneLifecycle(t *testing.T) {
 		"action_policy":       "approval_gated",
 	}); err != nil {
 		t.Fatalf("seed research settings: %v", err)
+	}
+
+	// Mirror the daemon startup flow: import the legacy `research_watchlists`
+	// vault key into state-backed storage. The refresh endpoint no longer
+	// reads the vault key directly — it consults state via the dossier
+	// service, so this migration step is required for the test to exercise
+	// the production code path.
+	if _, err := dossier.MigrateLegacyWatchlists(context.Background(), h.dossier, h.secrets); err != nil {
+		t.Fatalf("migrate legacy watchlists: %v", err)
 	}
 
 	refreshRequest := httptest.NewRequest(http.MethodPost, "/api/v1/research/watchlists/refresh", nil)

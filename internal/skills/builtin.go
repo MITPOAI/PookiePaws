@@ -355,7 +355,13 @@ func newDossierService(req engine.SkillRequest) (*dossier.Service, error) {
 	return dossier.NewService(req.Sandbox.RuntimeRoot())
 }
 
-func parseWatchlistsInput(input map[string]any, secrets engine.SecretProvider) ([]dossier.Watchlist, error) {
+// parseWatchlistsInput extracts watchlists from the skill input map. Callers
+// supply them either as a JSON string under "watchlists_json" or as a slice
+// under "watchlists". When neither is present this returns (nil, nil); the
+// caller is expected to fall back to the dossier service's state-backed
+// storage. The deprecated `research_watchlists` vault key is no longer
+// consulted (import-only since v1.1).
+func parseWatchlistsInput(input map[string]any, _ engine.SecretProvider) ([]dossier.Watchlist, error) {
 	if raw := strings.TrimSpace(conv.AsString(input["watchlists_json"])); raw != "" {
 		return dossier.ParseWatchlists(raw, dossier.ParseTrustedDomains(conv.AsString(input["trusted_domains"])))
 	}
@@ -365,11 +371,6 @@ func parseWatchlistsInput(input map[string]any, secrets engine.SecretProvider) (
 			return nil, err
 		}
 		return dossier.ParseWatchlists(string(data), dossier.ParseTrustedDomains(conv.AsString(input["trusted_domains"])))
-	}
-	if secrets != nil {
-		raw, _ := secrets.Get("research_watchlists")
-		trusted, _ := secrets.Get("trusted_domains")
-		return dossier.ParseWatchlists(raw, dossier.ParseTrustedDomains(trusted))
 	}
 	return nil, nil
 }
@@ -545,7 +546,7 @@ func (s *WatchlistRefreshSkill) Execute(ctx context.Context, req engine.SkillReq
 		}
 	}
 	if len(watchlists) == 0 {
-		return engine.SkillResult{}, fmt.Errorf("no watchlists provided or configured")
+		return engine.SkillResult{}, fmt.Errorf("watchlists must be supplied via skill input or saved to state-backed storage; apply them with 'pookie research watchlists apply' (vault key research_watchlists is import-only since v1.1)")
 	}
 	result, err := service.RefreshWatchlists(ctx, watchlists, req.Secrets)
 	if err != nil {

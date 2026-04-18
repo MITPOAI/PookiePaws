@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -215,5 +216,86 @@ func TestMaxLastRunAtNoneRun(t *testing.T) {
 	}
 	if got != nil {
 		t.Fatalf("expected nil when no watchlist has run, got %v", got)
+	}
+}
+
+// TestRefreshConfiguredWatchlistsReadsState asserts that
+// RefreshConfiguredWatchlists pulls watchlists from state-backed storage
+// (SaveWatchlists -> ListWatchlists) and ignores any value supplied via the
+// deprecated `research_watchlists` vault key. Plan 3 demoted that key to
+// import-only on daemon startup; this test guards the regression that the
+// refresh path could fall back to it.
+func TestRefreshConfiguredWatchlistsReadsState(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/search":
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte(`<html><body><a href="https://openclaw.example/pricing">OpenClaw Pricing</a></body></html>`))
+		case "/robots.txt":
+			_, _ = w.Write([]byte("User-agent: *\nAllow: /\n"))
+		case "/pricing":
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte(`<html><title>Pricing</title><body>Premium operator plan with tracked bundles.</body></html>`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("POOKIEPAWS_INTERNAL_SEARCH_BASE_URL", server.URL+"/search")
+
+	service, err := NewServiceWithResearch(t.TempDir(), research.NewService().WithHTTPClient(&http.Client{Transport: redirectTransport(server)}))
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	// Save a watchlist via state-backed storage (the canonical write path).
+	if _, err := service.SaveWatchlists(context.Background(), []Watchlist{{
+		ID:          "wl-state",
+		Name:        "OpenClaw state-backed watchlist",
+		Topic:       "OpenClaw",
+		Company:     "PookiePaws",
+		Competitors: []string{"OpenClaw"},
+		Pages:       []string{"https://openclaw.example/pricing"},
+		Market:      "AU pet gifting",
+		FocusAreas:  []string{"pricing", "positioning"},
+	}}); err != nil {
+		t.Fatalf("SaveWatchlists: %v", err)
+	}
+
+	// Supply a noisy vault entry that should be IGNORED. If the refresh path
+	// regresses and falls back to the vault key, this entry would either
+	// overwrite the saved one or surface in the result.
+	secrets := stubSecrets{
+		"research_watchlists": `[{"id":"wl-vault","name":"vault-only watchlist","topic":"VaultOnly","competitors":["GhostCorp"]}]`,
+	}
+
+	result, err := service.RefreshConfiguredWatchlists(context.Background(), secrets)
+	if err != nil {
+		t.Fatalf("RefreshConfiguredWatchlists: %v", err)
+	}
+	if len(result.Watchlists) != 1 {
+		t.Fatalf("expected exactly 1 refreshed watchlist (state-backed), got %d", len(result.Watchlists))
+	}
+	if result.Watchlists[0].ID != "wl-state" {
+		t.Fatalf("expected refreshed watchlist ID %q, got %q (vault key may be leaking)", "wl-state", result.Watchlists[0].ID)
+	}
+	if result.Watchlists[0].Name != "OpenClaw state-backed watchlist" {
+		t.Fatalf("expected state-backed watchlist name, got %q", result.Watchlists[0].Name)
+	}
+}
+
+// TestRefreshConfiguredWatchlistsEmptyStateErrors asserts a clear error when
+// no watchlists are saved, even if the deprecated vault key has content.
+func TestRefreshConfiguredWatchlistsEmptyStateErrors(t *testing.T) {
+	svc := newDossierServiceForTest(t)
+	secrets := stubSecrets{
+		"research_watchlists": `[{"id":"wl-vault","name":"vault","topic":"x"}]`,
+	}
+	_, err := svc.RefreshConfiguredWatchlists(context.Background(), secrets)
+	if err == nil {
+		t.Fatal("expected error when no watchlists in state-backed storage")
+	}
+	if !strings.Contains(err.Error(), "no watchlists configured") {
+		t.Fatalf("expected error to mention 'no watchlists configured', got: %v", err)
 	}
 }
