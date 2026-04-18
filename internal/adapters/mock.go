@@ -127,10 +127,10 @@ type MockResendAdapter struct{}
 
 var _ engine.MarketingChannel = (*MockResendAdapter)(nil)
 
-func NewMockResendAdapter() *MockResendAdapter          { return &MockResendAdapter{} }
-func (a *MockResendAdapter) Name() string               { return "resend" }
-func (a *MockResendAdapter) Kind() string               { return "email" }
-func (a *MockResendAdapter) SecretKeys() []string        { return []string{"resend_api_key", "resend_from"} }
+func NewMockResendAdapter() *MockResendAdapter    { return &MockResendAdapter{} }
+func (a *MockResendAdapter) Name() string         { return "resend" }
+func (a *MockResendAdapter) Kind() string         { return "email" }
+func (a *MockResendAdapter) SecretKeys() []string { return []string{"resend_api_key", "resend_from"} }
 func (a *MockResendAdapter) Status(_ engine.SecretProvider) engine.ChannelProviderStatus {
 	return engine.ChannelProviderStatus{Provider: "resend", Channel: "email", Configured: true, Healthy: true, Message: "mocked"}
 }
@@ -145,10 +145,10 @@ type MockHubSpotAdapter struct{}
 
 var _ engine.MarketingChannel = (*MockHubSpotAdapter)(nil)
 
-func NewMockHubSpotAdapter() *MockHubSpotAdapter         { return &MockHubSpotAdapter{} }
-func (a *MockHubSpotAdapter) Name() string               { return "hubspot" }
-func (a *MockHubSpotAdapter) Kind() string               { return "crm" }
-func (a *MockHubSpotAdapter) SecretKeys() []string        { return []string{"hubspot_api_key"} }
+func NewMockHubSpotAdapter() *MockHubSpotAdapter   { return &MockHubSpotAdapter{} }
+func (a *MockHubSpotAdapter) Name() string         { return "hubspot" }
+func (a *MockHubSpotAdapter) Kind() string         { return "crm" }
+func (a *MockHubSpotAdapter) SecretKeys() []string { return []string{"hubspot_api_key"} }
 func (a *MockHubSpotAdapter) Status(_ engine.SecretProvider) engine.ChannelProviderStatus {
 	return engine.ChannelProviderStatus{Provider: "hubspot", Channel: "crm", Configured: true, Healthy: true, Message: "mocked"}
 }
@@ -163,10 +163,12 @@ type MockFirecrawlAdapter struct{}
 
 var _ engine.MarketingChannel = (*MockFirecrawlAdapter)(nil)
 
-func NewMockFirecrawlAdapter() *MockFirecrawlAdapter      { return &MockFirecrawlAdapter{} }
-func (a *MockFirecrawlAdapter) Name() string               { return "firecrawl" }
-func (a *MockFirecrawlAdapter) Kind() string               { return "research" }
-func (a *MockFirecrawlAdapter) SecretKeys() []string        { return []string{"firecrawl_api_key", "jina_api_key"} }
+func NewMockFirecrawlAdapter() *MockFirecrawlAdapter { return &MockFirecrawlAdapter{} }
+func (a *MockFirecrawlAdapter) Name() string         { return "firecrawl" }
+func (a *MockFirecrawlAdapter) Kind() string         { return "research" }
+func (a *MockFirecrawlAdapter) SecretKeys() []string {
+	return []string{"firecrawl_api_key", "jina_api_key"}
+}
 func (a *MockFirecrawlAdapter) Status(_ engine.SecretProvider) engine.ChannelProviderStatus {
 	return engine.ChannelProviderStatus{Provider: "firecrawl", Channel: "research", Configured: true, Healthy: true, Message: "mocked"}
 }
