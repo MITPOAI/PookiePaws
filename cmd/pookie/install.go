@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -10,9 +12,15 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/mod/semver"
+
 	"github.com/mitpoai/pookiepaws/internal/cli"
 	"github.com/mitpoai/pookiepaws/internal/skills"
 )
+
+// githubAPIBase is the base URL for the GitHub REST API. Tests can swap
+// this to point at an httptest.Server.
+var githubAPIBase = "https://api.github.com"
 
 // cmdInstall downloads a SKILL.md from a public GitHub repository, validates
 // it against the security sandbox rules, and saves it into the workspace
@@ -20,21 +28,28 @@ import (
 //
 // Supported argument formats:
 //
-//	owner/repo              tries main → master → HEAD
+//	owner/repo              resolves @latest tag, falls back to main → master → HEAD
 //	owner/repo@ref          uses the specified branch or tag
+//	owner/repo@latest       resolves to the highest semver tag
 //	owner/repo/subpath      fetches from a subdirectory
 //	owner/repo/subpath@ref  subpath at a specific ref
 func cmdInstall(args []string) {
-	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: pookie install <owner/repo[@ref]>")
-		os.Exit(1)
-	}
-
-	repoArg := args[0]
-
 	fs := flag.NewFlagSet("install", flag.ExitOnError)
+	yes := fs.Bool("yes", false, "Skip the confirmation prompt")
+	fs.BoolVar(yes, "y", false, "Skip the confirmation prompt (shorthand)")
 	home := fs.String("home", "", "override runtime home directory")
-	_ = fs.Parse(args[1:])
+	fs.Usage = func() {
+		fmt.Fprintln(os.Stderr, "usage: pookie install [--yes] [--home <path>] <owner/repo[@ref]>")
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		os.Exit(2)
+	}
+	if fs.NArg() != 1 {
+		fs.Usage()
+		os.Exit(2)
+	}
+	repoArg := fs.Arg(0)
 
 	p := cli.Stdout()
 	p.Banner()
@@ -50,6 +65,18 @@ func cmdInstall(args []string) {
 	if owner == "" || repo == "" {
 		p.Error("invalid repo path %q — expected owner/repo or owner/repo@ref", repoArg)
 		os.Exit(1)
+	}
+
+	// Resolve @latest or empty ref to the highest semver tag.
+	if ref == "" || ref == "latest" {
+		if tag := resolveLatestTag(owner, repo); tag != "" {
+			ref = tag
+			p.Info("resolved latest tag → %s", ref)
+		} else if ref == "latest" {
+			p.Warning("no semver-tagged release found, falling back to main")
+			ref = ""
+		}
+		// ref == "" still falls through main → master → HEAD via fetchSkillMD's existing chain
 	}
 
 	skillFile := "SKILL.md"
@@ -73,6 +100,9 @@ func cmdInstall(args []string) {
 	}
 	spin.Stop(true, fmt.Sprintf("Downloaded from %s/%s@%s (%d bytes)", owner, repo, usedRef, len(content)))
 
+	sourceURL := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s/%s", owner, repo, usedRef, skillFile)
+	p.Info("source: %s", sourceURL)
+
 	// Parse and validate.
 	manifest, err := skills.ParseSkillMarkdown(string(content))
 	if err != nil {
@@ -87,12 +117,23 @@ func cmdInstall(args []string) {
 
 	// Save to workspace/skills/<name>/SKILL.md
 	destDir := filepath.Join(workspaceRoot, "skills", manifest.Name)
+	destFile := filepath.Join(destDir, "SKILL.md")
+
+	// Confirmation prompt (unless --yes).
+	if !*yes {
+		p.Blank()
+		p.Plain("About to install skill %q from %s into %s", manifest.Name, sourceURL, destFile)
+		if !confirmYesNo("Proceed?", os.Stdin) {
+			p.Info("aborted")
+			return
+		}
+	}
+
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		p.Error("Create skill directory: %v", err)
 		os.Exit(1)
 	}
 
-	destFile := filepath.Join(destDir, "SKILL.md")
 	if err := os.WriteFile(destFile, content, 0o644); err != nil {
 		p.Error("Save SKILL.md: %v", err)
 		os.Exit(1)
@@ -116,6 +157,62 @@ func cmdInstall(args []string) {
 		{"location", destFile},
 	})
 	p.Blank()
+}
+
+// confirmYesNo writes prompt to stderr and reads a single line from in.
+// Returns true only for "y" or "yes" (case-insensitive). Any other input,
+// EOF, or error returns false (safe default — do not perform the action).
+func confirmYesNo(prompt string, in io.Reader) bool {
+	fmt.Fprintf(os.Stderr, "%s [y/N]: ", prompt)
+	reader := bufio.NewReader(in)
+	line, err := reader.ReadString('\n')
+	if err != nil && line == "" {
+		return false
+	}
+	line = strings.TrimSpace(strings.ToLower(line))
+	return line == "y" || line == "yes"
+}
+
+// resolveLatestTag queries GitHub's tags API and returns the highest
+// semver-valid tag (e.g. "v1.2.3"). Returns "" on any failure — callers
+// should fall back to the existing main → master → HEAD chain.
+func resolveLatestTag(owner, repo string) string {
+	client := &http.Client{Timeout: 5 * time.Second}
+	url := fmt.Sprintf("%s/repos/%s/%s/tags?per_page=100", githubAPIBase, owner, repo)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "pookie-install")
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	var tags []struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tags); err != nil {
+		return ""
+	}
+	var best string
+	for _, t := range tags {
+		v := t.Name
+		if !strings.HasPrefix(v, "v") {
+			v = "v" + v
+		}
+		if !semver.IsValid(v) {
+			continue
+		}
+		if best == "" || semver.Compare(v, best) > 0 {
+			best = v
+		}
+	}
+	return best
 }
 
 // parseRepoArg parses owner/repo[@ref][/subpath] from a GitHub-style path.
