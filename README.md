@@ -215,6 +215,8 @@ the binary size significantly. Drop those flags if you need a debuggable build.
 
 ## Format, Vet, Test, And Build
 
+> **Tip:** Common dev tasks are wrapped in `make` targets — see `make help`.
+
 The repository root does not contain Go source files, so commands such as `go vet` must be run with package patterns like `./...` or explicit package paths.
 
 ```powershell

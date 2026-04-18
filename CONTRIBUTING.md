@@ -23,6 +23,22 @@ Every contribution should:
 - Keep the compiled binary under 10MB
 - Use atomic writes for all file operations
 
+## Makefile
+
+The repo ships a `Makefile` with the common dev targets:
+
+| Target           | What it does                                       |
+|------------------|----------------------------------------------------|
+| `make build`     | Compile `pookie` into `./bin/`                     |
+| `make test`      | Run all tests                                      |
+| `make test-race` | Run tests with the race detector (requires gcc)   |
+| `make vet`       | Run `go vet`                                       |
+| `make fmt`       | Format Go sources with `gofmt`                    |
+| `make smoke`     | Build + run `pookie smoke` operator checks        |
+| `make release-snapshot` | Goreleaser snapshot build                  |
+
+Run `make help` for the full list. On Windows without git-bash, use `mingw32-make`.
+
 ## Documentation Governance
 
 Unless clearly not applicable, the same pull request must review and update:
