@@ -1694,3 +1694,28 @@ pre {
   padding: 0 0.3em;
   border-radius: 3px;
 }
+
+.scheduler-status {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.4rem 1rem;
+  margin: 0;
+}
+.scheduler-status dt {
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.scheduler-status dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+.scheduler-status dd.error {
+  color: var(--danger);
+}
+.scheduler-status dd .relative {
+  color: var(--muted);
+  font-size: 0.85em;
+  margin-left: 0.5em;
+}
