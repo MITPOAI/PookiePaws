@@ -229,3 +229,13 @@ By participating in this repository, you agree to follow [CODE_OF_CONDUCT.md](./
 ## Security
 
 If your contribution touches trust boundaries, secrets, integrations, or execution policy, read [SECURITY.md](./SECURITY.md) before opening a pull request.
+
+### Future: signed skill manifests
+
+`pookie install <repo>` currently fetches skill manifests from `raw.githubusercontent.com` over HTTPS without signature verification. The integration point for future cryptographic verification (e.g. Sigstore cosign attestations or detached PGP signatures) is `cmd/pookie/install.go` `fetchSkillMD`. A signed-skill design proposal should:
+
+- Define the signature artifact location relative to the manifest (sibling file vs. transparency log)
+- Specify a key-distribution model (TOFU, pinned root keys, OIDC-bound identities)
+- Make verification mandatory by default once shipped, with an opt-out flag for development
+
+Until that lands, treat installed skills as code you've audited — the existing path-traversal validation and shell-tool blocking in `install.go` are necessary but not sufficient defenses.
