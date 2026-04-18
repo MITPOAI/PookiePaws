@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -57,7 +56,7 @@ func main() {
 	case "memory":
 		cmdMemory(os.Args[2:])
 	case "version", "--version", "-v":
-		printVersion()
+		cmdVersion(os.Args[2:])
 	case "help", "--help", "-h":
 		printUsage()
 	default:
@@ -67,11 +66,8 @@ func main() {
 	}
 }
 
-func printVersion() {
-	fmt.Printf("pookie v%s %s/%s %s\n", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
-}
-
 func launchInteractiveMenu() {
+	defer maybeShowUpdateNotice(context.Background(), version, os.Stderr, "")
 	p := cli.Stdout()
 	p.Banner()
 
@@ -125,7 +121,7 @@ func printUsage() {
 	p.Blank()
 	p.Accent("Flags:")
 	p.Blank()
-	p.Plain("  -v, --version       Print version and build info")
+	p.Plain("  -v, --version       Print version and build info (use --check to force a live release lookup)")
 	p.Plain("  -h, --help          Show this help message")
 	p.Plain("      --addr          Listen address for start/status (default 127.0.0.1:18800)")
 	p.Plain("      --home          Override runtime home directory")
@@ -139,6 +135,7 @@ func printUsage() {
 // ── pookie start ─────────────────────────────────────────────────────────────
 
 func cmdStart(args []string) {
+	defer maybeShowUpdateNotice(context.Background(), version, os.Stderr, "")
 	fs := flag.NewFlagSet("start", flag.ExitOnError)
 	addr := fs.String("addr", "127.0.0.1:18800", "HTTP listen address")
 	home := fs.String("home", "", "override runtime home directory")

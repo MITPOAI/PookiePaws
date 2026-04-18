@@ -222,6 +222,7 @@ func cmdAudit(args []string) {
 }
 
 func cmdDoctor(args []string) {
+	defer maybeShowUpdateNotice(context.Background(), version, os.Stderr, "")
 	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
 	home := fs.String("home", "", "override runtime home directory")
 	brainOnly := fs.Bool("brain", false, "validate the configured brain provider and model")

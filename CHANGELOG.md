@@ -18,6 +18,16 @@ All notable changes to PookiePaws should be documented in this file.
 - **`SystemPromptBase` constant**: marketing persona + 7 security rules injected as the
   first system message in every `NativeOrchestrate` conversation
 - **`Definition() ToolDefinition`** on all four tools + `ToolRegistry.BuildDefinitions()`
+- **`pookie version --check`**: forces a live GitHub Releases lookup, bypassing the
+  on-disk cache, so operators can confirm the newest published build on demand
+- **Cached update notifier**: interactive commands (`pookie`, `start`, `chat`, `init`,
+  `list`, `doctor`) print a two-line stderr notice when a newer release is available;
+  opt out with `POOKIEPAWS_NO_UPDATE_NOTIFIER=1` or `CI=1` (gh/npm convention)
+- **`internal/updatecheck` package**: semver normalisation/comparison, GitHub Releases
+  client with request timeouts and draft filtering, 24h file cache with atomic writes
+  under `os.UserCacheDir()/pookiepaws/update-check.json` (overridable via
+  `POOKIEPAWS_UPDATE_CACHE_PATH`), and an upgrade hint that prefers `winget`/`brew`
+  when on `PATH` and falls back to the install scripts otherwise
 
 ### Changed
 
@@ -25,6 +35,8 @@ All notable changes to PookiePaws should be documented in this file.
 - `OrchestrateConfig` gains `Validator *SecurityValidator` (additive, nil-safe)
 - `pookie chat` uses `NativeOrchestrate`; falls back to text-JSON `Orchestrate` for MCP
 - `WebSearchTool` removed; `JinaScraperTool` registered under the same `web_search` name
+- `pookie version` output now includes the cached upgrade hint when a newer release
+  is known, in addition to the existing OS/arch and Go build info
 
 ### Security
 
