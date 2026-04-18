@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -22,6 +23,7 @@ import (
 var version = "0.5.2"
 
 func main() {
+	initLogger()
 	// No arguments → launch interactive menu.
 	if len(os.Args) < 2 {
 		launchInteractiveMenu()
@@ -66,7 +68,7 @@ func main() {
 	case "help", "--help", "-h":
 		printUsage()
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", os.Args[1])
+		slog.Error("unknown command", "command", os.Args[1])
 		printUsage()
 		os.Exit(1)
 	}
@@ -185,9 +187,9 @@ func cmdStart(args []string) {
 	}
 
 	if migrated, err := dossier.MigrateLegacyWatchlists(context.Background(), stack.dossier, stack.secrets); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: legacy watchlist migration failed: %v\n", err)
+		slog.Warn("legacy watchlist migration failed", "err", err)
 	} else if migrated > 0 {
-		fmt.Fprintf(os.Stderr, "migrated %d legacy watchlist(s) from vault into state\n", migrated)
+		slog.Info("migrated legacy watchlists", "count", migrated)
 	}
 
 	schedCtx, cancelSched := context.WithCancel(context.Background())
@@ -198,9 +200,7 @@ func cmdStart(args []string) {
 			Secrets:      stack.secrets,
 			StateStore:   scheduler.NewStateStore(scheduler.DefaultStatePath(runtimeRoot)),
 			MaxLastRunAt: stack.dossier.MaxLastRunAt,
-			Logger: func(level, msg string, kvs ...any) {
-				fmt.Fprintf(os.Stderr, "[scheduler:%s] %s %v\n", level, msg, kvs)
-			},
+			Logger: schedulerLoggerAdapter(slog.Default()),
 		})
 		sched.Run(schedCtx)
 	}()

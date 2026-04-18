@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -40,7 +41,7 @@ func cmdResearch(args []string) {
 	case "help", "--help", "-h":
 		printResearchUsage(os.Stdout)
 	default:
-		fmt.Fprintf(os.Stderr, "unknown research subcommand: %s\n", args[0])
+		slog.Error("unknown research subcommand", "subcommand", args[0])
 		printResearchUsage(os.Stderr)
 		os.Exit(2)
 	}
@@ -78,7 +79,7 @@ func cmdResearchWatchlists(args []string) {
 	switch args[0] {
 	case "list":
 		if err := runResearchWatchlistsList(context.Background(), svc, os.Stdout); err != nil {
-			fmt.Fprintf(os.Stderr, "list: %v\n", err)
+			slog.Error("list watchlists failed", "err", err)
 			os.Exit(1)
 		}
 	case "apply":
@@ -91,7 +92,7 @@ func cmdResearchWatchlists(args []string) {
 			input = os.Stdin
 		}
 		if err := runResearchWatchlistsApply(context.Background(), svc, *file, input, os.Stdout); err != nil {
-			fmt.Fprintf(os.Stderr, "apply: %v\n", err)
+			slog.Error("apply watchlists failed", "err", err)
 			os.Exit(1)
 		}
 	case "show":
@@ -100,7 +101,7 @@ func cmdResearchWatchlists(args []string) {
 			os.Exit(2)
 		}
 		if err := runResearchWatchlistsShow(context.Background(), svc, args[1], os.Stdout); err != nil {
-			fmt.Fprintf(os.Stderr, "show: %v\n", err)
+			slog.Error("show watchlist failed", "err", err)
 			os.Exit(1)
 		}
 	case "delete":
@@ -109,7 +110,7 @@ func cmdResearchWatchlists(args []string) {
 			os.Exit(2)
 		}
 		if err := runResearchWatchlistsDelete(context.Background(), svc, args[1], os.Stdout); err != nil {
-			fmt.Fprintf(os.Stderr, "delete: %v\n", err)
+			slog.Error("delete watchlist failed", "err", err)
 			os.Exit(1)
 		}
 	default:
@@ -226,7 +227,7 @@ func cmdResearchDossier(args []string) {
 		limit := fs.Int("limit", 50, "Maximum number of dossiers to return")
 		_ = fs.Parse(args[1:])
 		if err := runResearchDossierList(context.Background(), svc, *limit, os.Stdout); err != nil {
-			fmt.Fprintf(os.Stderr, "list: %v\n", err)
+			slog.Error("list dossiers failed", "err", err)
 			os.Exit(1)
 		}
 	case "show":
@@ -235,7 +236,7 @@ func cmdResearchDossier(args []string) {
 			os.Exit(2)
 		}
 		if err := runResearchDossierShow(context.Background(), svc, args[1], os.Stdout); err != nil {
-			fmt.Fprintf(os.Stderr, "show: %v\n", err)
+			slog.Error("show dossier failed", "err", err)
 			os.Exit(1)
 		}
 	case "diff":
@@ -244,7 +245,7 @@ func cmdResearchDossier(args []string) {
 			os.Exit(2)
 		}
 		if err := runResearchDossierDiff(context.Background(), svc, args[1], os.Stdout); err != nil {
-			fmt.Fprintf(os.Stderr, "diff: %v\n", err)
+			slog.Error("dossier diff failed", "err", err)
 			os.Exit(1)
 		}
 	case "evidence":
@@ -257,7 +258,7 @@ func cmdResearchDossier(args []string) {
 		limit := fs.Int("limit", 50, "Maximum number of evidence records to return")
 		_ = fs.Parse(args[2:])
 		if err := runResearchDossierEvidence(context.Background(), svc, dossierID, *limit, os.Stdout); err != nil {
-			fmt.Fprintf(os.Stderr, "evidence: %v\n", err)
+			slog.Error("dossier evidence failed", "err", err)
 			os.Exit(1)
 		}
 	default:
@@ -387,18 +388,18 @@ func cmdResearchRefresh(args []string) {
 
 	stack, err := buildStack(resolveRuntimeRoot(), resolveWorkspaceRoot())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "build stack: %v\n", err)
+		slog.Error("build stack failed", "err", err)
 		os.Exit(1)
 	}
 	defer stack.Close()
 
 	wls, err := stack.dossier.ListWatchlists(context.Background())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "list watchlists: %v\n", err)
+		slog.Error("list watchlists failed", "err", err)
 		os.Exit(1)
 	}
 	if len(wls) == 0 {
-		fmt.Fprintln(os.Stderr, "no watchlists configured — apply some first with: pookie research watchlists apply --file <json>")
+		slog.Error("no watchlists configured", "hint", "apply some first with: pookie research watchlists apply --file <json>")
 		os.Exit(1)
 	}
 
@@ -408,7 +409,7 @@ func cmdResearchRefresh(args []string) {
 		Input: map[string]any{"trigger": "cli"},
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "submit: %v\n", err)
+		slog.Error("submit workflow failed", "err", err)
 		os.Exit(1)
 	}
 	fmt.Printf("submitted workflow %s\n", wf.ID)
@@ -423,17 +424,17 @@ func cmdResearchSchedule(args []string) {
 
 	switch *mode {
 	case "":
-		fmt.Fprintln(os.Stderr, "--mode is required (manual|hourly|daily)")
+		slog.Error("--mode is required", "valid", "manual|hourly|daily")
 		os.Exit(2)
 	case "manual", "hourly", "daily":
 		// ok
 	default:
-		fmt.Fprintf(os.Stderr, "invalid mode %q; use manual|hourly|daily\n", *mode)
+		slog.Error("invalid mode", "mode", *mode, "valid", "manual|hourly|daily")
 		os.Exit(2)
 	}
 
 	if err := writeVaultSecret("research_schedule", *mode); err != nil {
-		fmt.Fprintf(os.Stderr, "write secret: %v\n", err)
+		slog.Error("write secret failed", "err", err)
 		os.Exit(1)
 	}
 	fmt.Printf("research_schedule = %s\n", *mode)
@@ -476,7 +477,7 @@ func cmdResearchStatus(args []string) {
 	store := scheduler.NewStateStore(scheduler.DefaultStatePath(resolveRuntimeRoot()))
 	st, err := store.Load()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "load state: %v\n", err)
+		slog.Error("load state failed", "err", err)
 		os.Exit(1)
 	}
 	svc := mustDossierService()
@@ -521,7 +522,7 @@ func cmdResearchRecommendations(args []string) {
 				os.Exit(2)
 			}
 			if err := runResearchRecommendationsShow(context.Background(), svc, args[1], os.Stdout); err != nil {
-				fmt.Fprintf(os.Stderr, "show: %v\n", err)
+				slog.Error("show recommendation failed", "err", err)
 				os.Exit(1)
 			}
 			return
@@ -539,7 +540,7 @@ func cmdResearchRecommendations(args []string) {
 				os.Exit(2)
 			}
 			if err := runResearchRecommendationsQueue(context.Background(), svc, id, *workflow, os.Stdout); err != nil {
-				fmt.Fprintf(os.Stderr, "queue: %v\n", err)
+				slog.Error("queue recommendation failed", "err", err)
 				os.Exit(1)
 			}
 			return
@@ -549,12 +550,12 @@ func cmdResearchRecommendations(args []string) {
 				os.Exit(2)
 			}
 			if err := runResearchRecommendationsDiscard(context.Background(), svc, args[1], os.Stdout); err != nil {
-				fmt.Fprintf(os.Stderr, "discard: %v\n", err)
+				slog.Error("discard recommendation failed", "err", err)
 				os.Exit(1)
 			}
 			return
 		default:
-			fmt.Fprintf(os.Stderr, "unknown recommendations subcommand: %s\n", args[0])
+			slog.Error("unknown recommendations subcommand", "subcommand", args[0])
 			os.Exit(2)
 		}
 	}
@@ -571,14 +572,14 @@ func cmdResearchRecommendations(args []string) {
 		string(dossier.RecommendationDiscarded):
 		// ok
 	default:
-		fmt.Fprintf(os.Stderr, "invalid status %q; valid: draft|queued|submitted|discarded\n", *status)
+		slog.Error("invalid status", "status", *status, "valid", "draft|queued|submitted|discarded")
 		os.Exit(2)
 	}
 
 	svc := mustDossierService()
 	recs, err := svc.ListRecommendations(context.Background(), dossier.RecommendationStatus(*status), 100)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "list: %v\n", err)
+		slog.Error("list recommendations failed", "err", err)
 		os.Exit(1)
 	}
 	if len(recs) == 0 {
@@ -652,7 +653,7 @@ func runResearchRecommendationsDiscard(ctx context.Context, svc *dossier.Service
 func mustDossierService() *dossier.Service {
 	svc, err := dossier.NewService(resolveRuntimeRoot())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "init dossier service: %v\n", err)
+		slog.Error("init dossier service failed", "err", err)
 		os.Exit(1)
 	}
 	return svc

@@ -318,6 +318,15 @@ setx POOKIEPAWS_NO_UPDATE_NOTIFIER 1
 
 **Upgrade hint.** When a newer release is detected, the printed hint prefers `winget` or `brew` if either is on `PATH`; otherwise it points back at the install scripts (`install.sh` / `install.ps1`).
 
+## Logging
+
+Operational logs from the CLI go through `log/slog` and are written to stderr. Two env vars control the output:
+
+- `POOKIEPAWS_LOG_FORMAT`: `text` (default, human-friendly) or `json` for structured shipping
+- `POOKIEPAWS_LOG_LEVEL`: `debug`, `info` (default), `warn`, `error`
+
+User-facing CLI output (the pretty box renderer, banners, command results) is unaffected — only operational warnings, errors, and scheduler events route through slog.
+
 ## Research Automation
 
 `pookie research` manages watchlists, dossier generation, and the periodic refresh scheduler. The scheduler runs *only* inside `pookie start` — one-shot commands (`run`, `version`, `doctor`) never trigger it.
