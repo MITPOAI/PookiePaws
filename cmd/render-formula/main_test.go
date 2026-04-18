@@ -6,11 +6,11 @@ import (
 )
 
 func TestParseChecksums(t *testing.T) {
-	in := `abc123  pookiepaws_0.5.2_darwin_arm64.tar.gz
-def456  pookiepaws_0.5.2_darwin_amd64.tar.gz
-789ghi  pookiepaws_0.5.2_linux_arm64.tar.gz
-000jkl  pookiepaws_0.5.2_linux_amd64.tar.gz
-xxxxxx  pookiepaws_0.5.2_windows_amd64.zip
+	in := `abc123  pookie_0.5.2_darwin_arm64.tar.gz
+def456  pookie_0.5.2_darwin_amd64.tar.gz
+789ghi  pookie_0.5.2_linux_arm64.tar.gz
+000jkl  pookie_0.5.2_linux_amd64.tar.gz
+xxxxxx  pookie_0.5.2_windows_amd64.zip
 `
 	got, err := parseChecksums(strings.NewReader(in), "0.5.2")
 	if err != nil {
@@ -40,7 +40,7 @@ func TestRenderTemplate(t *testing.T) {
 }
 
 func TestParseChecksumsMissingPlatform(t *testing.T) {
-	in := `abc  pookiepaws_0.5.2_darwin_arm64.tar.gz
+	in := `abc  pookie_0.5.2_darwin_arm64.tar.gz
 `
 	_, err := parseChecksums(strings.NewReader(in), "0.5.2")
 	if err == nil {

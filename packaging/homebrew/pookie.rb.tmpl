@@ -6,22 +6,22 @@ class Pookie < Formula
 
   on_macos do
     on_arm do
-      url "https://github.com/MITPOAI/PookiePaws/releases/download/v{{ .Version }}/pookiepaws_{{ .Version }}_darwin_arm64.tar.gz"
+      url "https://github.com/MITPOAI/PookiePaws/releases/download/v{{ .Version }}/pookie_{{ .Version }}_darwin_arm64.tar.gz"
       sha256 "{{ .DarwinArm64SHA256 }}"
     end
     on_intel do
-      url "https://github.com/MITPOAI/PookiePaws/releases/download/v{{ .Version }}/pookiepaws_{{ .Version }}_darwin_amd64.tar.gz"
+      url "https://github.com/MITPOAI/PookiePaws/releases/download/v{{ .Version }}/pookie_{{ .Version }}_darwin_amd64.tar.gz"
       sha256 "{{ .DarwinAmd64SHA256 }}"
     end
   end
 
   on_linux do
     on_arm do
-      url "https://github.com/MITPOAI/PookiePaws/releases/download/v{{ .Version }}/pookiepaws_{{ .Version }}_linux_arm64.tar.gz"
+      url "https://github.com/MITPOAI/PookiePaws/releases/download/v{{ .Version }}/pookie_{{ .Version }}_linux_arm64.tar.gz"
       sha256 "{{ .LinuxArm64SHA256 }}"
     end
     on_intel do
-      url "https://github.com/MITPOAI/PookiePaws/releases/download/v{{ .Version }}/pookiepaws_{{ .Version }}_linux_amd64.tar.gz"
+      url "https://github.com/MITPOAI/PookiePaws/releases/download/v{{ .Version }}/pookie_{{ .Version }}_linux_amd64.tar.gz"
       sha256 "{{ .LinuxAmd64SHA256 }}"
     end
   end

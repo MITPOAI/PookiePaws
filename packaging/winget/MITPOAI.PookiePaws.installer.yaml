@@ -15,7 +15,7 @@ Commands:
 ReleaseDate: 2026-04-18
 Installers:
   - Architecture: x64
-    InstallerUrl: https://github.com/MITPOAI/PookiePaws/releases/download/v0.5.2/pookiepaws_0.5.2_windows_amd64.zip
+    InstallerUrl: https://github.com/MITPOAI/PookiePaws/releases/download/v0.5.2/pookie_0.5.2_windows_amd64.zip
     InstallerSha256: REPLACE_WITH_SHA256_FROM_RELEASE
 ManifestType: installer
 ManifestVersion: 1.6.0

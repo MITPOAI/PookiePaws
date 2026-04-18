@@ -89,7 +89,7 @@ func parseChecksums(r io.Reader, version string) (assets, error) {
 		}
 		sum, file := fields[0], fields[1]
 		for suffix, target := range wantSuffixes {
-			expected := fmt.Sprintf("pookiepaws_%s_%s", version, suffix)
+			expected := fmt.Sprintf("pookie_%s_%s", version, suffix)
 			if file == expected {
 				*target = sum
 			}
