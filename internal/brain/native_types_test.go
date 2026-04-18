@@ -45,8 +45,8 @@ func TestChatMessageToolCallsRoundTrip(t *testing.T) {
 	msg := ChatMessage{
 		Role: "assistant",
 		ToolCalls: []ToolCall{{
-			ID:   "call_1",
-			Type: "function",
+			ID:       "call_1",
+			Type:     "function",
 			Function: ToolCallFunc{Name: "web_search", Arguments: `{"url":"https://example.com"}`},
 		}},
 	}

@@ -79,7 +79,7 @@ func (noopCoordinator) Status(context.Context) (engine.StatusSnapshot, error) {
 	return engine.StatusSnapshot{StartedAt: time.Now().UTC()}, nil
 }
 func (noopCoordinator) ValidateSkill(context.Context, string, map[string]any) error { return nil }
-func (noopCoordinator) SkillDefinitions() []engine.SkillDefinition                 { return nil }
+func (noopCoordinator) SkillDefinitions() []engine.SkillDefinition                  { return nil }
 func (noopCoordinator) ApproveFileAccess(context.Context, string) (engine.FilePermission, error) {
 	return engine.FilePermission{}, nil
 }

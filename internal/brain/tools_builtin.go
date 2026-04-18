@@ -21,7 +21,7 @@ type ExportMarkdownTool struct {
 
 var _ Tool = (*ExportMarkdownTool)(nil)
 
-func (t *ExportMarkdownTool) Name() string        { return "export_markdown" }
+func (t *ExportMarkdownTool) Name() string { return "export_markdown" }
 func (t *ExportMarkdownTool) Description() string {
 	return "Save text content as a Markdown file in the workspace exports folder. Returns the file path."
 }
@@ -99,7 +99,7 @@ type OSCommandTool struct {
 
 var _ Tool = (*OSCommandTool)(nil)
 
-func (t *OSCommandTool) Name() string        { return "os_command" }
+func (t *OSCommandTool) Name() string { return "os_command" }
 func (t *OSCommandTool) Description() string {
 	return "Run a shell command on the host machine. Requires user approval before execution. Only allowlisted read-only commands are permitted (cat, git status, git log, go test, whoami, etc)."
 }
