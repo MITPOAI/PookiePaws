@@ -211,7 +211,7 @@ pookie run <skill>        Execute a skill directly in this terminal
 pookie status             Check whether the agent is running
 pookie install <repo>     Install a skill from GitHub
 pookie init               First-run setup wizard
-pookie -v, --version      Print version with OS/arch and Go build info
+pookie -v, --version      Print version and build info (use --check to force a live release lookup)
 pookie -h, --help         Show help
 ```
 
@@ -236,6 +236,38 @@ commands: `/skills`, `/clear`, `/exit`.
 # or at a specific ref:
 .\pookie.exe install owner/repo@v1.2.0
 ```
+
+## Update Notifications
+
+Interactive commands (`pookie`, `start`, `chat`, `init`, `list`, `doctor`) print a short two-line stderr notice when a newer GitHub release has been seen recently — the check runs in the background using a cached result and never blocks startup.
+
+`pookie version` prints the running build along with the cached upgrade hint, while `pookie version --check` bypasses the cache and performs a live lookup against the GitHub Releases API:
+
+```bash
+pookie version
+```
+
+```bash
+pookie version --check
+```
+
+**Opt out.** Set `POOKIEPAWS_NO_UPDATE_NOTIFIER=1` to suppress the notice entirely. The notifier also auto-disables when `CI=1` is set, matching the `gh` and `npm` convention so CI logs stay clean.
+
+```bash
+export POOKIEPAWS_NO_UPDATE_NOTIFIER=1
+# or per-invocation
+POOKIEPAWS_NO_UPDATE_NOTIFIER=1 pookie start
+```
+
+```powershell
+$env:POOKIEPAWS_NO_UPDATE_NOTIFIER = "1"
+# persist for new shells
+setx POOKIEPAWS_NO_UPDATE_NOTIFIER 1
+```
+
+**Cache location.** The notifier caches the latest-release lookup at `os.UserCacheDir()/pookiepaws/update-check.json` with a 24-hour TTL and atomic writes. Set `POOKIEPAWS_UPDATE_CACHE_PATH` to redirect the cache file (used by tests, but also a documented escape hatch for sandboxed environments).
+
+**Upgrade hint.** When a newer release is detected, the printed hint prefers `winget` or `brew` if either is on `PATH`; otherwise it points back at the install scripts (`install.sh` / `install.ps1`).
 
 ## Run Sample Workflows
 
