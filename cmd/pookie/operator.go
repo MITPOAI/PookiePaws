@@ -11,8 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mitpoai/pookiepaws/internal/brain"
 	"github.com/mitpoai/pookiepaws/internal/cli"
 	"github.com/mitpoai/pookiepaws/internal/engine"
+	"github.com/mitpoai/pookiepaws/internal/state"
 )
 
 func cmdSessions(args []string) {
@@ -198,8 +200,7 @@ func cmdAudit(args []string) {
 		os.Exit(1)
 	}
 
-	path := filepath.Join(runtimeRoot, "state", "audits", "audit.jsonl")
-	entries, err := tailLines(path, *lines)
+	entries, err := state.ReadRecentAuditEntries(filepath.Join(runtimeRoot, "state"), *lines)
 	if err != nil {
 		p.Error("read audit log: %v", err)
 		os.Exit(1)
@@ -209,8 +210,13 @@ func cmdAudit(args []string) {
 		p.Blank()
 		return
 	}
-	for _, line := range entries {
-		p.Plain("%s", line)
+	for _, entry := range entries {
+		data, err := json.Marshal(entry)
+		if err != nil {
+			p.Error("format audit entry: %v", err)
+			os.Exit(1)
+		}
+		p.Plain("%s", data)
 	}
 	p.Blank()
 }
@@ -432,25 +438,21 @@ func cmdContext(args []string) {
 	p.Blank()
 
 	// Persistent memory.
-	memoryPath := filepath.Join(runtimeRoot, "state", "runtime", "brain-memory.json")
-	memData, readErr := os.ReadFile(memoryPath)
-	if readErr == nil && len(memData) > 0 {
-		var snapshot struct {
-			Narrative string            `json:"narrative"`
-			Variables map[string]string `json:"variables"`
-			Recent    []struct {
-				Skill   string `json:"skill"`
-				Status  string `json:"status"`
-				Summary string `json:"summary"`
-			} `json:"recent"`
-			LastFlush time.Time `json:"last_flush"`
-		}
-		if jsonErr := json.Unmarshal(memData, &snapshot); jsonErr == nil {
+	memoryPath := brain.DetectPersistentMemoryPath(runtimeRoot)
+	memInfo, memErr := os.Stat(memoryPath)
+	memoryReader, readerErr := brain.NewPersistentMemory(runtimeRoot, nil, nil)
+	if readerErr == nil {
+		snapshot, snapshotErr := memoryReader.Snapshot(ctx)
+		if snapshotErr == nil && (len(snapshot.Recent) > 0 || len(snapshot.Variables) > 0 || strings.TrimSpace(snapshot.Narrative) != "" || !snapshot.LastFlush.IsZero()) {
+			fileSize := int64(0)
+			if memErr == nil {
+				fileSize = memInfo.Size()
+			}
 			p.Box("Persistent Memory", [][2]string{
 				{"entries", fmt.Sprintf("%d", len(snapshot.Recent))},
 				{"variables", fmt.Sprintf("%d", len(snapshot.Variables))},
 				{"last flush", snapshot.LastFlush.Format(time.RFC3339)},
-				{"file size", fmt.Sprintf("%d bytes", len(memData))},
+				{"file size", fmt.Sprintf("%d bytes", fileSize)},
 			})
 			p.Blank()
 			if narrative := strings.TrimSpace(snapshot.Narrative); narrative != "" {
@@ -474,6 +476,9 @@ func cmdContext(args []string) {
 				}
 				p.Blank()
 			}
+		} else {
+			p.Box("Persistent Memory", [][2]string{{"status", "empty"}})
+			p.Blank()
 		}
 	} else {
 		p.Box("Persistent Memory", [][2]string{{"status", "empty"}})
@@ -517,21 +522,8 @@ func cmdMemory(args []string) {
 	}
 
 	if *prune {
-		memoryPath := filepath.Join(runtimeRoot, "state", "runtime", "brain-memory.json")
-		empty := map[string]any{
-			"narrative":  "",
-			"variables":  map[string]string{},
-			"recent":     []any{},
-			"last_flush": time.Now().UTC(),
-		}
-		data, _ := json.MarshalIndent(empty, "", "  ")
-		tmp := memoryPath + ".tmp"
-		if writeErr := os.WriteFile(tmp, data, 0o644); writeErr != nil {
-			p.Error("write memory: %v", writeErr)
-			os.Exit(1)
-		}
-		if renameErr := os.Rename(tmp, memoryPath); renameErr != nil {
-			p.Error("rename memory: %v", renameErr)
+		if pruneErr := brain.PrunePersistentMemory(runtimeRoot); pruneErr != nil {
+			p.Error("write memory: %v", pruneErr)
 			os.Exit(1)
 		}
 		p.Success("Persistent memory pruned (entries, variables, and narrative cleared)")
@@ -551,27 +543,17 @@ func cmdMemory(args []string) {
 	}
 
 	// Default: show memory summary (same as pookie context but just memory).
-	memoryPath := filepath.Join(runtimeRoot, "state", "runtime", "brain-memory.json")
-	data, readErr := os.ReadFile(memoryPath)
-	if readErr != nil || len(data) == 0 {
+	memoryPath := brain.DetectPersistentMemoryPath(runtimeRoot)
+	memoryReader, err := brain.NewPersistentMemory(runtimeRoot, nil, nil)
+	if err != nil {
+		p.Error("open memory: %v", err)
+		os.Exit(1)
+	}
+	snapshot, readErr := memoryReader.Snapshot(context.Background())
+	if readErr != nil || (len(snapshot.Recent) == 0 && len(snapshot.Variables) == 0 && strings.TrimSpace(snapshot.Narrative) == "" && snapshot.LastFlush.IsZero()) {
 		p.Warning("No persistent memory recorded yet")
 		p.Blank()
 		return
-	}
-	var snapshot struct {
-		Narrative string            `json:"narrative"`
-		Variables map[string]string `json:"variables"`
-		Recent    []struct {
-			Skill      string    `json:"skill"`
-			Status     string    `json:"status"`
-			Summary    string    `json:"summary"`
-			RecordedAt time.Time `json:"recorded_at"`
-		} `json:"recent"`
-		LastFlush time.Time `json:"last_flush"`
-	}
-	if jsonErr := json.Unmarshal(data, &snapshot); jsonErr != nil {
-		p.Error("parse memory: %v", jsonErr)
-		os.Exit(1)
 	}
 	p.Box("Persistent Memory", [][2]string{
 		{"entries", fmt.Sprintf("%d / 16", len(snapshot.Recent))},

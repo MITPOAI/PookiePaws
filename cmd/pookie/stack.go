@@ -8,6 +8,7 @@ import (
 	"github.com/mitpoai/pookiepaws/internal/adapters"
 	"github.com/mitpoai/pookiepaws/internal/brain"
 	"github.com/mitpoai/pookiepaws/internal/engine"
+	"github.com/mitpoai/pookiepaws/internal/persistence"
 	"github.com/mitpoai/pookiepaws/internal/security"
 	"github.com/mitpoai/pookiepaws/internal/skills"
 	"github.com/mitpoai/pookiepaws/internal/state"
@@ -50,14 +51,17 @@ func buildStack(runtimeRoot, workspaceRoot string) (*appStack, error) {
 	if err != nil {
 		return nil, fmt.Errorf("secrets: %w", err)
 	}
+	storageFormat := persistence.NormalizeFormat(optionalSecret(secrets, "storage_format"))
 
-	store, err := state.NewFileStore(filepath.Join(runtimeRoot, "state"))
+	store, err := state.NewFileStoreWithOptions(filepath.Join(runtimeRoot, "state"), state.Options{
+		Format: storageFormat,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("state store: %w", err)
 	}
 
 	providers := brain.NewSecretBackedProviderFactory(secrets)
-	memory, err := brain.NewPersistentMemory(runtimeRoot, providers, bus)
+	memory, err := brain.NewPersistentMemoryWithOptions(runtimeRoot, providers, bus, storageFormat)
 	if err != nil {
 		return nil, fmt.Errorf("persistent memory: %w", err)
 	}
@@ -118,6 +122,17 @@ func buildStack(runtimeRoot, workspaceRoot string) (*appStack, error) {
 		runtimeRoot: runtimeRoot,
 		workspace:   workspaceRoot,
 	}, nil
+}
+
+func optionalSecret(secrets *security.JSONSecretProvider, key string) string {
+	if secrets == nil {
+		return ""
+	}
+	value, err := secrets.Get(key)
+	if err != nil {
+		return ""
+	}
+	return value
 }
 
 // Close shuts down background goroutines. Best-effort; errors are ignored.
