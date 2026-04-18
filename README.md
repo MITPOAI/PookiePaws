@@ -90,6 +90,15 @@ Download the binary for your platform from the [Releases page](https://github.co
 
 The installer scripts automatically detect your OS and architecture, download the right binary, and add `pookie` to your PATH. No Go toolchain required.
 
+### Shell completion
+
+```bash
+pookie completion bash > /etc/bash_completion.d/pookie    # then re-source
+pookie completion zsh  > "${fpath[1]}/_pookie"            # zsh
+pookie completion fish > ~/.config/fish/completions/pookie.fish
+pookie completion powershell >> $PROFILE                  # Windows
+```
+
 ## Updating
 
 | Channel        | Command                                          |

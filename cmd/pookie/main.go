@@ -59,6 +59,8 @@ func main() {
 		cmdContext(os.Args[2:])
 	case "memory":
 		cmdMemory(os.Args[2:])
+	case "completion":
+		cmdCompletion(os.Args[2:])
 	case "version", "--version", "-v":
 		cmdVersion(os.Args[2:])
 	case "help", "--help", "-h":
@@ -123,6 +125,7 @@ func printUsage() {
 	p.Plain("  memory             Manage persistent brain memory (prune, inspect)")
 	p.Plain("  install <repo>     Install a skill from a GitHub repository")
 	p.Plain("  init               Interactive first-run setup wizard")
+	p.Plain("  completion <shell> Generate shell completion (bash|zsh|fish|powershell)")
 	p.Blank()
 	p.Accent("Flags:")
 	p.Blank()
