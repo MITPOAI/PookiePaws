@@ -24,7 +24,7 @@ tmp/
 .security.*.json
 
 # Research and snapshots
-research/
+/research/
 vendor-snapshots/
 
 # Editors and OS noise
