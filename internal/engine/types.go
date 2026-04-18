@@ -34,8 +34,12 @@ const (
 	EventFileAccessRejected  EventType = "file.access.rejected"
 	EventFileAccessDenied    EventType = "file.access.denied"
 
-	EventChannelIncoming EventType = "channel.incoming"
-	EventAutoApproved    EventType = "approval.auto_approved"
+	EventChannelIncoming         EventType = "channel.incoming"
+	EventAutoApproved            EventType = "approval.auto_approved"
+	EventResearchObserved        EventType = "research.observed"
+	EventDossierGenerated        EventType = "dossier.generated"
+	EventRecommendationQueued    EventType = "recommendation.queued"
+	EventRecommendationDiscarded EventType = "recommendation.discarded"
 )
 
 type Event struct {

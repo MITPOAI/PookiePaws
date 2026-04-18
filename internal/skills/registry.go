@@ -39,6 +39,14 @@ func NewDefaultRegistry() (*Registry, error) {
 			registry.Register(NewWhatsAppMessageDrafterSkill(manifest))
 		case "mitpo-ba-researcher":
 			registry.Register(NewBAResearcherSkill(manifest))
+		case "mitpo-dossier-generate":
+			registry.Register(NewDossierGenerateSkill(manifest))
+		case "mitpo-dossier-diff":
+			registry.Register(NewDossierDiffSkill(manifest))
+		case "mitpo-watchlist-refresh":
+			registry.Register(NewWatchlistRefreshSkill(manifest))
+		case "mitpo-recommend-actions":
+			registry.Register(NewRecommendActionsSkill(manifest))
 		case "mitpo-creative-director":
 			registry.Register(NewCreativeDirectorSkill(manifest))
 		case "mitpo-seo-auditor":

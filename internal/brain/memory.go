@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mitpoai/pookiepaws/internal/engine"
+	"github.com/mitpoai/pookiepaws/internal/persistence"
 )
 
 type ConversationTurn struct {
@@ -50,6 +51,7 @@ type MemoryReader interface {
 
 type PersistentMemory struct {
 	path         string
+	format       persistence.Format
 	bus          engine.EventBus
 	factory      ProviderFactory
 	maxEntries   int
@@ -160,12 +162,18 @@ func (w *ConversationWindow) loadLocked() {
 }
 
 func NewPersistentMemory(runtimeRoot string, factory ProviderFactory, bus engine.EventBus) (*PersistentMemory, error) {
-	path := filepath.Join(runtimeRoot, "state", "runtime", "brain-memory.json")
+	return NewPersistentMemoryWithOptions(runtimeRoot, factory, bus, persistence.FormatCompactV1)
+}
+
+func NewPersistentMemoryWithOptions(runtimeRoot string, factory ProviderFactory, bus engine.EventBus, format persistence.Format) (*PersistentMemory, error) {
+	format = persistence.NormalizeFormat(string(format))
+	path := PersistentMemoryPath(runtimeRoot, format)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
 	return &PersistentMemory{
 		path:         path,
+		format:       format,
 		bus:          bus,
 		factory:      factory,
 		maxEntries:   16,
@@ -286,36 +294,31 @@ func (m *PersistentMemory) summarizeWorkflow(ctx context.Context, workflow engin
 }
 
 func (m *PersistentMemory) readLocked() (MemorySnapshot, error) {
-	data, err := os.ReadFile(m.path)
-	if err != nil {
+	for _, format := range persistence.PreferredReadOrder(m.format) {
+		path := PersistentMemoryPath(filepath.Dir(filepath.Dir(filepath.Dir(m.path))), format)
+		snapshot, err := readMemoryFile(path, format)
+		if err == nil {
+			if snapshot.Variables == nil {
+				snapshot.Variables = map[string]string{}
+			}
+			return snapshot, nil
+		}
 		if os.IsNotExist(err) {
-			return MemorySnapshot{
-				Variables: map[string]string{},
-			}, nil
+			continue
 		}
 		return MemorySnapshot{}, err
 	}
-
-	var snapshot MemorySnapshot
-	if err := json.Unmarshal(data, &snapshot); err != nil {
-		return MemorySnapshot{}, err
-	}
-	if snapshot.Variables == nil {
-		snapshot.Variables = map[string]string{}
-	}
-	return snapshot, nil
+	return MemorySnapshot{Variables: map[string]string{}}, nil
 }
 
 func (m *PersistentMemory) writeLocked(snapshot MemorySnapshot) error {
-	data, err := json.MarshalIndent(snapshot, "", "  ")
-	if err != nil {
+	if err := writeMemoryFile(m.path, m.format, snapshot); err != nil {
 		return err
 	}
-	tmp := m.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
+	if m.format == persistence.FormatCompactV1 {
+		_ = os.Remove(PersistentMemoryPath(filepath.Dir(filepath.Dir(filepath.Dir(m.path))), persistence.FormatJSON))
 	}
-	return os.Rename(tmp, m.path)
+	return nil
 }
 
 func extractWorkflowVariables(workflow engine.Workflow, max int) map[string]string {

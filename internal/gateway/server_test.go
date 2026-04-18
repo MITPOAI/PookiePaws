@@ -14,6 +14,7 @@ import (
 
 	"github.com/mitpoai/pookiepaws/internal/adapters"
 	"github.com/mitpoai/pookiepaws/internal/brain"
+	"github.com/mitpoai/pookiepaws/internal/dossier"
 	"github.com/mitpoai/pookiepaws/internal/engine"
 	"github.com/mitpoai/pookiepaws/internal/security"
 	"github.com/mitpoai/pookiepaws/internal/skills"
@@ -156,6 +157,12 @@ func TestGatewayConsoleSnapshot(t *testing.T) {
 	}
 	if !snapshot.Vault.CanWrite {
 		t.Fatalf("expected vault writes to be enabled on loopback")
+	}
+	if snapshot.DemoSmoke != nil {
+		t.Fatalf("expected no demo smoke before it has been run")
+	}
+	if snapshot.LiveResearchSmoke != nil {
+		t.Fatalf("expected no live research smoke before it has been run")
 	}
 }
 
@@ -428,5 +435,201 @@ func TestGatewayWhatsAppConnectionTest(t *testing.T) {
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("unexpected status %d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestGatewayDemoSmokeLifecycle(t *testing.T) {
+	h := newHarness(t, "127.0.0.1:18800", nil)
+
+	runRequest := httptest.NewRequest(http.MethodPost, "/api/v1/demo/smoke", nil)
+	runRecorder := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(runRecorder, runRequest)
+	if runRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected run status %d body=%s", runRecorder.Code, runRecorder.Body.String())
+	}
+
+	var result struct {
+		Passed       bool   `json:"passed"`
+		ArtifactPath string `json:"artifact_path"`
+	}
+	if err := json.Unmarshal(runRecorder.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode demo smoke: %v", err)
+	}
+	if !result.Passed || result.ArtifactPath == "" {
+		t.Fatalf("expected successful demo smoke, got %+v", result)
+	}
+
+	consoleRequest := httptest.NewRequest(http.MethodGet, "/api/v1/console", nil)
+	consoleRecorder := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(consoleRecorder, consoleRequest)
+	if consoleRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected console status %d body=%s", consoleRecorder.Code, consoleRecorder.Body.String())
+	}
+
+	var snapshot ConsoleSnapshot
+	if err := json.Unmarshal(consoleRecorder.Body.Bytes(), &snapshot); err != nil {
+		t.Fatalf("decode console snapshot: %v", err)
+	}
+	if snapshot.DemoSmoke == nil || snapshot.DemoSmoke.ArtifactPath == "" {
+		t.Fatalf("expected demo smoke in console snapshot, got %+v", snapshot.DemoSmoke)
+	}
+	if snapshot.LiveResearchSmoke != nil {
+		t.Fatalf("expected live research smoke to remain empty, got %+v", snapshot.LiveResearchSmoke)
+	}
+
+	getRequest := httptest.NewRequest(http.MethodGet, "/api/v1/demo/smoke", nil)
+	getRecorder := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(getRecorder, getRequest)
+	if getRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected get status %d body=%s", getRecorder.Code, getRecorder.Body.String())
+	}
+}
+
+func TestGatewayLiveResearchSmokeLifecycle(t *testing.T) {
+	h := newHarness(t, "127.0.0.1:18800", nil)
+	if err := h.secrets.Update(map[string]string{
+		"firecrawl_api_key": "fc-test",
+	}); err != nil {
+		t.Fatalf("seed firecrawl secret: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v2/search":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"success": true,
+				"data": map[string]any{
+					"web": []map[string]any{
+						{
+							"title":       "OpenClaw Pricing",
+							"description": "Operator pricing",
+							"url":         "https://openclaw.example/pricing",
+							"markdown":    "# Pricing\nPremium operator plan.",
+						},
+					},
+				},
+			})
+		default:
+			w.Header().Set("Content-Type", "text/markdown")
+			_, _ = w.Write([]byte("# Mock page"))
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("POOKIEPAWS_FIRECRAWL_BASE_URL", server.URL)
+	t.Setenv("POOKIEPAWS_JINA_BASE_URL", server.URL)
+
+	runRequest := httptest.NewRequest(http.MethodPost, "/api/v1/demo/smoke?mode=live", nil)
+	runRecorder := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(runRecorder, runRequest)
+	if runRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected run status %d body=%s", runRecorder.Code, runRecorder.Body.String())
+	}
+
+	var result struct {
+		Passed       bool   `json:"passed"`
+		Mode         string `json:"mode"`
+		ArtifactPath string `json:"artifact_path"`
+		SourceCount  int    `json:"source_count"`
+	}
+	if err := json.Unmarshal(runRecorder.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode live demo smoke: %v", err)
+	}
+	if !result.Passed || result.ArtifactPath == "" || result.Mode != "live" || result.SourceCount == 0 {
+		t.Fatalf("expected successful live research smoke, got %+v", result)
+	}
+
+	consoleRequest := httptest.NewRequest(http.MethodGet, "/api/v1/console", nil)
+	consoleRecorder := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(consoleRecorder, consoleRequest)
+	if consoleRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected console status %d body=%s", consoleRecorder.Code, consoleRecorder.Body.String())
+	}
+
+	var snapshot ConsoleSnapshot
+	if err := json.Unmarshal(consoleRecorder.Body.Bytes(), &snapshot); err != nil {
+		t.Fatalf("decode console snapshot: %v", err)
+	}
+	if snapshot.LiveResearchSmoke == nil || snapshot.LiveResearchSmoke.ArtifactPath == "" {
+		t.Fatalf("expected live research smoke in console snapshot, got %+v", snapshot.LiveResearchSmoke)
+	}
+
+	getRequest := httptest.NewRequest(http.MethodGet, "/api/v1/demo/smoke?mode=live", nil)
+	getRecorder := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(getRecorder, getRequest)
+	if getRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected get status %d body=%s", getRecorder.Code, getRecorder.Body.String())
+	}
+}
+
+func TestGatewayResearchControlPlaneLifecycle(t *testing.T) {
+	h := newHarness(t, "127.0.0.1:18800", nil)
+	if err := h.secrets.Update(map[string]string{
+		"research_watchlists": `[{"name":"OpenClaw core watchlist","topic":"OpenClaw","company":"PookiePaws","competitors":["OpenClaw"],"domains":["openclaw.example"],"market":"AU pet gifting","focus_areas":["pricing","positioning","offers"]}]`,
+		"research_schedule":   "manual",
+		"autonomy_policy":     "trusted_ops_v1",
+		"action_policy":       "approval_gated",
+	}); err != nil {
+		t.Fatalf("seed research settings: %v", err)
+	}
+
+	refreshRequest := httptest.NewRequest(http.MethodPost, "/api/v1/research/watchlists/refresh", nil)
+	refreshRecorder := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(refreshRecorder, refreshRequest)
+	if refreshRecorder.Code != http.StatusCreated {
+		t.Fatalf("unexpected refresh status %d body=%s", refreshRecorder.Code, refreshRecorder.Body.String())
+	}
+
+	consoleRequest := httptest.NewRequest(http.MethodGet, "/api/v1/console", nil)
+	consoleRecorder := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(consoleRecorder, consoleRequest)
+	if consoleRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected console status %d body=%s", consoleRecorder.Code, consoleRecorder.Body.String())
+	}
+
+	var snapshot ConsoleSnapshot
+	if err := json.Unmarshal(consoleRecorder.Body.Bytes(), &snapshot); err != nil {
+		t.Fatalf("decode console snapshot: %v", err)
+	}
+	if len(snapshot.Watchlists) == 0 || len(snapshot.Dossiers) == 0 || len(snapshot.Recommendations) == 0 {
+		t.Fatalf("expected research state in console snapshot, got %+v", snapshot)
+	}
+
+	recommendationsRequest := httptest.NewRequest(http.MethodGet, "/api/v1/research/recommendations", nil)
+	recommendationsRecorder := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(recommendationsRecorder, recommendationsRequest)
+	if recommendationsRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected recommendations status %d body=%s", recommendationsRecorder.Code, recommendationsRecorder.Body.String())
+	}
+
+	var recommendations []dossier.Recommendation
+	if err := json.Unmarshal(recommendationsRecorder.Body.Bytes(), &recommendations); err != nil {
+		t.Fatalf("decode recommendations: %v", err)
+	}
+	if len(recommendations) == 0 {
+		t.Fatal("expected at least one recommendation")
+	}
+
+	editRequest := httptest.NewRequest(http.MethodPut, "/api/v1/research/recommendations/"+recommendations[0].ID+"/edit", strings.NewReader(`{"title":"Operator review export"}`))
+	editRequest.Header.Set("Content-Type", "application/json")
+	editRecorder := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(editRecorder, editRequest)
+	if editRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected edit status %d body=%s", editRecorder.Code, editRecorder.Body.String())
+	}
+
+	queueRequest := httptest.NewRequest(http.MethodPost, "/api/v1/research/recommendations/"+recommendations[0].ID+"/queue", nil)
+	queueRecorder := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(queueRecorder, queueRequest)
+	if queueRecorder.Code != http.StatusCreated {
+		t.Fatalf("unexpected queue status %d body=%s", queueRecorder.Code, queueRecorder.Body.String())
+	}
+
+	discardRequest := httptest.NewRequest(http.MethodPost, "/api/v1/research/recommendations/"+recommendations[1].ID+"/discard", nil)
+	discardRecorder := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(discardRecorder, discardRequest)
+	if discardRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected discard status %d body=%s", discardRecorder.Code, discardRecorder.Body.String())
 	}
 }

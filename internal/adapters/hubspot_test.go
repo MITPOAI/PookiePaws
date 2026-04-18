@@ -175,4 +175,3 @@ func rewriteHostTransport(server *httptest.Server) http.RoundTripper {
 		return http.DefaultTransport.RoundTrip(req)
 	})
 }
-

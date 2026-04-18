@@ -2,10 +2,13 @@ package brain
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/mitpoai/pookiepaws/internal/engine"
+	"github.com/mitpoai/pookiepaws/internal/persistence"
 )
 
 func TestPersistentMemoryRecordsWorkflowAndFlushesContext(t *testing.T) {
@@ -88,5 +91,32 @@ func TestDynamicServiceFlushListenerResetsWindow(t *testing.T) {
 		default:
 			time.Sleep(10 * time.Millisecond)
 		}
+	}
+}
+
+func TestPersistentMemoryReadsLegacyJSONWhenCompactConfigured(t *testing.T) {
+	root := t.TempDir()
+	legacyPath := PersistentMemoryPath(root, persistence.FormatJSON)
+	if err := os.MkdirAll(filepath.Dir(legacyPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(legacyPath, []byte(`{"narrative":"legacy","variables":{"input.campaign_name":"Legacy"},"recent":[{"workflow_id":"wf_legacy","skill":"utm-validator","status":"completed","summary":"Legacy summary"}],"last_flush":"2026-04-14T12:00:00Z"}`), 0o644); err != nil {
+		t.Fatalf("write legacy memory: %v", err)
+	}
+
+	memory, err := NewPersistentMemoryWithOptions(root, nil, nil, persistence.FormatCompactV1)
+	if err != nil {
+		t.Fatalf("new memory: %v", err)
+	}
+
+	snapshot, err := memory.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	if snapshot.Narrative != "legacy" {
+		t.Fatalf("expected legacy narrative, got %q", snapshot.Narrative)
+	}
+	if got := snapshot.Variables["input.campaign_name"]; got != "Legacy" {
+		t.Fatalf("expected legacy variable, got %q", got)
 	}
 }

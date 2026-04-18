@@ -129,8 +129,28 @@ func NewSkillExecutionInterceptor() *SkillExecutionInterceptor {
 			},
 			"mitpo-ba-researcher": {
 				risk:        "low",
-				allowedKeys: setOf("company", "domains", "focus_areas", "market"),
+				allowedKeys: setOf("company", "competitors", "domains", "pages", "focus_areas", "market", "country", "location", "max_sources", "provider", "debug"),
 				altPrompt:   "Suggest a read-only research workflow limited to public data.",
+			},
+			"mitpo-dossier-generate": {
+				risk:        "low",
+				allowedKeys: setOf("watchlist_id", "name", "topic", "company", "competitors", "domains", "pages", "focus_areas", "market", "trusted_domains", "provider", "debug"),
+				altPrompt:   "Suggest a read-only dossier workflow limited to public competitor data and grounded evidence.",
+			},
+			"mitpo-dossier-diff": {
+				risk:        "low",
+				allowedKeys: setOf("watchlist_id"),
+				altPrompt:   "Suggest a read-only dossier diff workflow limited to stored evidence.",
+			},
+			"mitpo-watchlist-refresh": {
+				risk:        "low",
+				allowedKeys: setOf("watchlists_json", "watchlists", "trusted_domains"),
+				altPrompt:   "Suggest a bounded watchlist refresh workflow limited to public competitor data.",
+			},
+			"mitpo-recommend-actions": {
+				risk:        "low",
+				allowedKeys: setOf("dossier_id", "watchlist_id"),
+				altPrompt:   "Suggest a read-only recommendation review workflow using stored dossier evidence only.",
 			},
 			"mitpo-creative-director": {
 				risk:        "low",

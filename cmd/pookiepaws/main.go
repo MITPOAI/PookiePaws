@@ -15,6 +15,7 @@ import (
 	"github.com/mitpoai/pookiepaws/internal/brain"
 	"github.com/mitpoai/pookiepaws/internal/engine"
 	"github.com/mitpoai/pookiepaws/internal/gateway"
+	"github.com/mitpoai/pookiepaws/internal/persistence"
 	"github.com/mitpoai/pookiepaws/internal/security"
 	"github.com/mitpoai/pookiepaws/internal/skills"
 	"github.com/mitpoai/pookiepaws/internal/state"
@@ -48,14 +49,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("create secret provider: %v", err)
 	}
+	storageFormat := persistence.NormalizeFormat(optionalSecret(secrets, "storage_format"))
 
-	store, err := state.NewFileStore(filepath.Join(runtimeRoot, "state"))
+	store, err := state.NewFileStoreWithOptions(filepath.Join(runtimeRoot, "state"), state.Options{
+		Format: storageFormat,
+	})
 	if err != nil {
 		log.Fatalf("create state store: %v", err)
 	}
 
 	providers := brain.NewSecretBackedProviderFactory(secrets)
-	memory, err := brain.NewPersistentMemory(runtimeRoot, providers, bus)
+	memory, err := brain.NewPersistentMemoryWithOptions(runtimeRoot, providers, bus, storageFormat)
 	if err != nil {
 		log.Fatalf("create persistent memory: %v", err)
 	}
@@ -159,4 +163,15 @@ func resolveRoots(homeOverride string) (string, string, error) {
 
 	root := filepath.Join(home, ".pookiepaws")
 	return root, filepath.Join(root, "workspace"), nil
+}
+
+func optionalSecret(secrets *security.JSONSecretProvider, key string) string {
+	if secrets == nil {
+		return ""
+	}
+	value, err := secrets.Get(key)
+	if err != nil {
+		return ""
+	}
+	return value
 }
