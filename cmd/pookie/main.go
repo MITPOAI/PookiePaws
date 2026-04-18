@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -57,7 +56,7 @@ func main() {
 	case "memory":
 		cmdMemory(os.Args[2:])
 	case "version", "--version", "-v":
-		printVersion()
+		cmdVersion(os.Args[2:])
 	case "help", "--help", "-h":
 		printUsage()
 	default:
@@ -65,10 +64,6 @@ func main() {
 		printUsage()
 		os.Exit(1)
 	}
-}
-
-func printVersion() {
-	fmt.Printf("pookie v%s %s/%s %s\n", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
 }
 
 func launchInteractiveMenu() {
