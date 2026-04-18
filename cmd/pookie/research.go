@@ -441,6 +441,33 @@ func cmdResearchSchedule(args []string) {
 
 // --- status ---
 
+// researchStatusPayload is the shape returned by buildResearchStatusPayload.
+// Centralized so both the JSON and human renderings agree on the hint logic.
+type researchStatusPayload struct {
+	Scheduler       scheduler.State `json:"scheduler"`
+	Watchlists      *int            `json:"watchlists,omitempty"`
+	WatchlistsError string          `json:"watchlists_error,omitempty"`
+	Hint            string          `json:"hint,omitempty"`
+}
+
+// buildResearchStatusPayload constructs the status payload and attaches a
+// helpful hint when the scheduler state looks completely empty (no schedule
+// configured AND no tick has ever happened). That combination almost always
+// means the daemon hasn't been started.
+func buildResearchStatusPayload(st scheduler.State, watchlistsCount int, watchlistsErr error) researchStatusPayload {
+	p := researchStatusPayload{Scheduler: st}
+	if watchlistsErr != nil {
+		p.WatchlistsError = watchlistsErr.Error()
+	} else {
+		c := watchlistsCount
+		p.Watchlists = &c
+	}
+	if st.LastTickAt.IsZero() && st.Schedule == "" {
+		p.Hint = "scheduler runs only while the daemon is running. Start it with: pookie start"
+	}
+	return p
+}
+
 func cmdResearchStatus(args []string) {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
@@ -455,15 +482,9 @@ func cmdResearchStatus(args []string) {
 	svc := mustDossierService()
 	wls, wlErr := svc.ListWatchlists(context.Background())
 
+	payload := buildResearchStatusPayload(st, len(wls), wlErr)
+
 	if *jsonOut {
-		payload := map[string]any{
-			"scheduler": st,
-		}
-		if wlErr != nil {
-			payload["watchlists_error"] = wlErr.Error()
-		} else {
-			payload["watchlists"] = len(wls)
-		}
 		emitJSONOrExit(payload)
 		return
 	}
@@ -479,6 +500,9 @@ func cmdResearchStatus(args []string) {
 	fmt.Printf("last workflow:   %s\n", emptyDash(st.LastWorkflow))
 	fmt.Printf("next due:        %s\n", formatTime(st.NextDueAt))
 	fmt.Printf("last error:      %s\n", emptyDash(st.LastError))
+	if payload.Hint != "" {
+		fmt.Printf("\nHint: %s\n", payload.Hint)
+	}
 }
 
 // --- recommendations ---

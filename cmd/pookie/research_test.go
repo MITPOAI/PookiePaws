@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mitpoai/pookiepaws/internal/dossier"
+	"github.com/mitpoai/pookiepaws/internal/scheduler"
 )
 
 func newTestDossierService(t *testing.T) *dossier.Service {
@@ -367,6 +370,50 @@ func TestResearchRecommendationsQueueRequiresWorkflow(t *testing.T) {
 	var buf bytes.Buffer
 	if err := runResearchRecommendationsQueue(context.Background(), svc, seed.ID, "", &buf); err == nil {
 		t.Fatalf("expected error when workflow id is empty")
+	}
+}
+
+// --- status hint ---
+
+func TestBuildResearchStatusPayloadEmptyAddsHint(t *testing.T) {
+	p := buildResearchStatusPayload(scheduler.State{}, 0, nil)
+	if p.Hint == "" {
+		t.Fatalf("expected hint when scheduler state is empty")
+	}
+	if !strings.Contains(p.Hint, "pookie start") {
+		t.Fatalf("expected hint to mention 'pookie start', got: %q", p.Hint)
+	}
+	if p.Watchlists == nil || *p.Watchlists != 0 {
+		t.Fatalf("expected watchlists=0 to be encoded as a pointer to 0, got: %v", p.Watchlists)
+	}
+}
+
+func TestBuildResearchStatusPayloadWithScheduleNoHint(t *testing.T) {
+	st := scheduler.State{Schedule: "hourly"}
+	p := buildResearchStatusPayload(st, 2, nil)
+	if p.Hint != "" {
+		t.Fatalf("expected no hint when schedule is set, got: %q", p.Hint)
+	}
+}
+
+func TestBuildResearchStatusPayloadWithLastTickNoHint(t *testing.T) {
+	st := scheduler.State{LastTickAt: time.Now()}
+	p := buildResearchStatusPayload(st, 0, nil)
+	if p.Hint != "" {
+		t.Fatalf("expected no hint when daemon has ticked, got: %q", p.Hint)
+	}
+}
+
+func TestBuildResearchStatusPayloadWithWatchlistsError(t *testing.T) {
+	p := buildResearchStatusPayload(scheduler.State{}, 0, errors.New("boom"))
+	if p.WatchlistsError != "boom" {
+		t.Fatalf("expected watchlists_error=boom, got: %q", p.WatchlistsError)
+	}
+	if p.Watchlists != nil {
+		t.Fatalf("expected nil watchlists count when error is present, got: %v", *p.Watchlists)
+	}
+	if p.Hint == "" {
+		t.Fatalf("expected hint when scheduler state is empty even with watchlist error")
 	}
 }
 

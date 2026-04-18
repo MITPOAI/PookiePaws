@@ -34,6 +34,13 @@ func noColor() bool {
 	return os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb"
 }
 
+// stdoutIsTTY reports whether os.Stdout is attached to a real terminal.
+// Returns false when stdout is redirected to a file or pipe (e.g.
+// `pookie status > out.txt`) so we don't pollute captured output with
+// ANSI escape codes. Reuses the cross-platform isTerminal helper defined
+// alongside the raw-mode code in rawmode_unix.go / rawmode_windows.go.
+func stdoutIsTTY() bool { return isTerminal(os.Stdout) }
+
 // ── Printer ─────────────────────────────────────────────────────────────────
 
 // Printer writes styled terminal output to an [io.Writer].
@@ -43,8 +50,9 @@ type Printer struct {
 }
 
 // New returns a Printer that writes to w.
-// Colour is automatically disabled when NO_COLOR is set or TERM=dumb.
-func New(w io.Writer) *Printer { return &Printer{out: w, color: !noColor()} }
+// Colour is automatically disabled when NO_COLOR is set, TERM=dumb, or
+// stdout is not a TTY (redirected to a file or pipe).
+func New(w io.Writer) *Printer { return &Printer{out: w, color: !noColor() && stdoutIsTTY()} }
 
 // Stdout returns a Printer writing to os.Stdout.
 func Stdout() *Printer { return New(os.Stdout) }
