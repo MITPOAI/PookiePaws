@@ -497,6 +497,10 @@ pre {
   grid-column: span 8;
 }
 
+.panel-span-6 {
+  grid-column: span 6;
+}
+
 .panel-span-4 {
   grid-column: span 4;
 }
@@ -573,6 +577,10 @@ pre {
   display: block;
   margin: 10px 0 8px;
   font-size: 22px;
+}
+
+.status-card .field {
+  margin-top: 10px;
 }
 
 .status-label {
@@ -1557,6 +1565,7 @@ pre {
    ══════════════════════════════════════════════════════════════════════════ */
 @media (max-width: 1180px) {
   .panel-span-8,
+  .panel-span-6,
   .panel-span-4 {
     grid-column: span 12;
   }

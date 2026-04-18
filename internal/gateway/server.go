@@ -12,12 +12,16 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/mitpoai/pookiepaws/internal/brain"
+	"github.com/mitpoai/pookiepaws/internal/demo"
+	"github.com/mitpoai/pookiepaws/internal/dossier"
 	"github.com/mitpoai/pookiepaws/internal/engine"
+	"github.com/mitpoai/pookiepaws/internal/persistence"
 )
 
 //go:embed ui/*
@@ -64,27 +68,48 @@ type IntegrationVaultStatus struct {
 }
 
 type VaultStatus struct {
-	CanWrite     bool                   `json:"can_write"`
-	LoopbackOnly bool                   `json:"loopback_only"`
-	Brain        ProviderVaultStatus    `json:"brain"`
-	Salesmanago  IntegrationVaultStatus `json:"salesmanago"`
-	Mitto        IntegrationVaultStatus `json:"mitto"`
-	WhatsApp     IntegrationVaultStatus `json:"whatsapp"`
+	CanWrite         bool                   `json:"can_write"`
+	LoopbackOnly     bool                   `json:"loopback_only"`
+	StorageFormat    string                 `json:"storage_format,omitempty"`
+	ResearchProvider string                 `json:"research_provider,omitempty"`
+	ResearchSchedule string                 `json:"research_schedule,omitempty"`
+	AutonomyPolicy   string                 `json:"autonomy_policy,omitempty"`
+	ActionPolicy     string                 `json:"action_policy,omitempty"`
+	TrustedDomains   []string               `json:"trusted_domains,omitempty"`
+	Brain            ProviderVaultStatus    `json:"brain"`
+	Firecrawl        IntegrationVaultStatus `json:"firecrawl"`
+	Salesmanago      IntegrationVaultStatus `json:"salesmanago"`
+	Mitto            IntegrationVaultStatus `json:"mitto"`
+	WhatsApp         IntegrationVaultStatus `json:"whatsapp"`
 }
 
 type ConsoleSnapshot struct {
-	Status          engine.StatusSnapshot          `json:"status"`
-	Brain           brain.Status                   `json:"brain"`
-	Vault           VaultStatus                    `json:"vault"`
-	Channels        []engine.ChannelProviderStatus `json:"channels"`
-	Workflows       []engine.Workflow              `json:"workflows"`
-	Approvals       []engine.Approval              `json:"approvals"`
-	FilePermissions []engine.FilePermission        `json:"file_permissions"`
-	Skills          []engine.SkillDefinition       `json:"skills"`
-	Templates       []WorkflowTemplate             `json:"templates"`
+	Status            engine.StatusSnapshot          `json:"status"`
+	Brain             brain.Status                   `json:"brain"`
+	Vault             VaultStatus                    `json:"vault"`
+	DemoSmoke         *demo.Result                   `json:"demo_smoke,omitempty"`
+	LiveResearchSmoke *demo.Result                   `json:"live_research_smoke,omitempty"`
+	Watchlists        []dossier.Watchlist            `json:"watchlists,omitempty"`
+	Dossiers          []dossier.Dossier              `json:"dossiers,omitempty"`
+	Evidence          []dossier.EvidenceRecord       `json:"evidence,omitempty"`
+	Changes           []dossier.ChangeRecord         `json:"changes,omitempty"`
+	Recommendations   []dossier.Recommendation       `json:"recommendations,omitempty"`
+	Channels          []engine.ChannelProviderStatus `json:"channels"`
+	Workflows         []engine.Workflow              `json:"workflows"`
+	Approvals         []engine.Approval              `json:"approvals"`
+	FilePermissions   []engine.FilePermission        `json:"file_permissions"`
+	Skills            []engine.SkillDefinition       `json:"skills"`
+	Templates         []WorkflowTemplate             `json:"templates"`
 }
 
 type VaultUpdateRequest struct {
+	StorageFormat              string `json:"storage_format,omitempty"`
+	ResearchProvider           string `json:"research_provider,omitempty"`
+	ResearchWatchlists         string `json:"research_watchlists,omitempty"`
+	ResearchSchedule           string `json:"research_schedule,omitempty"`
+	AutonomyPolicy             string `json:"autonomy_policy,omitempty"`
+	TrustedDomains             string `json:"trusted_domains,omitempty"`
+	ActionPolicy               string `json:"action_policy,omitempty"`
 	LLMBaseURL                 string `json:"llm_base_url,omitempty"`
 	LLMModel                   string `json:"llm_model,omitempty"`
 	LLMAPIKey                  string `json:"llm_api_key,omitempty"`
@@ -104,6 +129,13 @@ type VaultUpdateRequest struct {
 
 func (r VaultUpdateRequest) ToMap() map[string]string {
 	values := map[string]string{}
+	appendIfValue(values, "storage_format", r.StorageFormat)
+	appendIfValue(values, "research_provider", r.ResearchProvider)
+	appendIfValue(values, "research_watchlists", r.ResearchWatchlists)
+	appendIfValue(values, "research_schedule", r.ResearchSchedule)
+	appendIfValue(values, "autonomy_policy", r.AutonomyPolicy)
+	appendIfValue(values, "trusted_domains", r.TrustedDomains)
+	appendIfValue(values, "action_policy", r.ActionPolicy)
 	appendIfValue(values, "llm_base_url", r.LLMBaseURL)
 	appendIfValue(values, "llm_model", r.LLMModel)
 	appendIfValue(values, "llm_api_key", r.LLMAPIKey)
@@ -335,6 +367,14 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/v1/chat/ws", s.handleChatWebSocket)
 	s.mux.HandleFunc("/api/v1/file-permissions", s.handleFilePermissions)
 	s.mux.HandleFunc("/api/v1/file-permissions/", s.handleFilePermissionAction)
+	s.mux.HandleFunc("/api/v1/demo/smoke", s.handleDemoSmoke)
+	s.mux.HandleFunc("/api/v1/research/watchlists", s.handleResearchWatchlists)
+	s.mux.HandleFunc("/api/v1/research/watchlists/refresh", s.handleResearchWatchlistRefresh)
+	s.mux.HandleFunc("/api/v1/research/dossiers", s.handleResearchDossiers)
+	s.mux.HandleFunc("/api/v1/research/evidence", s.handleResearchEvidence)
+	s.mux.HandleFunc("/api/v1/research/changes", s.handleResearchChanges)
+	s.mux.HandleFunc("/api/v1/research/recommendations", s.handleResearchRecommendations)
+	s.mux.HandleFunc("/api/v1/research/recommendations/", s.handleResearchRecommendationAction)
 	s.mux.HandleFunc("/api/v1/settings/vault", s.handleSettingsVault)
 	s.mux.HandleFunc("/api/v1/settings/auto-approval", s.handleAutoApproval)
 }
@@ -459,17 +499,39 @@ func (s *Server) handleConsole(writer http.ResponseWriter, request *http.Request
 	if s.brain != nil {
 		brainStatus = s.brain.Status()
 	}
+	latestDemo, err := demo.LoadLatest(status.RuntimeRoot)
+	if err != nil {
+		writeJSONError(writer, err, http.StatusInternalServerError)
+		return
+	}
+	latestLive, err := demo.LoadLatestMode(status.RuntimeRoot, "live")
+	if err != nil {
+		writeJSONError(writer, err, http.StatusInternalServerError)
+		return
+	}
+	researchState, err := loadResearchSnapshot(request.Context(), status.RuntimeRoot)
+	if err != nil {
+		writeJSONError(writer, err, http.StatusInternalServerError)
+		return
+	}
 
 	writeJSON(writer, http.StatusOK, ConsoleSnapshot{
-		Status:          status,
-		Brain:           brainStatus,
-		Vault:           s.currentVaultStatus(),
-		Channels:        channels,
-		Workflows:       workflows,
-		Approvals:       approvals,
-		FilePermissions: filePerms,
-		Skills:          s.coordinator.SkillDefinitions(),
-		Templates:       defaultWorkflowTemplates(),
+		Status:            status,
+		Brain:             brainStatus,
+		Vault:             s.currentVaultStatus(),
+		DemoSmoke:         latestDemo,
+		LiveResearchSmoke: latestLive,
+		Watchlists:        researchState.Watchlists,
+		Dossiers:          researchState.Dossiers,
+		Evidence:          researchState.Evidence,
+		Changes:           researchState.Changes,
+		Recommendations:   researchState.Recommendations,
+		Channels:          channels,
+		Workflows:         workflows,
+		Approvals:         approvals,
+		FilePermissions:   filePerms,
+		Skills:            s.coordinator.SkillDefinitions(),
+		Templates:         defaultWorkflowTemplates(),
 	})
 }
 
@@ -959,6 +1021,324 @@ func (s *Server) handleBrainDispatch(writer http.ResponseWriter, request *http.R
 	writeJSON(writer, http.StatusOK, result)
 }
 
+func (s *Server) handleDemoSmoke(writer http.ResponseWriter, request *http.Request) {
+	status, err := s.coordinator.Status(request.Context())
+	if err != nil {
+		writeJSONError(writer, err, http.StatusInternalServerError)
+		return
+	}
+
+	switch request.Method {
+	case http.MethodGet:
+		mode := firstNonEmpty(strings.TrimSpace(request.URL.Query().Get("mode")), "deterministic")
+		result, err := demo.LoadLatestMode(status.RuntimeRoot, mode)
+		if err != nil {
+			writeJSONError(writer, err, http.StatusInternalServerError)
+			return
+		}
+		if result == nil {
+			writeJSON(writer, http.StatusOK, map[string]any{"status": "idle"})
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+	case http.MethodPost:
+		mode := firstNonEmpty(strings.TrimSpace(request.URL.Query().Get("mode")), "deterministic")
+		var result demo.Result
+		switch mode {
+		case "live":
+			result, err = demo.RunScenarioLiveSmoke(request.Context(), s.coordinator, status.RuntimeRoot, status.WorkspaceRoot)
+		default:
+			result, err = demo.RunScenarioSmoke(request.Context(), s.coordinator, status.RuntimeRoot, status.WorkspaceRoot)
+		}
+		if err != nil {
+			writeJSON(writer, http.StatusBadRequest, result)
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+	default:
+		writer.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleResearchWatchlists(writer http.ResponseWriter, request *http.Request) {
+	status, err := s.coordinator.Status(request.Context())
+	if err != nil {
+		writeJSONError(writer, err, http.StatusInternalServerError)
+		return
+	}
+	service, err := dossier.NewService(status.RuntimeRoot)
+	if err != nil {
+		writeJSONError(writer, err, http.StatusInternalServerError)
+		return
+	}
+
+	switch request.Method {
+	case http.MethodGet:
+		watchlists, err := service.ListWatchlists(request.Context())
+		if err != nil {
+			writeJSONError(writer, err, http.StatusInternalServerError)
+			return
+		}
+		writeJSON(writer, http.StatusOK, watchlists)
+	case http.MethodPut:
+		if !s.isLoopbackBound() {
+			writeJSONError(writer, fmt.Errorf("watchlist writes are allowed only from loopback"), http.StatusForbidden)
+			return
+		}
+		var watchlists []dossier.Watchlist
+		if err := json.NewDecoder(request.Body).Decode(&watchlists); err != nil {
+			writeJSONError(writer, err, http.StatusBadRequest)
+			return
+		}
+		saved, err := service.SaveWatchlists(request.Context(), watchlists)
+		if err != nil {
+			writeJSONError(writer, err, http.StatusInternalServerError)
+			return
+		}
+		writeJSON(writer, http.StatusOK, saved)
+	default:
+		writer.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleResearchWatchlistRefresh(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		writer.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	var payload map[string]any
+	if request.Body != nil {
+		_ = json.NewDecoder(request.Body).Decode(&payload)
+	}
+	if payload == nil {
+		payload = map[string]any{}
+	}
+
+	workflow, err := s.coordinator.SubmitWorkflow(request.Context(), engine.WorkflowDefinition{
+		Name:  "Watchlist refresh",
+		Skill: "mitpo-watchlist-refresh",
+		Input: payload,
+	})
+	if err != nil {
+		writeJSONError(writer, err, http.StatusBadRequest)
+		return
+	}
+	_ = s.eventBus.Publish(request.Context(), engine.Event{
+		Type:       engine.EventResearchObserved,
+		WorkflowID: workflow.ID,
+		Source:     "research-watchlists",
+		Payload: map[string]any{
+			"skill": workflow.Skill,
+			"name":  workflow.Name,
+		},
+	})
+	writeJSON(writer, http.StatusCreated, workflow)
+}
+
+func (s *Server) handleResearchDossiers(writer http.ResponseWriter, request *http.Request) {
+	status, err := s.coordinator.Status(request.Context())
+	if err != nil {
+		writeJSONError(writer, err, http.StatusInternalServerError)
+		return
+	}
+	service, err := dossier.NewService(status.RuntimeRoot)
+	if err != nil {
+		writeJSONError(writer, err, http.StatusInternalServerError)
+		return
+	}
+
+	switch request.Method {
+	case http.MethodGet:
+		items, err := service.ListDossiers(request.Context(), parseQueryInt(request.URL.Query().Get("limit"), 12))
+		if err != nil {
+			writeJSONError(writer, err, http.StatusInternalServerError)
+			return
+		}
+		writeJSON(writer, http.StatusOK, items)
+	case http.MethodPost:
+		var payload map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			writeJSONError(writer, err, http.StatusBadRequest)
+			return
+		}
+		workflow, err := s.coordinator.SubmitWorkflow(request.Context(), engine.WorkflowDefinition{
+			Name:  firstNonEmpty(strings.TrimSpace(fmt.Sprint(payload["name"])), "Generate dossier"),
+			Skill: "mitpo-dossier-generate",
+			Input: payload,
+		})
+		if err != nil {
+			writeJSONError(writer, err, http.StatusBadRequest)
+			return
+		}
+		_ = s.eventBus.Publish(request.Context(), engine.Event{
+			Type:       engine.EventDossierGenerated,
+			WorkflowID: workflow.ID,
+			Source:     "research-dossiers",
+			Payload: map[string]any{
+				"skill": workflow.Skill,
+				"name":  workflow.Name,
+			},
+		})
+		writeJSON(writer, http.StatusCreated, workflow)
+	default:
+		writer.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleResearchEvidence(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		writer.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	status, err := s.coordinator.Status(request.Context())
+	if err != nil {
+		writeJSONError(writer, err, http.StatusInternalServerError)
+		return
+	}
+	service, err := dossier.NewService(status.RuntimeRoot)
+	if err != nil {
+		writeJSONError(writer, err, http.StatusInternalServerError)
+		return
+	}
+	items, err := service.ListEvidence(request.Context(), strings.TrimSpace(request.URL.Query().Get("dossier_id")), parseQueryInt(request.URL.Query().Get("limit"), 24))
+	if err != nil {
+		writeJSONError(writer, err, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(writer, http.StatusOK, items)
+}
+
+func (s *Server) handleResearchChanges(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		writer.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	status, err := s.coordinator.Status(request.Context())
+	if err != nil {
+		writeJSONError(writer, err, http.StatusInternalServerError)
+		return
+	}
+	service, err := dossier.NewService(status.RuntimeRoot)
+	if err != nil {
+		writeJSONError(writer, err, http.StatusInternalServerError)
+		return
+	}
+	items, err := service.ListChanges(request.Context(), strings.TrimSpace(request.URL.Query().Get("watchlist_id")), parseQueryInt(request.URL.Query().Get("limit"), 24))
+	if err != nil {
+		writeJSONError(writer, err, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(writer, http.StatusOK, items)
+}
+
+func (s *Server) handleResearchRecommendations(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		writer.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	status, err := s.coordinator.Status(request.Context())
+	if err != nil {
+		writeJSONError(writer, err, http.StatusInternalServerError)
+		return
+	}
+	service, err := dossier.NewService(status.RuntimeRoot)
+	if err != nil {
+		writeJSONError(writer, err, http.StatusInternalServerError)
+		return
+	}
+	items, err := service.ListRecommendations(request.Context(), dossier.RecommendationStatus(strings.TrimSpace(request.URL.Query().Get("status"))), parseQueryInt(request.URL.Query().Get("limit"), 24))
+	if err != nil {
+		writeJSONError(writer, err, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(writer, http.StatusOK, items)
+}
+
+func (s *Server) handleResearchRecommendationAction(writer http.ResponseWriter, request *http.Request) {
+	status, err := s.coordinator.Status(request.Context())
+	if err != nil {
+		writeJSONError(writer, err, http.StatusInternalServerError)
+		return
+	}
+	service, err := dossier.NewService(status.RuntimeRoot)
+	if err != nil {
+		writeJSONError(writer, err, http.StatusInternalServerError)
+		return
+	}
+
+	trimmed := strings.TrimPrefix(request.URL.Path, "/api/v1/research/recommendations/")
+	parts := strings.Split(strings.Trim(trimmed, "/"), "/")
+	if len(parts) < 2 {
+		writer.WriteHeader(http.StatusNotFound)
+		return
+	}
+	id := strings.TrimSpace(parts[0])
+	action := strings.TrimSpace(parts[1])
+
+	switch {
+	case request.Method == http.MethodPut && action == "edit":
+		var update dossier.RecommendationUpdate
+		if err := json.NewDecoder(request.Body).Decode(&update); err != nil {
+			writeJSONError(writer, err, http.StatusBadRequest)
+			return
+		}
+		item, err := service.UpdateRecommendation(request.Context(), id, update)
+		if err != nil {
+			writeJSONError(writer, err, http.StatusBadRequest)
+			return
+		}
+		writeJSON(writer, http.StatusOK, item)
+	case request.Method == http.MethodPost && action == "queue":
+		item, err := service.GetRecommendation(request.Context(), id)
+		if err != nil {
+			writeJSONError(writer, err, http.StatusNotFound)
+			return
+		}
+		workflow, err := s.coordinator.SubmitWorkflow(request.Context(), item.ProposedWorkflow)
+		if err != nil {
+			writeJSONError(writer, err, http.StatusBadRequest)
+			return
+		}
+		item, err = service.MarkRecommendationQueued(request.Context(), id, workflow.ID)
+		if err != nil {
+			writeJSONError(writer, err, http.StatusInternalServerError)
+			return
+		}
+		_ = s.eventBus.Publish(request.Context(), engine.Event{
+			Type:       engine.EventRecommendationQueued,
+			WorkflowID: workflow.ID,
+			Source:     "research-recommendations",
+			Payload: map[string]any{
+				"title":             item.Title,
+				"recommendation_id": item.ID,
+				"skill":             workflow.Skill,
+			},
+		})
+		writeJSON(writer, http.StatusCreated, map[string]any{
+			"recommendation": item,
+			"workflow":       workflow,
+		})
+	case request.Method == http.MethodPost && action == "discard":
+		item, err := service.DiscardRecommendation(request.Context(), id)
+		if err != nil {
+			writeJSONError(writer, err, http.StatusBadRequest)
+			return
+		}
+		_ = s.eventBus.Publish(request.Context(), engine.Event{
+			Type:   engine.EventRecommendationDiscarded,
+			Source: "research-recommendations",
+			Payload: map[string]any{
+				"title":             item.Title,
+				"recommendation_id": item.ID,
+			},
+		})
+		writeJSON(writer, http.StatusOK, item)
+	default:
+		writer.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
 func (s *Server) handleSettingsVault(writer http.ResponseWriter, request *http.Request) {
 	switch request.Method {
 	case http.MethodGet:
@@ -982,6 +1362,43 @@ func (s *Server) handleSettingsVault(writer http.ResponseWriter, request *http.R
 		if len(values) == 0 {
 			writeJSONError(writer, fmt.Errorf("at least one non-empty setting is required"), http.StatusBadRequest)
 			return
+		}
+		if raw := strings.TrimSpace(payload.StorageFormat); raw != "" {
+			normalized := persistence.NormalizeFormat(raw)
+			if string(normalized) != raw {
+				writeJSONError(writer, fmt.Errorf("storage_format must be %q or %q", persistence.FormatJSON, persistence.FormatCompactV1), http.StatusBadRequest)
+				return
+			}
+		}
+		if raw := strings.TrimSpace(payload.ResearchProvider); raw != "" {
+			if normalizeResearchProviderSetting(raw) == "" {
+				writeJSONError(writer, fmt.Errorf("research_provider must be %q, %q, %q, or %q", "internal", "auto", "firecrawl", "jina"), http.StatusBadRequest)
+				return
+			}
+		}
+		if raw := strings.TrimSpace(payload.ResearchSchedule); raw != "" {
+			if normalizeResearchSchedule(raw) == "" {
+				writeJSONError(writer, fmt.Errorf("research_schedule must be %q, %q, or %q", "manual", "hourly", "daily"), http.StatusBadRequest)
+				return
+			}
+		}
+		if raw := strings.TrimSpace(payload.AutonomyPolicy); raw != "" {
+			if normalizeAutonomyPolicy(raw) == "" {
+				writeJSONError(writer, fmt.Errorf("autonomy_policy must be %q", "trusted_ops_v1"), http.StatusBadRequest)
+				return
+			}
+		}
+		if raw := strings.TrimSpace(payload.ActionPolicy); raw != "" {
+			if normalizeActionPolicy(raw) == "" {
+				writeJSONError(writer, fmt.Errorf("action_policy must be %q or %q", "approval_gated", "adapter_rules"), http.StatusBadRequest)
+				return
+			}
+		}
+		if raw := strings.TrimSpace(payload.ResearchWatchlists); raw != "" {
+			if _, err := dossier.ParseWatchlists(raw, dossier.ParseTrustedDomains(payload.TrustedDomains)); err != nil {
+				writeJSONError(writer, fmt.Errorf("research_watchlists must be valid JSON: %w", err), http.StatusBadRequest)
+				return
+			}
 		}
 		if err := s.vault.Update(values); err != nil {
 			writeJSONError(writer, err, http.StatusInternalServerError)
@@ -1019,10 +1436,32 @@ func (s *Server) handleAutoApproval(writer http.ResponseWriter, request *http.Re
 	}
 }
 
+func loadResearchSnapshot(ctx context.Context, runtimeRoot string) (dossier.Snapshot, error) {
+	service, err := dossier.NewService(runtimeRoot)
+	if err != nil {
+		return dossier.Snapshot{}, err
+	}
+	return service.Snapshot(ctx)
+}
+
+func parseQueryInt(raw string, fallback int) int {
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
+}
+
 func (s *Server) currentVaultStatus() VaultStatus {
 	status := VaultStatus{
-		CanWrite:     s.isLoopbackBound(),
-		LoopbackOnly: true,
+		CanWrite:         s.isLoopbackBound(),
+		LoopbackOnly:     true,
+		StorageFormat:    string(persistence.FormatCompactV1),
+		ResearchProvider: "internal",
+		ResearchSchedule: "manual",
+		AutonomyPolicy:   "trusted_ops_v1",
+		ActionPolicy:     "approval_gated",
+		TrustedDomains:   []string{},
 		Brain: ProviderVaultStatus{
 			Provider: "OpenAI-compatible",
 			Mode:     "disabled",
@@ -1040,6 +1479,22 @@ func (s *Server) currentVaultStatus() VaultStatus {
 	if s.vault == nil {
 		return status
 	}
+	if format := persistence.NormalizeFormat(s.vaultValue("storage_format")); format != "" {
+		status.StorageFormat = string(format)
+	}
+	if provider := normalizeResearchProviderSetting(s.vaultValue("research_provider")); provider != "" {
+		status.ResearchProvider = provider
+	}
+	if schedule := normalizeResearchSchedule(s.vaultValue("research_schedule")); schedule != "" {
+		status.ResearchSchedule = schedule
+	}
+	if policy := normalizeAutonomyPolicy(s.vaultValue("autonomy_policy")); policy != "" {
+		status.AutonomyPolicy = policy
+	}
+	if actionPolicy := normalizeActionPolicy(s.vaultValue("action_policy")); actionPolicy != "" {
+		status.ActionPolicy = actionPolicy
+	}
+	status.TrustedDomains = dossier.ParseTrustedDomains(s.vaultValue("trusted_domains"))
 
 	hasLLMBase := s.hasVaultValue("llm_base_url")
 	hasLLMModel := s.hasVaultValue("llm_model")
@@ -1053,7 +1508,56 @@ func (s *Server) currentVaultStatus() VaultStatus {
 	status.Salesmanago.Configured = s.hasVaultValue("salesmanago_api_key") && s.hasVaultValue("salesmanago_base_url")
 	status.Mitto.Configured = s.hasVaultValue("mitto_api_key") && s.hasVaultValue("mitto_base_url") && s.hasVaultValue("mitto_from")
 	status.WhatsApp.Configured = s.hasVaultValue("whatsapp_access_token") && s.hasVaultValue("whatsapp_phone_number_id")
+	status.Firecrawl.Configured = s.hasVaultValue("firecrawl_api_key")
 	return status
+}
+
+func normalizeResearchProviderSetting(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "internal":
+		return "internal"
+	case "auto":
+		return "auto"
+	case "firecrawl":
+		return "firecrawl"
+	case "jina":
+		return "jina"
+	default:
+		return ""
+	}
+}
+
+func normalizeResearchSchedule(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "manual":
+		return "manual"
+	case "hourly":
+		return "hourly"
+	case "daily":
+		return "daily"
+	default:
+		return ""
+	}
+}
+
+func normalizeAutonomyPolicy(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "trusted_ops_v1":
+		return "trusted_ops_v1"
+	default:
+		return ""
+	}
+}
+
+func normalizeActionPolicy(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "approval_gated":
+		return "approval_gated"
+	case "adapter_rules":
+		return "adapter_rules"
+	default:
+		return ""
+	}
 }
 
 func (s *Server) hasVaultValue(name string) bool {
@@ -1259,6 +1763,19 @@ func summarizeEvent(event engine.Event) AuditEntryView {
 		entry.Title = "Incoming message"
 		entry.Detail = fmt.Sprintf("Received %s message from %s via %s.", firstNonEmpty(payloadString(event.Payload, "type"), "text"), firstNonEmpty(payloadString(event.Payload, "from"), "unknown"), firstNonEmpty(payloadString(event.Payload, "channel"), "channel"))
 		entry.Severity = "info"
+	case engine.EventResearchObserved:
+		entry.Title = "Watchlists refreshed"
+		entry.Detail = fmt.Sprintf("%s started the latest watchlist observation cycle.", firstNonEmpty(payloadString(event.Payload, "name"), "Pookie"))
+	case engine.EventDossierGenerated:
+		entry.Title = "Dossier generated"
+		entry.Detail = fmt.Sprintf("%s queued a dossier generation run.", firstNonEmpty(payloadString(event.Payload, "name"), "Research dossier"))
+	case engine.EventRecommendationQueued:
+		entry.Title = "Recommendation queued"
+		entry.Detail = fmt.Sprintf("%s was queued as workflow %s.", firstNonEmpty(payloadString(event.Payload, "title"), "Recommendation"), firstNonEmpty(event.WorkflowID, "pending"))
+	case engine.EventRecommendationDiscarded:
+		entry.Title = "Recommendation discarded"
+		entry.Detail = fmt.Sprintf("%s was dismissed from the operator queue.", firstNonEmpty(payloadString(event.Payload, "title"), "Recommendation"))
+		entry.Severity = "warning"
 	}
 
 	if url := payloadString(event.Payload, "url"); url != "" {
@@ -1551,6 +2068,27 @@ func defaultWorkflowTemplates() []WorkflowTemplate {
 				},
 				"test": true,
 			},
+		},
+		{
+			Name:        "Generate competitor dossier",
+			Skill:       "mitpo-dossier-generate",
+			Description: "Create a grounded dossier with evidence, changes, and queued recommendations.",
+			Input: map[string]any{
+				"name":        "OpenClaw core watchlist",
+				"topic":       "OpenClaw",
+				"company":     "PookiePaws",
+				"competitors": []string{"OpenClaw"},
+				"domains":     []string{"openclaw.example"},
+				"pages":       []string{"https://openclaw.example/pricing"},
+				"market":      "AU pet gifting",
+				"focus_areas": []string{"pricing", "positioning", "offers"},
+			},
+		},
+		{
+			Name:        "Refresh saved watchlists",
+			Skill:       "mitpo-watchlist-refresh",
+			Description: "Run the autonomous research loop across the configured watchlist set.",
+			Input:       map[string]any{},
 		},
 	}
 }

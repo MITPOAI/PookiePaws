@@ -184,6 +184,14 @@
     refs.brainDetail = document.getElementById("brain-detail");
     refs.providerFlags = document.getElementById("provider-flags");
     refs.summaryStrip = document.getElementById("summary-strip");
+    refs.runDemoSmoke = document.getElementById("run-demo-smoke");
+    refs.runLiveResearchSmoke = document.getElementById("run-live-research-smoke");
+    refs.runWatchlists = document.getElementById("run-watchlists");
+    refs.demoSmokeCard = document.getElementById("demo-smoke-card");
+    refs.watchlistsSummary = document.getElementById("watchlists-summary");
+    refs.changesSummary = document.getElementById("changes-summary");
+    refs.dossiersSummary = document.getElementById("dossiers-summary");
+    refs.recommendationsSummary = document.getElementById("recommendations-summary");
     refs.templateStrip = document.getElementById("template-strip");
     refs.workflowQueue = document.getElementById("workflow-queue");
     refs.approvalSummary = document.getElementById("approval-summary");
@@ -234,6 +242,15 @@
     });
     if (refs.refreshConsole) {
       refs.refreshConsole.addEventListener("click", () => refreshConsoleState());
+    }
+    if (refs.runDemoSmoke) {
+      refs.runDemoSmoke.addEventListener("click", () => runDemoSmoke());
+    }
+    if (refs.runLiveResearchSmoke) {
+      refs.runLiveResearchSmoke.addEventListener("click", () => runLiveResearchSmoke());
+    }
+    if (refs.runWatchlists) {
+      refs.runWatchlists.addEventListener("click", () => runWatchlists());
     }
     if (refs.openApprovals) {
       refs.openApprovals.addEventListener("click", () => setView("audit"));
@@ -421,6 +438,8 @@
     if (!initialRenderDone) {
       // First render populates all views so content is ready when switching tabs.
       renderSummaryStrip();
+      renderDemoSmoke();
+      renderResearchWarRoom();
       renderTemplates();
       renderWorkflowQueue();
       renderApprovals();
@@ -436,6 +455,8 @@
     // Subsequent renders only touch the active view to reduce DOM writes.
     if (active === "dashboard") {
       renderSummaryStrip();
+      renderDemoSmoke();
+      renderResearchWarRoom();
       renderWorkflowQueue();
       renderApprovals();
     } else if (active === "workflows") {
@@ -488,6 +509,7 @@
 
     refs.providerFlags.innerHTML = [
       renderProviderFlag("Brain", state.vault && state.vault.brain && state.vault.brain.configured),
+      renderProviderFlag("Firecrawl", state.vault && state.vault.firecrawl && state.vault.firecrawl.configured),
       renderProviderFlag("Salesmanago", state.vault && state.vault.salesmanago && state.vault.salesmanago.configured),
       renderProviderFlag("Mitto", state.vault && state.vault.mitto && state.vault.mitto.configured),
       renderProviderFlag("WhatsApp", state.vault && state.vault.whatsapp && state.vault.whatsapp.configured)
@@ -503,7 +525,7 @@
       ["Workflow queue", String(status.workflows), "Local runs and structured submissions tracked from one console."],
       ["Pending approvals", String(status.pending_approvals || 0), "Outbound steps stay paused until a person decides."],
       ["File access", String(status.pending_file_permissions || 0), "Workspace reads and writes are operator-visible actions."],
-      ["Provider health", providerHealthText(), "Brain, CRM, SMS, and WhatsApp readiness across the current vault."],
+      ["Provider health", providerHealthText(), "Brain, Firecrawl, CRM, SMS, and WhatsApp readiness across the current vault."],
       ["Event bus", String(status.event_bus.published), "Internal runtime events published since startup."]
     ];
     refs.summaryStrip.innerHTML = cards.map(([label, value, detail]) => `
@@ -513,6 +535,224 @@
         <p>${escapeHTML(detail)}</p>
       </article>
     `).join("");
+  }
+
+  function renderDemoSmoke() {
+    if (!refs.demoSmokeCard) {
+      return;
+    }
+    const deterministic = state.console && state.console.demo_smoke;
+    const live = state.console && state.console.live_research_smoke;
+    const researchProvider = firstNonEmpty(state.vault && state.vault.research_provider, "internal");
+    const firecrawlReady = Boolean(state.vault && state.vault.firecrawl && state.vault.firecrawl.configured);
+    const liveReady = researchProvider === "internal" || researchProvider === "auto" || (researchProvider === "firecrawl" && firecrawlReady);
+    applyLiveResearchSmokeButtonState(researchProvider, firecrawlReady, liveReady);
+    if (!deterministic && !live) {
+      refs.demoSmokeCard.innerHTML = `
+        <span class="status-label">Scenario</span>
+        <strong>Not run yet</strong>
+        <p>Run the offline demo or the live bounded research smoke to generate a saved competitor brief in the workspace exports folder.</p>
+      `;
+      return;
+    }
+
+    function smokeBlock(label, result, emptyLabel) {
+      if (!result || !result.last_run) {
+        return `<div class="demo-smoke-block"><p class="inline-note">${escapeHTML(emptyLabel)}</p></div>`;
+      }
+      const passed = Boolean(result.passed);
+      const artifact = firstNonEmpty(result.artifact_path, "No artifact saved yet.");
+      const summary = firstNonEmpty(result.summary, result.error, "Scenario smoke completed.");
+      const providerLine = result.provider
+        ? `<p class="inline-note">Provider: ${escapeHTML(result.provider)}</p>`
+        : "";
+      const sourceLine = result.mode === "live"
+        ? `<p class="inline-note">Sources: ${escapeHTML(String(result.source_count || 0))} kept / ${escapeHTML(String(result.skipped_count || 0))} skipped</p>`
+        : "";
+      const warningsLine = result.mode === "live"
+        ? `<p class="inline-note">Warnings: ${escapeHTML(String(((result.warnings) || []).length))}</p>`
+        : "";
+      const fallbackLine = result.fallback_reason
+        ? `<p class="inline-note">Fallback: ${escapeHTML(result.fallback_reason)}</p>`
+        : "";
+      return `
+        <div class="demo-smoke-block">
+          <span class="status-label">${escapeHTML(label)}</span>
+          <strong>${escapeHTML(passed ? "Passed" : "Failed")}</strong>
+          <p>${escapeHTML(summary)}</p>
+          ${providerLine}
+          ${sourceLine}
+          ${warningsLine}
+          ${fallbackLine}
+          <p class="inline-note">Saved: ${escapeHTML(artifact)}</p>
+          <p class="inline-note">Last run: ${escapeHTML(formatDateTime(result.last_run))}</p>
+        </div>
+      `;
+    }
+
+    const latest = live || deterministic;
+    const scenario = latest && latest.scenario ? latest.scenario : {};
+    refs.demoSmokeCard.innerHTML = `
+      <span class="status-label">Scenario</span>
+      <strong>${escapeHTML(liveReady ? "Offline and live smoke are available." : "Offline smoke is available. Live smoke is blocked by the current research provider setting.")}</strong>
+      <p class="inline-note">${escapeHTML([
+        firstNonEmpty(scenario.brand, "PookiePaws Reserve"),
+        firstNonEmpty(scenario.competitor, "OpenClaw"),
+        firstNonEmpty(scenario.market, "AU pet gifting")
+      ].join(" / "))}</p>
+      <p class="inline-note">Default research provider: ${escapeHTML(researchProvider)}</p>
+      ${smokeBlock("Deterministic", deterministic, "Deterministic smoke has not been run yet.")}
+      ${smokeBlock("Live Research", live, liveReady ? "Live research smoke has not been run yet." : "Live research smoke is disabled by the current research provider setting.")}
+    `;
+  }
+
+  function renderResearchWarRoom() {
+    renderWatchlistsSummary();
+    renderChangesSummary();
+    renderDossiersSummary();
+    renderRecommendationsSummary();
+  }
+
+  function renderWatchlistsSummary() {
+    if (!refs.watchlistsSummary) {
+      return;
+    }
+    const watchlists = (state.console && state.console.watchlists) || [];
+    const policy = state.vault || {};
+    if (!watchlists.length) {
+      refs.watchlistsSummary.innerHTML = `
+        <article class="status-card">
+          <span class="status-label">Empty</span>
+          <strong>No watchlists saved yet</strong>
+          <p>Save JSON watchlists in Vault / Settings, then run the watchlist refresh loop from this dashboard.</p>
+          <p class="inline-note">Provider: ${escapeHTML(firstNonEmpty(policy.research_provider, "internal"))} / Schedule: ${escapeHTML(firstNonEmpty(policy.research_schedule, "manual"))}</p>
+          <p class="inline-note">Autonomy: ${escapeHTML(firstNonEmpty(policy.autonomy_policy, "trusted_ops_v1"))} / Action policy: ${escapeHTML(firstNonEmpty(policy.action_policy, "approval_gated"))}</p>
+        </article>
+      `;
+      return;
+    }
+    refs.watchlistsSummary.innerHTML = watchlists.map((item) => `
+      <article class="status-card">
+        <span class="status-label">${escapeHTML(firstNonEmpty(item.topic, item.name, "Watchlist"))}</span>
+        <strong>${escapeHTML(firstNonEmpty(item.name, item.topic, "Watchlist"))}</strong>
+        <p>${escapeHTML([
+          `${((item.competitors) || []).length} competitors`,
+          `${((item.domains) || []).length} domains`,
+          `${((item.pages) || []).length} tracked pages`
+        ].join(" / "))}</p>
+        <p class="inline-note">Last dossier: ${escapeHTML(firstNonEmpty(item.last_dossier_id, "None yet"))}</p>
+        <p class="inline-note">Last run: ${escapeHTML(item.last_run_at ? formatDateTime(item.last_run_at) : "Not run yet")}</p>
+      </article>
+    `).join("");
+  }
+
+  function renderChangesSummary() {
+    if (!refs.changesSummary) {
+      return;
+    }
+    const changes = (state.console && state.console.changes) || [];
+    refs.changesSummary.innerHTML = changes.length
+      ? changes.slice(0, 8).map((item) => `
+        <article class="status-card">
+          <span class="status-label">${escapeHTML(firstNonEmpty(item.kind, "change"))}</span>
+          <strong>${escapeHTML(firstNonEmpty(item.entity, "Tracked evidence"))}</strong>
+          <p>${escapeHTML(firstNonEmpty(item.summary, item.source_url, "Change detected."))}</p>
+          <p class="inline-note">${escapeHTML(firstNonEmpty(item.source_url, "No source URL"))}</p>
+        </article>
+      `).join("")
+      : `
+        <article class="status-card">
+          <span class="status-label">Stable</span>
+          <strong>No tracked changes yet</strong>
+          <p>The latest watchlist cycle has not produced any persisted change records.</p>
+        </article>
+      `;
+  }
+
+  function renderDossiersSummary() {
+    if (!refs.dossiersSummary) {
+      return;
+    }
+    const dossiers = (state.console && state.console.dossiers) || [];
+    refs.dossiersSummary.innerHTML = dossiers.length
+      ? dossiers.map((item) => `
+        <article class="status-card">
+          <span class="status-label">${escapeHTML(firstNonEmpty(item.provider, "internal"))}</span>
+          <strong>${escapeHTML(firstNonEmpty(item.topic, item.company, "Dossier"))}</strong>
+          <p>${escapeHTML(firstNonEmpty(item.summary, "No dossier summary available."))}</p>
+          <p class="inline-note">Evidence: ${escapeHTML(String(((item.evidence_ids) || []).length))} / Changes: ${escapeHTML(String(((item.change_ids) || []).length))} / Recommendations: ${escapeHTML(String(((item.recommendation_ids) || []).length))}</p>
+          <p class="inline-note">Created: ${escapeHTML(formatDateTime(item.created_at))}</p>
+          ${item.fallback_reason ? `<p class="inline-note">Fallback: ${escapeHTML(item.fallback_reason)}</p>` : ""}
+        </article>
+      `).join("")
+      : `
+        <article class="status-card">
+          <span class="status-label">Idle</span>
+          <strong>No dossiers generated yet</strong>
+          <p>Run a watchlist refresh or generate a dossier from a workflow template to start the research memory layer.</p>
+        </article>
+      `;
+  }
+
+  function renderRecommendationsSummary() {
+    if (!refs.recommendationsSummary) {
+      return;
+    }
+    const recommendations = (state.console && state.console.recommendations) || [];
+    if (!recommendations.length) {
+      refs.recommendationsSummary.innerHTML = `
+        <article class="status-card">
+          <span class="status-label">Queue</span>
+          <strong>No recommendations yet</strong>
+          <p>Recommendations appear after a dossier is generated and remain editable until they are queued or discarded.</p>
+        </article>
+      `;
+      return;
+    }
+    refs.recommendationsSummary.innerHTML = recommendations.map((item) => `
+      <article class="status-card" data-recommendation-card="${escapeHTML(item.id)}">
+        <span class="status-label">${escapeHTML(firstNonEmpty(item.status, "draft"))}</span>
+        <strong>${escapeHTML(firstNonEmpty(item.title, "Recommendation"))}</strong>
+        <p class="inline-note">Confidence: ${escapeHTML(formatConfidence(item.confidence))} / Approval: ${escapeHTML(firstNonEmpty(item.approval_status, "report_only"))}</p>
+        <label class="field">
+          <span class="inline-note">Title</span>
+          <input type="text" data-recommendation-title="${escapeHTML(item.id)}" value="${escapeHTML(firstNonEmpty(item.title, ""))}">
+        </label>
+        <label class="field">
+          <span class="inline-note">Summary</span>
+          <textarea data-recommendation-summary="${escapeHTML(item.id)}">${escapeHTML(firstNonEmpty(item.summary, ""))}</textarea>
+        </label>
+        <label class="field">
+          <span class="inline-note">Workflow payload (JSON)</span>
+          <textarea data-recommendation-workflow="${escapeHTML(item.id)}">${escapeHTML(JSON.stringify(item.proposed_workflow || {}, null, 2))}</textarea>
+        </label>
+        <p class="inline-note">Why: ${escapeHTML(String(((item.evidence_ids) || []).length))} evidence items / ${escapeHTML(String(((item.source_urls) || []).length))} source URLs</p>
+        <p class="inline-note">${escapeHTML(((item.source_urls) || []).slice(0, 2).join(" • ") || "No source URLs recorded")}</p>
+        <div class="button-row">
+          <button class="button secondary" type="button" data-recommendation-queue="${escapeHTML(item.id)}">Edit + Queue</button>
+          <button class="button ghost" type="button" data-recommendation-discard="${escapeHTML(item.id)}">Discard</button>
+        </div>
+      </article>
+    `).join("");
+
+    refs.recommendationsSummary.querySelectorAll("[data-recommendation-queue]").forEach((button) => {
+      button.addEventListener("click", () => queueRecommendation(button.dataset.recommendationQueue));
+    });
+    refs.recommendationsSummary.querySelectorAll("[data-recommendation-discard]").forEach((button) => {
+      button.addEventListener("click", () => discardRecommendation(button.dataset.recommendationDiscard));
+    });
+  }
+
+  function applyLiveResearchSmokeButtonState(researchProvider, firecrawlReady, liveReady) {
+    if (!refs.runLiveResearchSmoke) {
+      return;
+    }
+    refs.runLiveResearchSmoke.disabled = !liveReady;
+    refs.runLiveResearchSmoke.title = liveReady
+      ? ""
+      : researchProvider === "firecrawl"
+        ? "Configure a Firecrawl API key or switch research_provider back to internal."
+        : "Direct Jina mode cannot discover a live scenario without explicit domains.";
   }
 
   function renderTemplates() {
@@ -626,6 +866,8 @@
     }
     refs.vaultStatusCards.innerHTML = [
       vaultStatusCard("Brain", state.vault.brain && state.vault.brain.configured, state.vault.brain && state.vault.brain.mode ? `${state.vault.brain.provider} / ${state.vault.brain.mode}` : "Not configured"),
+      vaultStatusCard("Research", true, `Provider: ${firstNonEmpty(state.vault.research_provider, "internal")} / Schedule: ${firstNonEmpty(state.vault.research_schedule, "manual")} / Autonomy: ${firstNonEmpty(state.vault.autonomy_policy, "trusted_ops_v1")}`),
+      vaultStatusCard("Firecrawl", state.vault.firecrawl && state.vault.firecrawl.configured, "Optional external fallback for bounded web research"),
       vaultStatusCard("Salesmanago", state.vault.salesmanago && state.vault.salesmanago.configured, "CRM lead routing"),
       vaultStatusCard("Mitto", state.vault.mitto && state.vault.mitto.configured, "SMS drafting and send intents"),
       vaultStatusCard("WhatsApp", state.vault.whatsapp && state.vault.whatsapp.configured, channelStatusDetail("whatsapp"))
@@ -2077,11 +2319,11 @@
     if (!state.vault) {
       return "waiting";
     }
-    const ready = ["brain", "salesmanago", "mitto", "whatsapp"].filter((key) => {
+    const ready = ["brain", "firecrawl", "salesmanago", "mitto", "whatsapp"].filter((key) => {
       const item = state.vault[key];
       return item && item.configured;
     }).length;
-    return `${ready}/4 ready`;
+    return `${ready}/5 ready`;
   }
 
   function primeTheme() {
@@ -2103,6 +2345,197 @@
         timestamp: new Date().toISOString()
       });
     }
+  }
+
+  async function runDemoSmoke() {
+    if (!refs.runDemoSmoke) {
+      return;
+    }
+    refs.runDemoSmoke.disabled = true;
+    const originalLabel = refs.runDemoSmoke.textContent;
+    refs.runDemoSmoke.textContent = "Running...";
+    setCanvasMessage("Running the deterministic demo smoke and preparing the saved report.");
+    try {
+      const result = await fetchJSON("/api/v1/demo/smoke", {
+        method: "POST"
+      });
+      pushAuditEntry({
+        type: "client.demo.smoke",
+        title: result.passed ? "Demo smoke completed" : "Demo smoke failed",
+        detail: firstNonEmpty(result.summary, result.error, "Scenario smoke finished."),
+        severity: result.passed ? "info" : "error",
+        timestamp: new Date().toISOString()
+      });
+      await refreshConsoleState();
+      setCanvasMessage(result.passed
+        ? `Demo smoke saved to ${firstNonEmpty(result.artifact_path, "the exports folder")}.`
+        : humanizeError(new Error(firstNonEmpty(result.error, "Scenario smoke failed.")), MICROCOPY.errors.generic));
+    } catch (error) {
+      setCanvasMessage(humanizeError(error, MICROCOPY.errors.generic));
+      pushAuditEntry({
+        type: "client.demo.smoke.error",
+        title: "Demo smoke failed",
+        detail: humanizeError(error, MICROCOPY.errors.generic),
+        severity: "error",
+        timestamp: new Date().toISOString()
+      });
+    } finally {
+      refs.runDemoSmoke.disabled = false;
+      refs.runDemoSmoke.textContent = originalLabel;
+    }
+  }
+
+  async function runLiveResearchSmoke() {
+    if (!refs.runLiveResearchSmoke) {
+      return;
+    }
+    refs.runLiveResearchSmoke.disabled = true;
+    const originalLabel = refs.runLiveResearchSmoke.textContent;
+    refs.runLiveResearchSmoke.textContent = "Running...";
+    setCanvasMessage("Running the live bounded research smoke and saving the export.");
+    try {
+      const result = await fetchJSON("/api/v1/demo/smoke?mode=live", {
+        method: "POST"
+      });
+      pushAuditEntry({
+        type: "client.demo.smoke.live",
+        title: result.passed ? "Live research smoke completed" : "Live research smoke failed",
+        detail: firstNonEmpty(result.summary, result.error, "Live research smoke finished."),
+        severity: result.passed ? "info" : "error",
+        timestamp: new Date().toISOString()
+      });
+      await refreshConsoleState();
+      setCanvasMessage(result.passed
+        ? `Live research smoke saved to ${firstNonEmpty(result.artifact_path, "the exports folder")}.`
+        : humanizeError(new Error(firstNonEmpty(result.error, "Live research smoke failed.")), MICROCOPY.errors.generic));
+    } catch (error) {
+      setCanvasMessage(humanizeError(error, MICROCOPY.errors.generic));
+      pushAuditEntry({
+        type: "client.demo.smoke.live.error",
+        title: "Live research smoke failed",
+        detail: humanizeError(error, MICROCOPY.errors.generic),
+        severity: "error",
+        timestamp: new Date().toISOString()
+      });
+    } finally {
+      const researchProvider = firstNonEmpty(state.vault && state.vault.research_provider, "internal");
+      const firecrawlReady = Boolean(state.vault && state.vault.firecrawl && state.vault.firecrawl.configured);
+      applyLiveResearchSmokeButtonState(
+        researchProvider,
+        firecrawlReady,
+        researchProvider === "internal" || researchProvider === "auto" || (researchProvider === "firecrawl" && firecrawlReady)
+      );
+      refs.runLiveResearchSmoke.textContent = originalLabel;
+    }
+  }
+
+  async function runWatchlists() {
+    if (!refs.runWatchlists) {
+      return;
+    }
+    refs.runWatchlists.disabled = true;
+    const originalLabel = refs.runWatchlists.textContent;
+    refs.runWatchlists.textContent = "Running...";
+    setCanvasMessage("Refreshing saved watchlists, generating dossiers, and updating the recommendation queue.");
+    try {
+      const workflow = await fetchJSON("/api/v1/research/watchlists/refresh", {
+        method: "POST"
+      });
+      pushAuditEntry({
+        type: "client.research.watchlists",
+        title: "Watchlist refresh submitted",
+        detail: firstNonEmpty(workflow.name, "Watchlist refresh workflow queued."),
+        severity: "info",
+        timestamp: new Date().toISOString()
+      });
+      await refreshConsoleState();
+      setCanvasMessage(`Watchlist refresh completed as workflow ${firstNonEmpty(workflow.id, "latest")}.`);
+    } catch (error) {
+      setCanvasMessage(humanizeError(error, MICROCOPY.errors.generic));
+      pushAuditEntry({
+        type: "client.research.watchlists.error",
+        title: "Watchlist refresh failed",
+        detail: humanizeError(error, MICROCOPY.errors.generic),
+        severity: "error",
+        timestamp: new Date().toISOString()
+      });
+    } finally {
+      refs.runWatchlists.disabled = false;
+      refs.runWatchlists.textContent = originalLabel;
+    }
+  }
+
+  async function queueRecommendation(id) {
+    const payload = recommendationEditPayload(id);
+    if (!payload) {
+      return;
+    }
+    try {
+      await fetchJSON(`/api/v1/research/recommendations/${encodeURIComponent(id)}/edit`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const result = await fetchJSON(`/api/v1/research/recommendations/${encodeURIComponent(id)}/queue`, {
+        method: "POST"
+      });
+      pushAuditEntry({
+        type: "client.recommendation.queue",
+        title: "Recommendation queued",
+        detail: firstNonEmpty(result.recommendation && result.recommendation.title, "Recommendation submitted as a workflow."),
+        severity: "info",
+        timestamp: new Date().toISOString()
+      });
+      await refreshConsoleState();
+    } catch (error) {
+      pushAuditEntry({
+        type: "client.recommendation.queue.error",
+        title: "Recommendation queue failed",
+        detail: humanizeError(error, MICROCOPY.errors.generic),
+        severity: "error",
+        timestamp: new Date().toISOString()
+      });
+      setCanvasMessage(humanizeError(error, MICROCOPY.errors.generic));
+    }
+  }
+
+  async function discardRecommendation(id) {
+    try {
+      const result = await fetchJSON(`/api/v1/research/recommendations/${encodeURIComponent(id)}/discard`, {
+        method: "POST"
+      });
+      pushAuditEntry({
+        type: "client.recommendation.discard",
+        title: "Recommendation discarded",
+        detail: firstNonEmpty(result.title, "Recommendation dismissed from the queue."),
+        severity: "warning",
+        timestamp: new Date().toISOString()
+      });
+      await refreshConsoleState();
+    } catch (error) {
+      setCanvasMessage(humanizeError(error, MICROCOPY.errors.generic));
+    }
+  }
+
+  function recommendationEditPayload(id) {
+    const titleNode = document.querySelector(`[data-recommendation-title="${cssEscape(id)}"]`);
+    const summaryNode = document.querySelector(`[data-recommendation-summary="${cssEscape(id)}"]`);
+    const workflowNode = document.querySelector(`[data-recommendation-workflow="${cssEscape(id)}"]`);
+    if (!titleNode || !summaryNode || !workflowNode) {
+      return null;
+    }
+    let workflow;
+    try {
+      workflow = JSON.parse(workflowNode.value);
+    } catch (error) {
+      setCanvasMessage("Recommendation workflow JSON is invalid. Fix the payload before queueing it.");
+      return null;
+    }
+    return {
+      title: titleNode.value.trim(),
+      summary: summaryNode.value.trim(),
+      proposed_workflow: workflow
+    };
   }
 
   function loadTheme() {
@@ -2361,6 +2794,13 @@
       .replaceAll("'", "&#39;");
   }
 
+  function cssEscape(value) {
+    if (window.CSS && typeof window.CSS.escape === "function") {
+      return window.CSS.escape(String(value == null ? "" : value));
+    }
+    return String(value == null ? "" : value).replace(/["\\]/g, "\\$&");
+  }
+
   function escapeAttribute(value) {
     return escapeHTML(value).replaceAll("`", "&#96;");
   }
@@ -2379,6 +2819,14 @@
     } catch (_error) {
       return "";
     }
+  }
+
+  function formatConfidence(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number) || number <= 0) {
+      return "n/a";
+    }
+    return `${Math.round(number * 100)}%`;
   }
 
   function clamp(value, min, max) {

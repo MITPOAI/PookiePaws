@@ -117,9 +117,68 @@
                     <p class="eyebrow">Dashboard</p>
                     <h3 id="dashboard-heading">System health, queue pressure, and pending reviews.</h3>
                   </div>
-                  <button class="button secondary" id="refresh-console" type="button">Refresh</button>
+                  <div class="button-row">
+                    <button class="button secondary" id="run-demo-smoke" type="button">Run Demo Smoke</button>
+                    <button class="button secondary" id="run-live-research-smoke" type="button">Run Live Research Smoke</button>
+                    <button class="button secondary" id="refresh-console" type="button">Refresh</button>
+                  </div>
                 </div>
                 <section class="summary-strip" id="summary-strip"></section>
+              </section>
+
+              <section class="panel panel-span-12">
+                <div class="panel-head">
+                  <div>
+                    <p class="eyebrow">Demo Smoke</p>
+                    <h3>Deterministic scenario and live bounded research from workflow to saved export.</h3>
+                  </div>
+                </div>
+                <article class="status-card status-card--feature" id="demo-smoke-card">
+                  <span class="status-label">Scenario</span>
+                  <strong>Not run yet</strong>
+                  <p>Run the offline demo or the live research smoke to generate a saved competitor brief in the workspace exports folder.</p>
+                </article>
+              </section>
+
+              <section class="panel panel-span-6">
+                <div class="panel-head">
+                  <div>
+                    <p class="eyebrow">Watchlists</p>
+                    <h3>Saved competitor and market observation scopes.</h3>
+                  </div>
+                  <button class="button secondary" id="run-watchlists" type="button">Run Watchlists</button>
+                </div>
+                <div class="data-list compact" id="watchlists-summary"></div>
+              </section>
+
+              <section class="panel panel-span-6">
+                <div class="panel-head">
+                  <div>
+                    <p class="eyebrow">Latest Changes</p>
+                    <h3>New, changed, and removed evidence across the latest refresh.</h3>
+                  </div>
+                </div>
+                <div class="data-list compact" id="changes-summary"></div>
+              </section>
+
+              <section class="panel panel-span-8">
+                <div class="panel-head">
+                  <div>
+                    <p class="eyebrow">Dossiers</p>
+                    <h3>Grounded competitor summaries with provider attribution.</h3>
+                  </div>
+                </div>
+                <div class="data-list" id="dossiers-summary"></div>
+              </section>
+
+              <section class="panel panel-span-4">
+                <div class="panel-head">
+                  <div>
+                    <p class="eyebrow">Recommended Actions</p>
+                    <h3>Queue, edit, or discard the next step from one operator queue.</h3>
+                  </div>
+                </div>
+                <div class="data-list" id="recommendations-summary"></div>
               </section>
 
               <section class="panel panel-span-4">
@@ -393,6 +452,20 @@
                       <label class="field">Base URL<input name="llm_base_url" type="url" placeholder="http://localhost:11434/v1/chat/completions"></label>
                       <label class="field">Model<input name="llm_model" type="text" placeholder="llama3.2:latest"></label>
                       <label class="field field-span-2">API key<input name="llm_api_key" type="password" placeholder="Optional for local providers"></label>
+                    </div>
+                  </section>
+
+                  <section class="vault-section">
+                    <h4><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg> Research Control Plane</h4>
+                    <p class="inline-note">Persist watchlists as JSON. Autonomy stays high for observe, prepare, and queue, while outbound execution remains policy-gated.</p>
+                    <div class="field-grid">
+                      <label class="field">Research provider<input name="research_provider" type="text" placeholder="internal"></label>
+                      <label class="field">Schedule<input name="research_schedule" type="text" placeholder="manual"></label>
+                      <label class="field">Autonomy policy<input name="autonomy_policy" type="text" placeholder="trusted_ops_v1"></label>
+                      <label class="field">Action policy<input name="action_policy" type="text" placeholder="approval_gated"></label>
+                      <label class="field field-span-2">Trusted domains<textarea name="trusted_domains" placeholder="example.com&#10;docs.example.com"></textarea></label>
+                      <label class="field field-span-2">Storage format<input name="storage_format" type="text" placeholder="compact_v1"></label>
+                      <label class="field field-span-2">Research watchlists JSON<textarea name="research_watchlists" placeholder='[{"name":"OpenClaw core watchlist","topic":"OpenClaw","company":"PookiePaws","competitors":["OpenClaw"],"domains":["openclaw.example"],"pages":["https://openclaw.example/pricing"],"market":"AU pet gifting","focus_areas":["pricing","positioning","offers"]}]'></textarea></label>
                     </div>
                   </section>
 
