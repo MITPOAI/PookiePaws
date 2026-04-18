@@ -7,6 +7,7 @@ import (
 
 	"github.com/mitpoai/pookiepaws/internal/adapters"
 	"github.com/mitpoai/pookiepaws/internal/brain"
+	"github.com/mitpoai/pookiepaws/internal/dossier"
 	"github.com/mitpoai/pookiepaws/internal/engine"
 	"github.com/mitpoai/pookiepaws/internal/persistence"
 	"github.com/mitpoai/pookiepaws/internal/security"
@@ -24,6 +25,7 @@ type appStack struct {
 	secrets     *security.JSONSecretProvider
 	brainSvc    *brain.DynamicService
 	tools       *brain.ToolRegistry
+	dossier     *dossier.Service
 	sandbox     engine.Sandbox
 	runtimeRoot string
 	workspace   string
@@ -95,6 +97,11 @@ func buildStack(runtimeRoot, workspaceRoot string) (*appStack, error) {
 	permSandbox := security.NewPermissionedSandbox(sandbox, coord, bus)
 	coord.SetSandbox(permSandbox)
 
+	dossierSvc, err := dossier.NewService(runtimeRoot)
+	if err != nil {
+		return nil, fmt.Errorf("dossier service: %w", err)
+	}
+
 	windowPath := filepath.Join(runtimeRoot, "state", "runtime", "conversation-window.json")
 	brainSvc := brain.NewDynamicService(secrets, coord, bus).
 		WithWindowPath(windowPath).
@@ -118,6 +125,7 @@ func buildStack(runtimeRoot, workspaceRoot string) (*appStack, error) {
 		secrets:     secrets,
 		brainSvc:    brainSvc,
 		tools:       tools,
+		dossier:     dossierSvc,
 		sandbox:     sandbox,
 		runtimeRoot: runtimeRoot,
 		workspace:   workspaceRoot,

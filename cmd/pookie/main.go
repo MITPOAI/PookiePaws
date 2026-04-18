@@ -15,6 +15,7 @@ import (
 	"github.com/mitpoai/pookiepaws/internal/adapters"
 	"github.com/mitpoai/pookiepaws/internal/cli"
 	"github.com/mitpoai/pookiepaws/internal/gateway"
+	"github.com/mitpoai/pookiepaws/internal/scheduler"
 )
 
 var version = "0.5.2"
@@ -175,6 +176,21 @@ func cmdStart(args []string) {
 		p.Warning(warning)
 	}
 
+	schedCtx, cancelSched := context.WithCancel(context.Background())
+	defer cancelSched()
+	go func() {
+		sched := scheduler.New(scheduler.Config{
+			Coordinator:  stack.coord,
+			Secrets:      stack.secrets,
+			StateStore:   scheduler.NewStateStore(scheduler.DefaultStatePath(runtimeRoot)),
+			MaxLastRunAt: stack.dossier.MaxLastRunAt,
+			Logger: func(level, msg string, kvs ...any) {
+				fmt.Fprintf(os.Stderr, "[scheduler:%s] %s %v\n", level, msg, kvs)
+			},
+		})
+		sched.Run(schedCtx)
+	}()
+
 	shutdown := make(chan struct{}, 1)
 	api := gateway.NewServer(gateway.Config{
 		Coordinator: stack.coord,
@@ -226,6 +242,7 @@ func cmdStart(args []string) {
 	p.Blank()
 	p.Info("Shutting down gracefully…")
 
+	cancelSched()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := httpServer.Shutdown(ctx); err != nil {
