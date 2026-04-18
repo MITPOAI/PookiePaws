@@ -14,6 +14,7 @@ import (
 type Coordinator interface {
 	SubmitWorkflow(ctx context.Context, def engine.WorkflowDefinition) (engine.Workflow, error)
 	ListWorkflows(ctx context.Context) ([]engine.Workflow, error)
+	ListWorkflowsByStatus(ctx context.Context, statuses ...engine.WorkflowStatus) ([]engine.Workflow, error)
 }
 
 // Secrets is the subset of engine.SecretProvider the scheduler uses.
@@ -133,16 +134,16 @@ func (s *Scheduler) tick(ctx context.Context) {
 }
 
 func (s *Scheduler) refreshAlreadyRunning(ctx context.Context) (bool, error) {
-	wfs, err := s.cfg.Coordinator.ListWorkflows(ctx)
+	wfs, err := s.cfg.Coordinator.ListWorkflowsByStatus(ctx,
+		engine.WorkflowQueued,
+		engine.WorkflowRunning,
+		engine.WorkflowWaitingApproval,
+	)
 	if err != nil {
 		return false, err
 	}
 	for _, wf := range wfs {
-		if wf.Skill != SkillName {
-			continue
-		}
-		switch wf.Status {
-		case engine.WorkflowQueued, engine.WorkflowRunning, engine.WorkflowWaitingApproval:
+		if wf.Skill == SkillName {
 			return true, nil
 		}
 	}

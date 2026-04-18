@@ -68,6 +68,9 @@ func (noopCoordinator) SubmitWorkflow(_ context.Context, _ engine.WorkflowDefini
 	return engine.Workflow{}, nil
 }
 func (noopCoordinator) ListWorkflows(context.Context) ([]engine.Workflow, error) { return nil, nil }
+func (noopCoordinator) ListWorkflowsByStatus(context.Context, ...engine.WorkflowStatus) ([]engine.Workflow, error) {
+	return nil, nil
+}
 func (noopCoordinator) ListApprovals(context.Context) ([]engine.Approval, error) { return nil, nil }
 func (noopCoordinator) Approve(context.Context, string) (engine.Approval, error) {
 	return engine.Approval{}, nil

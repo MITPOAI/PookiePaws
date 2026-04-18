@@ -322,6 +322,31 @@ func (c *StandardWorkflowCoordinator) ListWorkflows(ctx context.Context) ([]Work
 	return workflows, nil
 }
 
+// ListWorkflowsByStatus returns workflows whose status is one of the supplied
+// values. If no statuses are passed, it returns all workflows (equivalent to
+// ListWorkflows). Filtering happens in-process today; a future optimization
+// may use a status index for O(1) lookup on long-lived daemons.
+func (c *StandardWorkflowCoordinator) ListWorkflowsByStatus(ctx context.Context, statuses ...WorkflowStatus) ([]Workflow, error) {
+	all, err := c.ListWorkflows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(statuses) == 0 {
+		return all, nil
+	}
+	set := make(map[WorkflowStatus]struct{}, len(statuses))
+	for _, s := range statuses {
+		set[s] = struct{}{}
+	}
+	out := make([]Workflow, 0, len(all))
+	for _, wf := range all {
+		if _, ok := set[wf.Status]; ok {
+			out = append(out, wf)
+		}
+	}
+	return out, nil
+}
+
 func (c *StandardWorkflowCoordinator) ListApprovals(ctx context.Context) ([]Approval, error) {
 	approvals, err := c.store.ListApprovals(ctx)
 	if err != nil {

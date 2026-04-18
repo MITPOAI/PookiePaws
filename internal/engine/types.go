@@ -550,6 +550,7 @@ type StateStore interface {
 type WorkflowCoordinator interface {
 	SubmitWorkflow(ctx context.Context, def WorkflowDefinition) (Workflow, error)
 	ListWorkflows(ctx context.Context) ([]Workflow, error)
+	ListWorkflowsByStatus(ctx context.Context, statuses ...WorkflowStatus) ([]Workflow, error)
 	ListApprovals(ctx context.Context) ([]Approval, error)
 	Approve(ctx context.Context, id string) (Approval, error)
 	Reject(ctx context.Context, id string) (Approval, error)
