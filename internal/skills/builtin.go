@@ -2,6 +2,7 @@ package skills
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,7 +13,9 @@ import (
 	"time"
 
 	"github.com/mitpoai/pookiepaws/internal/conv"
+	"github.com/mitpoai/pookiepaws/internal/dossier"
 	"github.com/mitpoai/pookiepaws/internal/engine"
+	"github.com/mitpoai/pookiepaws/internal/research"
 )
 
 type UTMValidatorSkill struct {
@@ -348,6 +351,29 @@ func firstNonEmptyString(values ...string) string {
 	return ""
 }
 
+func newDossierService(req engine.SkillRequest) (*dossier.Service, error) {
+	return dossier.NewService(req.Sandbox.RuntimeRoot())
+}
+
+func parseWatchlistsInput(input map[string]any, secrets engine.SecretProvider) ([]dossier.Watchlist, error) {
+	if raw := strings.TrimSpace(conv.AsString(input["watchlists_json"])); raw != "" {
+		return dossier.ParseWatchlists(raw, dossier.ParseTrustedDomains(conv.AsString(input["trusted_domains"])))
+	}
+	if value, ok := input["watchlists"].([]any); ok {
+		data, err := json.Marshal(value)
+		if err != nil {
+			return nil, err
+		}
+		return dossier.ParseWatchlists(string(data), dossier.ParseTrustedDomains(conv.AsString(input["trusted_domains"])))
+	}
+	if secrets != nil {
+		raw, _ := secrets.Get("research_watchlists")
+		trusted, _ := secrets.Get("trusted_domains")
+		return dossier.ParseWatchlists(raw, dossier.ParseTrustedDomains(trusted))
+	}
+	return nil, nil
+}
+
 // ── mitpo-ba-researcher ─────────────────────────────────────────────────────
 
 type BAResearcherSkill struct {
@@ -370,38 +396,272 @@ func (s *BAResearcherSkill) Definition() engine.SkillDefinition {
 
 func (s *BAResearcherSkill) Validate(input map[string]any) error {
 	company := strings.TrimSpace(conv.AsString(input["company"]))
-	if company == "" {
-		return fmt.Errorf("company is required")
+	competitors := conv.AsStringSlice(input["competitors"])
+	if company == "" && len(competitors) == 0 {
+		return fmt.Errorf("company or competitors is required")
 	}
 	return nil
 }
 
-func (s *BAResearcherSkill) Execute(_ context.Context, req engine.SkillRequest) (engine.SkillResult, error) {
-	company := strings.TrimSpace(conv.AsString(req.Input["company"]))
-	domains := conv.AsStringSlice(req.Input["domains"])
-	focusAreas := conv.AsStringSlice(req.Input["focus_areas"])
-	market := strings.TrimSpace(conv.AsString(req.Input["market"]))
+func (s *BAResearcherSkill) Execute(ctx context.Context, req engine.SkillRequest) (engine.SkillResult, error) {
+	service := research.NewService()
+	result, err := service.Analyze(ctx, research.AnalyzeRequest{
+		Company:     strings.TrimSpace(conv.AsString(req.Input["company"])),
+		Competitors: conv.AsStringSlice(req.Input["competitors"]),
+		Domains:     conv.AsStringSlice(req.Input["domains"]),
+		Pages:       conv.AsStringSlice(req.Input["pages"]),
+		FocusAreas:  conv.AsStringSlice(req.Input["focus_areas"]),
+		Market:      strings.TrimSpace(conv.AsString(req.Input["market"])),
+		Country:     strings.TrimSpace(conv.AsString(req.Input["country"])),
+		Location:    strings.TrimSpace(conv.AsString(req.Input["location"])),
+		MaxSources:  parseOptionalInt(req.Input["max_sources"]),
+		Provider:    strings.TrimSpace(conv.AsString(req.Input["provider"])),
+		Debug:       conv.AsBool(req.Input["debug"]),
+	}, req.Secrets)
+	if err != nil {
+		return engine.SkillResult{}, err
+	}
 
 	output := map[string]any{
-		"company":  company,
-		"findings": []string{},
-		"summary":  fmt.Sprintf("Business analysis request for %s queued. Domains: %d, focus areas: %d.", company, len(domains), len(focusAreas)),
-		"sources":  []string{},
+		"company":          strings.TrimSpace(conv.AsString(req.Input["company"])),
+		"competitors":      conv.AsStringSlice(req.Input["competitors"]),
+		"domains":          conv.AsStringSlice(req.Input["domains"]),
+		"pages":            conv.AsStringSlice(req.Input["pages"]),
+		"market":           strings.TrimSpace(conv.AsString(req.Input["market"])),
+		"focus_areas":      conv.AsStringSlice(req.Input["focus_areas"]),
+		"provider":         result.Provider,
+		"fallback_reason":  result.FallbackReason,
+		"summary":          result.Summary,
+		"findings":         result.Findings,
+		"competitor_notes": result.CompetitorNotes,
+		"sources":          result.Sources,
+		"warnings":         result.Warnings,
+		"coverage":         result.Coverage,
 	}
-	if market != "" {
-		output["market"] = market
+	if output["company"] == "" {
+		output["company"] = firstNonEmptyString(conv.AsStringSlice(req.Input["competitors"])...)
 	}
-	if len(domains) > 0 {
-		output["domains"] = domains
-	}
-	if len(focusAreas) > 0 {
-		output["focus_areas"] = focusAreas
-	}
-
 	return engine.SkillResult{Output: output}, nil
 }
 
 // ── mitpo-creative-director ─────────────────────────────────────────────────
+
+type DossierGenerateSkill struct {
+	manifest Manifest
+}
+
+func NewDossierGenerateSkill(manifest Manifest) *DossierGenerateSkill {
+	return &DossierGenerateSkill{manifest: manifest}
+}
+
+func (s *DossierGenerateSkill) Definition() engine.SkillDefinition {
+	return engine.SkillDefinition{
+		Name:        s.manifest.Name,
+		Description: s.manifest.Description,
+		Tools:       s.manifest.Tools,
+		Events:      s.manifest.Events,
+		Prompt:      s.manifest.Prompt,
+	}
+}
+
+func (s *DossierGenerateSkill) Validate(input map[string]any) error {
+	if strings.TrimSpace(conv.AsString(input["company"])) == "" &&
+		len(conv.AsStringSlice(input["competitors"])) == 0 &&
+		strings.TrimSpace(conv.AsString(input["watchlist_id"])) == "" &&
+		strings.TrimSpace(conv.AsString(input["name"])) == "" {
+		return fmt.Errorf("company, competitors, or watchlist context is required")
+	}
+	return nil
+}
+
+func (s *DossierGenerateSkill) Execute(ctx context.Context, req engine.SkillRequest) (engine.SkillResult, error) {
+	service, err := newDossierService(req)
+	if err != nil {
+		return engine.SkillResult{}, err
+	}
+	generated, err := service.GenerateDossier(ctx, dossier.GenerateRequest{
+		WatchlistID:    strings.TrimSpace(conv.AsString(req.Input["watchlist_id"])),
+		Name:           strings.TrimSpace(conv.AsString(req.Input["name"])),
+		Topic:          strings.TrimSpace(conv.AsString(req.Input["topic"])),
+		Company:        strings.TrimSpace(conv.AsString(req.Input["company"])),
+		Competitors:    conv.AsStringSlice(req.Input["competitors"]),
+		Domains:        conv.AsStringSlice(req.Input["domains"]),
+		Pages:          conv.AsStringSlice(req.Input["pages"]),
+		Market:         strings.TrimSpace(conv.AsString(req.Input["market"])),
+		FocusAreas:     conv.AsStringSlice(req.Input["focus_areas"]),
+		TrustedDomains: dossier.ParseTrustedDomains(conv.AsString(req.Input["trusted_domains"])),
+		Provider:       strings.TrimSpace(conv.AsString(req.Input["provider"])),
+		Debug:          conv.AsBool(req.Input["debug"]),
+	}, req.Secrets)
+	if err != nil {
+		return engine.SkillResult{}, err
+	}
+	return engine.SkillResult{
+		Output: map[string]any{
+			"watchlist":       generated.Watchlist,
+			"dossier":         generated.Dossier,
+			"evidence":        generated.Evidence,
+			"changes":         generated.Changes,
+			"recommendations": generated.Recommendations,
+		},
+	}, nil
+}
+
+type WatchlistRefreshSkill struct {
+	manifest Manifest
+}
+
+func NewWatchlistRefreshSkill(manifest Manifest) *WatchlistRefreshSkill {
+	return &WatchlistRefreshSkill{manifest: manifest}
+}
+
+func (s *WatchlistRefreshSkill) Definition() engine.SkillDefinition {
+	return engine.SkillDefinition{
+		Name:        s.manifest.Name,
+		Description: s.manifest.Description,
+		Tools:       s.manifest.Tools,
+		Events:      s.manifest.Events,
+		Prompt:      s.manifest.Prompt,
+	}
+}
+
+func (s *WatchlistRefreshSkill) Validate(_ map[string]any) error {
+	return nil
+}
+
+func (s *WatchlistRefreshSkill) Execute(ctx context.Context, req engine.SkillRequest) (engine.SkillResult, error) {
+	service, err := newDossierService(req)
+	if err != nil {
+		return engine.SkillResult{}, err
+	}
+	watchlists, err := parseWatchlistsInput(req.Input, req.Secrets)
+	if err != nil {
+		return engine.SkillResult{}, err
+	}
+	if len(watchlists) == 0 {
+		watchlists, err = service.ListWatchlists(ctx)
+		if err != nil {
+			return engine.SkillResult{}, err
+		}
+	}
+	if len(watchlists) == 0 {
+		return engine.SkillResult{}, fmt.Errorf("no watchlists provided or configured")
+	}
+	result, err := service.RefreshWatchlists(ctx, watchlists, req.Secrets)
+	if err != nil {
+		return engine.SkillResult{}, err
+	}
+	return engine.SkillResult{
+		Output: map[string]any{
+			"watchlists":           result.Watchlists,
+			"dossiers":             result.Dossiers,
+			"changes":              result.Changes,
+			"recommendations":      result.Recommendations,
+			"warnings":             result.Warnings,
+			"watchlist_count":      len(result.Watchlists),
+			"dossier_count":        len(result.Dossiers),
+			"change_count":         len(result.Changes),
+			"recommendation_count": len(result.Recommendations),
+		},
+	}, nil
+}
+
+type DossierDiffSkill struct {
+	manifest Manifest
+}
+
+func NewDossierDiffSkill(manifest Manifest) *DossierDiffSkill {
+	return &DossierDiffSkill{manifest: manifest}
+}
+
+func (s *DossierDiffSkill) Definition() engine.SkillDefinition {
+	return engine.SkillDefinition{
+		Name:        s.manifest.Name,
+		Description: s.manifest.Description,
+		Tools:       s.manifest.Tools,
+		Events:      s.manifest.Events,
+		Prompt:      s.manifest.Prompt,
+	}
+}
+
+func (s *DossierDiffSkill) Validate(_ map[string]any) error {
+	return nil
+}
+
+func (s *DossierDiffSkill) Execute(ctx context.Context, req engine.SkillRequest) (engine.SkillResult, error) {
+	service, err := newDossierService(req)
+	if err != nil {
+		return engine.SkillResult{}, err
+	}
+	diff, err := service.DiffLatest(ctx, strings.TrimSpace(conv.AsString(req.Input["watchlist_id"])))
+	if err != nil {
+		return engine.SkillResult{}, err
+	}
+	return engine.SkillResult{
+		Output: map[string]any{
+			"watchlist_id": diff.WatchlistID,
+			"dossier_id":   diff.DossierID,
+			"summary":      diff.Summary,
+			"changes":      diff.Changes,
+		},
+	}, nil
+}
+
+type RecommendActionsSkill struct {
+	manifest Manifest
+}
+
+func NewRecommendActionsSkill(manifest Manifest) *RecommendActionsSkill {
+	return &RecommendActionsSkill{manifest: manifest}
+}
+
+func (s *RecommendActionsSkill) Definition() engine.SkillDefinition {
+	return engine.SkillDefinition{
+		Name:        s.manifest.Name,
+		Description: s.manifest.Description,
+		Tools:       s.manifest.Tools,
+		Events:      s.manifest.Events,
+		Prompt:      s.manifest.Prompt,
+	}
+}
+
+func (s *RecommendActionsSkill) Validate(_ map[string]any) error {
+	return nil
+}
+
+func (s *RecommendActionsSkill) Execute(ctx context.Context, req engine.SkillRequest) (engine.SkillResult, error) {
+	service, err := newDossierService(req)
+	if err != nil {
+		return engine.SkillResult{}, err
+	}
+	recommendations, err := service.ListRecommendations(ctx, "", 32)
+	if err != nil {
+		return engine.SkillResult{}, err
+	}
+	dossierID := strings.TrimSpace(conv.AsString(req.Input["dossier_id"]))
+	watchlistID := strings.TrimSpace(conv.AsString(req.Input["watchlist_id"]))
+	filtered := make([]dossier.Recommendation, 0, len(recommendations))
+	for _, item := range recommendations {
+		if dossierID != "" && item.DossierID != dossierID {
+			continue
+		}
+		if watchlistID != "" && item.WatchlistID != watchlistID {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	if len(filtered) == 0 {
+		return engine.SkillResult{}, fmt.Errorf("no recommendations available for the requested dossier scope")
+	}
+	return engine.SkillResult{
+		Output: map[string]any{
+			"dossier_id":           dossierID,
+			"watchlist_id":         watchlistID,
+			"recommendations":      filtered,
+			"recommendation_count": len(filtered),
+		},
+	}, nil
+}
 
 type CreativeDirectorSkill struct {
 	manifest Manifest
@@ -700,6 +960,23 @@ func removeTagBlocks(html string, tag string) string {
 	return buf.String()
 }
 
+func parseOptionalInt(value any) int {
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int32:
+		return int(typed)
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	case float32:
+		return int(typed)
+	default:
+		return 0
+	}
+}
+
 // ── mitpo-markdown-export ──────────────────────────────────────────────────
 
 type MarkdownExportSkill struct {
@@ -750,17 +1027,17 @@ func (s *MarkdownExportSkill) Execute(_ context.Context, req engine.SkillRequest
 	// Generate timestamped filename.
 	stamp := time.Now().UTC().Format("2006-01-05T15-04-05")
 	filename := fmt.Sprintf("%s-%s.md", prefix, stamp)
+	relativePath := filepath.Join("exports", filename)
 
-	// Resolve the exports directory within the workspace sandbox.
-	exportsDir, err := req.Sandbox.ResolveWithinWorkspace("exports")
+	// Resolve the final export path within the workspace sandbox.
+	fullPath, err := req.Sandbox.ResolveWithinWorkspace(relativePath)
 	if err != nil {
-		return engine.SkillResult{}, fmt.Errorf("resolve exports dir: %w", err)
+		return engine.SkillResult{}, fmt.Errorf("resolve export path: %w", err)
 	}
-	fullPath := filepath.Join(exportsDir, filename)
 
 	// Write using the sandbox (which ensures the directory exists and stays
 	// within the workspace boundary).
-	if err := req.Sandbox.WriteFile(context.Background(), fullPath, data); err != nil {
+	if err := req.Sandbox.WriteFile(context.Background(), relativePath, data); err != nil {
 		return engine.SkillResult{}, fmt.Errorf("write export: %w", err)
 	}
 
