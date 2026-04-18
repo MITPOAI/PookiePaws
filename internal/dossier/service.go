@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -98,6 +99,59 @@ func (s *Service) ListWatchlists(_ context.Context) ([]Watchlist, error) {
 		return watchlists[i].Name < watchlists[j].Name
 	})
 	return watchlists, nil
+}
+
+// GetWatchlist returns the watchlist with the given ID. Returns an error if not found.
+func (s *Service) GetWatchlist(ctx context.Context, id string) (Watchlist, error) {
+	if id == "" {
+		return Watchlist{}, fmt.Errorf("watchlist id is required")
+	}
+	all, err := s.ListWatchlists(ctx)
+	if err != nil {
+		return Watchlist{}, err
+	}
+	for _, wl := range all {
+		if wl.ID == id {
+			return wl, nil
+		}
+	}
+	return Watchlist{}, fmt.Errorf("watchlist %q not found", id)
+}
+
+// DeleteWatchlist removes a watchlist by ID. Missing IDs are a no-op (idempotent).
+func (s *Service) DeleteWatchlist(_ context.Context, id string) error {
+	if id == "" {
+		return fmt.Errorf("watchlist id is required")
+	}
+	path := filepath.Join(s.root, "watchlists", id+".json")
+	if err := os.Remove(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("delete watchlist: %w", err)
+	}
+	return nil
+}
+
+// MaxLastRunAt returns the most recent LastRunAt across all watchlists, or
+// nil if no watchlist has ever run. Used by the scheduler to decide whether
+// a refresh is due.
+func (s *Service) MaxLastRunAt(ctx context.Context) (*time.Time, error) {
+	all, err := s.ListWatchlists(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var latest *time.Time
+	for _, wl := range all {
+		if wl.LastRunAt == nil {
+			continue
+		}
+		if latest == nil || wl.LastRunAt.After(*latest) {
+			t := *wl.LastRunAt
+			latest = &t
+		}
+	}
+	return latest, nil
 }
 
 func (s *Service) ListDossiers(_ context.Context, limit int) ([]Dossier, error) {
