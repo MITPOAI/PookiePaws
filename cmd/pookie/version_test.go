@@ -87,6 +87,84 @@ func TestRunVersionCheckUpToDate(t *testing.T) {
 	}
 }
 
+func TestRunVersionPrintsCachedHintWithoutCheck(t *testing.T) {
+	cachePath := filepath.Join(t.TempDir(), "uc.json")
+	cache := updatecheck.NewCache(cachePath)
+	if err := cache.Save(&updatecheck.CacheEntry{
+		CheckedAt: time.Now().UTC(),
+		Release:   updatecheck.Release{TagName: "v9.9.9", HTMLURL: "https://example/r"},
+	}); err != nil {
+		t.Fatalf("seed cache: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	err := runVersion(context.Background(), versionConfig{
+		Version:   "0.5.2",
+		Stdout:    &stdout,
+		Stderr:    &stderr,
+		Check:     false,
+		CachePath: cachePath,
+	})
+	if err != nil {
+		t.Fatalf("runVersion: %v", err)
+	}
+	got := stdout.String()
+	if !strings.Contains(got, "latest:  v9.9.9") {
+		t.Errorf("expected cached latest line on stdout: %q", got)
+	}
+	if !strings.Contains(got, "https://example/r") {
+		t.Errorf("expected cached release URL on stdout: %q", got)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("expected nothing on stderr, got %q", stderr.String())
+	}
+}
+
+func TestRunVersionSilentWhenCacheMissing(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := runVersion(context.Background(), versionConfig{
+		Version:   "0.5.2",
+		Stdout:    &stdout,
+		Stderr:    &stderr,
+		Check:     false,
+		CachePath: filepath.Join(t.TempDir(), "missing.json"),
+	})
+	if err != nil {
+		t.Fatalf("runVersion: %v", err)
+	}
+	got := stdout.String()
+	if strings.Contains(got, "latest:") || strings.Contains(got, "upgrade:") {
+		t.Errorf("expected no upgrade hint when cache missing, got %q", got)
+	}
+}
+
+func TestRunVersionSilentWhenCacheExpired(t *testing.T) {
+	cachePath := filepath.Join(t.TempDir(), "uc.json")
+	cache := updatecheck.NewCache(cachePath)
+	if err := cache.Save(&updatecheck.CacheEntry{
+		CheckedAt: time.Now().UTC().Add(-72 * time.Hour),
+		Release:   updatecheck.Release{TagName: "v9.9.9", HTMLURL: "https://example/r"},
+	}); err != nil {
+		t.Fatalf("seed cache: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	err := runVersion(context.Background(), versionConfig{
+		Version:   "0.5.2",
+		Stdout:    &stdout,
+		Stderr:    &stderr,
+		Check:     false,
+		CachePath: cachePath,
+	})
+	if err != nil {
+		t.Fatalf("runVersion: %v", err)
+	}
+	got := stdout.String()
+	if strings.Contains(got, "latest:") || strings.Contains(got, "upgrade:") {
+		t.Errorf("expected no upgrade hint when cache expired, got %q", got)
+	}
+}
+
 func TestVersionConfigDefaults(t *testing.T) {
 	// Sanity: zero-value CachePath must be filled by the caller wrapper, not by
 	// runVersion. We assert that an empty CachePath produces an error.

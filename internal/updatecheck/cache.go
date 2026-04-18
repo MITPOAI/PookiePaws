@@ -68,7 +68,10 @@ func (c *Cache) Save(entry *CacheEntry) error {
 	if err != nil {
 		return fmt.Errorf("marshal cache: %w", err)
 	}
-	tmp := c.path + ".tmp"
+	// Process-unique tmp suffix so two concurrent `pookie` processes can't
+	// race on the same staging path (one's WriteFile would clobber the other's,
+	// and the cleanup os.Remove could nuke an in-flight tmp belonging to a peer).
+	tmp := fmt.Sprintf("%s.%d.tmp", c.path, os.Getpid())
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("write tmp cache: %w", err)
 	}
