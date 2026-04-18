@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -114,6 +115,106 @@ func TestCheckReturnsNilWhenUpToDate(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("Check: %v", err)
+	}
+	if notice != nil {
+		t.Fatalf("expected nil notice when up to date, got %+v", notice)
+	}
+}
+
+func TestCheckCacheOnlyFreshHit(t *testing.T) {
+	dir := t.TempDir()
+	cache := NewCache(filepath.Join(dir, "uc.json"))
+	if err := cache.Save(&CacheEntry{
+		CheckedAt: time.Now().UTC(),
+		Release:   Release{TagName: "v0.6.0", HTMLURL: "https://x"},
+	}); err != nil {
+		t.Fatalf("seed cache: %v", err)
+	}
+
+	notice, err := CheckCacheOnly(Options{
+		CurrentVersion: "0.5.2",
+		Cache:          cache,
+		TTL:            24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("CheckCacheOnly: %v", err)
+	}
+	if notice == nil || notice.Latest != "v0.6.0" {
+		t.Fatalf("expected v0.6.0 notice, got %+v", notice)
+	}
+}
+
+func TestCheckCacheOnlyExpired(t *testing.T) {
+	dir := t.TempDir()
+	cache := NewCache(filepath.Join(dir, "uc.json"))
+	if err := cache.Save(&CacheEntry{
+		CheckedAt: time.Now().UTC().Add(-48 * time.Hour),
+		Release:   Release{TagName: "v0.6.0"},
+	}); err != nil {
+		t.Fatalf("seed cache: %v", err)
+	}
+
+	notice, err := CheckCacheOnly(Options{
+		CurrentVersion: "0.5.2",
+		Cache:          cache,
+		TTL:            24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("CheckCacheOnly: %v", err)
+	}
+	if notice != nil {
+		t.Fatalf("expected nil notice when cache expired, got %+v", notice)
+	}
+}
+
+func TestCheckCacheOnlyMissing(t *testing.T) {
+	cache := NewCache(filepath.Join(t.TempDir(), "missing.json"))
+	notice, err := CheckCacheOnly(Options{
+		CurrentVersion: "0.5.2",
+		Cache:          cache,
+	})
+	if err != nil {
+		t.Fatalf("CheckCacheOnly on missing: %v", err)
+	}
+	if notice != nil {
+		t.Fatalf("expected nil notice on missing cache, got %+v", notice)
+	}
+}
+
+func TestCheckCacheOnlyCorrupt(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "uc.json")
+	if err := os.WriteFile(path, []byte("not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	notice, err := CheckCacheOnly(Options{
+		CurrentVersion: "0.5.2",
+		Cache:          NewCache(path),
+	})
+	if err != nil {
+		t.Fatalf("CheckCacheOnly on corrupt: %v", err)
+	}
+	if notice != nil {
+		t.Fatalf("expected nil notice on corrupt cache, got %+v", notice)
+	}
+}
+
+func TestCheckCacheOnlyUpToDate(t *testing.T) {
+	dir := t.TempDir()
+	cache := NewCache(filepath.Join(dir, "uc.json"))
+	if err := cache.Save(&CacheEntry{
+		CheckedAt: time.Now().UTC(),
+		Release:   Release{TagName: "v0.5.2"},
+	}); err != nil {
+		t.Fatalf("seed cache: %v", err)
+	}
+
+	notice, err := CheckCacheOnly(Options{
+		CurrentVersion: "0.5.2",
+		Cache:          cache,
+	})
+	if err != nil {
+		t.Fatalf("CheckCacheOnly: %v", err)
 	}
 	if notice != nil {
 		t.Fatalf("expected nil notice when up to date, got %+v", notice)

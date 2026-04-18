@@ -47,6 +47,21 @@ func runVersion(ctx context.Context, cfg versionConfig) error {
 		cfg.Version, runtime.GOOS, runtime.GOARCH, runtime.Version())
 
 	if !cfg.Check {
+		// Best-effort cache-only hint: print the cached upgrade notice if one
+		// exists, but never make a network call and never surface errors. The
+		// user asked for version info, not for a notifier-style nudge — so we
+		// stay silent when the cache is empty, expired, missing, or unreadable.
+		if cfg.CachePath == "" {
+			return nil
+		}
+		notice, err := updatecheck.CheckCacheOnly(updatecheck.Options{
+			CurrentVersion: cfg.Version,
+			Cache:          updatecheck.NewCache(cfg.CachePath),
+		})
+		if err == nil && notice != nil {
+			fmt.Fprintf(cfg.Stdout, "latest:  %s\n  url:   %s\n  upgrade: %s\n",
+				notice.Latest, notice.URL, notice.Hint)
+		}
 		return nil
 	}
 	if cfg.CachePath == "" {

@@ -105,6 +105,39 @@ func Check(ctx context.Context, opts Options) (*Notice, error) {
 	}, nil
 }
 
+// CheckCacheOnly returns a Notice if the on-disk cache is fresh and reports a
+// newer release. It never makes a network call: missing, expired, or corrupt
+// caches return (nil, nil). Errors are limited to genuine I/O problems while
+// reading the cache file. Useful for surfacing the cached upgrade hint on
+// `pookie version` without paying any network latency.
+func CheckCacheOnly(opts Options) (*Notice, error) {
+	if opts.TTL == 0 {
+		opts.TTL = 24 * time.Hour
+	}
+	if opts.Cache == nil {
+		return nil, fmt.Errorf("updatecheck.CheckCacheOnly: Cache is required")
+	}
+	entry, err := opts.Cache.Load()
+	if err != nil {
+		return nil, fmt.Errorf("load cache: %w", err)
+	}
+	if entry == nil {
+		return nil, nil
+	}
+	if entry.IsExpired(opts.TTL, time.Now().UTC()) {
+		return nil, nil
+	}
+	if !IsNewer(opts.CurrentVersion, entry.Release.TagName) {
+		return nil, nil
+	}
+	return &Notice{
+		Current: opts.CurrentVersion,
+		Latest:  entry.Release.TagName,
+		URL:     entry.Release.HTMLURL,
+		Hint:    UpgradeHint(runtime.GOOS),
+	}, nil
+}
+
 // UpgradeHint returns a one-line upgrade suggestion. winget is preferred on
 // Windows, brew on macOS/Linux when present; otherwise the install-script
 // fallback so users on bare systems still see a path forward.
