@@ -9,7 +9,7 @@ This directory holds the template and the rendering helper.
 1. Run a release with goreleaser (produces `dist/checksums.txt`).
 2. Render the formula:
 
-       packaging/scripts/render-formula.sh dist v0.5.2 > /tmp/pookie.rb
+       packaging/scripts/render-formula.sh dist v1.0.0 > /tmp/pookie.rb
 
 3. Verify it parses:
 

@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
 
 PackageIdentifier: MITPOAI.PookiePaws
-PackageVersion: 0.5.2
+PackageVersion: 1.0.0
 PackageLocale: en-US
 Publisher: MITPO AI
 PublisherUrl: https://github.com/MITPOAI

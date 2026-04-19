@@ -49,14 +49,14 @@ jobs:
         run: |
           mkdir -p /tmp/render-smoke
           {
-            printf '%s  %s\n' '0000000000000000000000000000000000000000000000000000000000000000' 'pookie_0.5.2_darwin_arm64.tar.gz'
-            printf '%s  %s\n' '1111111111111111111111111111111111111111111111111111111111111111' 'pookie_0.5.2_darwin_amd64.tar.gz'
-            printf '%s  %s\n' '2222222222222222222222222222222222222222222222222222222222222222' 'pookie_0.5.2_linux_arm64.tar.gz'
-            printf '%s  %s\n' '3333333333333333333333333333333333333333333333333333333333333333' 'pookie_0.5.2_linux_amd64.tar.gz'
+            printf '%s  %s\n' '0000000000000000000000000000000000000000000000000000000000000000' 'pookie_1.0.0_darwin_arm64.tar.gz'
+            printf '%s  %s\n' '1111111111111111111111111111111111111111111111111111111111111111' 'pookie_1.0.0_darwin_amd64.tar.gz'
+            printf '%s  %s\n' '2222222222222222222222222222222222222222222222222222222222222222' 'pookie_1.0.0_linux_arm64.tar.gz'
+            printf '%s  %s\n' '3333333333333333333333333333333333333333333333333333333333333333' 'pookie_1.0.0_linux_amd64.tar.gz'
           } > /tmp/render-smoke/checksums.txt
-          out=$(go run ./cmd/render-formula --dist /tmp/render-smoke --version 0.5.2 --template packaging/homebrew/pookie.rb.tmpl)
-          echo "$out" | grep -q 'pookie_0.5.2_darwin_arm64.tar.gz' || (echo "render-formula output missing darwin_arm64 URL"; exit 1)
-          echo "$out" | grep -q 'pookie_0.5.2_linux_amd64.tar.gz' || (echo "render-formula output missing linux_amd64 URL"; exit 1)
+          out=$(go run ./cmd/render-formula --dist /tmp/render-smoke --version 1.0.0 --template packaging/homebrew/pookie.rb.tmpl)
+          echo "$out" | grep -q 'pookie_1.0.0_darwin_arm64.tar.gz' || (echo "render-formula output missing darwin_arm64 URL"; exit 1)
+          echo "$out" | grep -q 'pookie_1.0.0_linux_amd64.tar.gz' || (echo "render-formula output missing linux_amd64 URL"; exit 1)
           echo "render-formula smoke OK"
 
   validate-packaging:

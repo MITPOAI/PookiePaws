@@ -44,7 +44,7 @@ After the GitHub release is published and assets are live:
 ### WinGet (`microsoft/winget-pkgs`)
 
 - Update `PackageVersion`, `InstallerUrl`, `InstallerSha256`, and `ReleaseDate`
-  in `packaging/winget/*.yaml` (see `packaging/winget/README.md`).
+  in `packaging/winget/*.yaml` (see `packaging/winget-manifests.md`).
 - `winget validate --manifest packaging/winget`
 - Open a PR against `microsoft/winget-pkgs` placing the three files under
   `manifests/m/MITPOAI/PookiePaws/<new-version>/`.
