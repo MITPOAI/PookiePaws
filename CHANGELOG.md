@@ -2,7 +2,15 @@
 
 All notable changes to PookiePaws should be documented in this file.
 
-## [1.0.0] - Unreleased
+## [1.0.1] - Unreleased
+
+### Fixed
+
+- **Correct local build version reporting**: non-GoReleaser builds now report `1.0.1` instead of the stale `0.5.2` fallback
+- **Live release check on demand**: `pookie version --check` now queries GitHub Releases directly so operators can verify the latest published build
+- **Release messaging clarified**: docs now spell out that online research is bounded provider-based retrieval, while local AI runs through external OpenAI-compatible servers such as Ollama and LM Studio
+
+## [1.0.0] - 2026-04-07
 
 ### Added
 

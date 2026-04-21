@@ -19,6 +19,8 @@ PookiePaws is a pure-Go, stdlib-first marketing automation runtime built around 
 - It keeps secrets host-side in `.security.json` and avoids putting provider credentials into prompts.
 - It is designed as a marketing operations runtime, not a generic shell agent.
 
+> Boundary note: PookiePaws can do bounded provider-based online research, but it is not a full browser automation agent. Local AI is supported by pointing Pookie at an external OpenAI-compatible server such as Ollama or LM Studio; the binary does not bundle or fine-tune models in-process.
+
 ## What Makes It Different
 
 - Small, single-binary runtime rather than a broad multi-service agent platform
