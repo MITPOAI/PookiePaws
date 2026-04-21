@@ -324,18 +324,24 @@ func cmdDoctor(args []string) {
 		p.Error("read channels: %v", err)
 		os.Exit(1)
 	}
+	latestResearch, latestResearchErr := loadLatestResearchStatus(ctx, stack.dossier)
+	if latestResearchErr != nil {
+		p.Error("read latest research: %v", latestResearchErr)
+		os.Exit(1)
+	}
 
 	if *jsonOut {
 		schedState, _ := scheduler.NewStateStore(scheduler.DefaultStatePath(runtimeRoot)).Load()
 		brainStatus := stack.brainSvc.Status()
 		emitJSONOrExit(map[string]any{
-			"version":      version,
-			"runtime":      status,
-			"brain_status": brainStatus,
-			"brain_health": brainHealth,
-			"scheduler":    schedState,
-			"channels":     channels,
-			"warnings":     startupWarnings(stack.secrets),
+			"version":         version,
+			"runtime":         status,
+			"brain_status":    brainStatus,
+			"brain_health":    brainHealth,
+			"scheduler":       schedState,
+			"latest_research": latestResearch,
+			"channels":        channels,
+			"warnings":        startupWarnings(stack.secrets),
 		})
 		return
 	}
@@ -358,6 +364,14 @@ func cmdDoctor(args []string) {
 		{"next due", formatTime(schedState.NextDueAt)},
 		{"last workflow", emptyDash(schedState.LastWorkflow)},
 		{"last error", emptyDash(schedState.LastError)},
+	})
+	p.Blank()
+
+	p.Box("Latest Research", [][2]string{
+		{"dossier", firstValue(latestResearchID(latestResearch), "-")},
+		{"topic", firstValue(latestResearchTopic(latestResearch), "-")},
+		{"created", latestResearchCreatedAt(latestResearch)},
+		{"markdown", formatLatestExport(latestResearch)},
 	})
 	p.Blank()
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
@@ -8,13 +9,17 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
 
+	"github.com/mitpoai/pookiepaws/internal/cli"
 	"github.com/mitpoai/pookiepaws/internal/dossier"
 	"github.com/mitpoai/pookiepaws/internal/engine"
+	"github.com/mitpoai/pookiepaws/internal/research"
 	"github.com/mitpoai/pookiepaws/internal/scheduler"
+	"github.com/mitpoai/pookiepaws/internal/security"
 )
 
 // cmdResearch is the top-level dispatcher for `pookie research <sub>`.
@@ -26,6 +31,8 @@ func cmdResearch(args []string) {
 		os.Exit(2)
 	}
 	switch args[0] {
+	case "analyze":
+		cmdResearchAnalyze(args[1:])
 	case "watchlists":
 		cmdResearchWatchlists(args[1:])
 	case "refresh":
@@ -50,6 +57,7 @@ func cmdResearch(args []string) {
 func printResearchUsage(w io.Writer) {
 	fmt.Fprint(w, `pookie research <subcommand>
 
+  analyze --company <name> [flags]            Check competitors online and save a local dossier
   watchlists list                            Print configured watchlists
   watchlists apply --file <json>             Replace watchlists from JSON file (or --stdin)
   watchlists show <id>                       Show a single watchlist
@@ -66,6 +74,284 @@ func printResearchUsage(w io.Writer) {
   recommendations queue <id> --workflow <wf> Mark a recommendation as queued for a workflow
   recommendations discard <id>               Mark a recommendation as discarded
 `)
+}
+
+type researchAnalyzeOptions struct {
+	Name       string
+	Topic      string
+	Company    string
+	Market     string
+	Country    string
+	Location   string
+	Provider   string
+	Schedule   string
+	Debug      bool
+	NoExport   bool
+	MaxSources int
+
+	Competitors []string
+	Domains     []string
+	Pages       []string
+	FocusAreas  []string
+}
+
+type latestResearchStatus struct {
+	DossierID     string    `json:"dossier_id,omitempty"`
+	WatchlistID   string    `json:"watchlist_id,omitempty"`
+	Topic         string    `json:"topic,omitempty"`
+	Company       string    `json:"company,omitempty"`
+	CreatedAt     time.Time `json:"created_at,omitempty"`
+	MarkdownPath  string    `json:"markdown_path,omitempty"`
+	MarkdownSaved bool      `json:"markdown_saved"`
+}
+
+func cmdResearchAnalyze(args []string) {
+	p := cli.Stdout()
+	p.Banner()
+
+	opts, err := parseResearchAnalyzeArgs(args)
+	if err != nil {
+		p.Error("%v", err)
+		p.Blank()
+		printResearchUsage(os.Stderr)
+		os.Exit(2)
+	}
+
+	runtimeRoot := resolveRuntimeRoot()
+	svc, err := dossier.NewService(runtimeRoot)
+	if err != nil {
+		p.Error("init dossier service: %v", err)
+		os.Exit(1)
+	}
+	secrets, err := security.NewJSONSecretProvider(runtimeRoot)
+	if err != nil {
+		p.Error("open secrets vault: %v", err)
+		os.Exit(1)
+	}
+
+	err = runResearchAnalyze(
+		context.Background(),
+		svc,
+		secrets,
+		opts,
+		func(mode string) error {
+			if mode == scheduler.ModeManual {
+				return nil
+			}
+			return writeVaultSecret("research_schedule", mode)
+		},
+		runtimeRoot,
+		os.Stdout,
+	)
+	if err != nil {
+		p.Error("research analyze failed: %v", err)
+		if hint := researchAnalyzeHint(err); hint != "" {
+			p.Info("%s", hint)
+		}
+		os.Exit(1)
+	}
+
+	if opts.Schedule != scheduler.ModeManual {
+		p.Info("Recurring research is now set to %s. Keep `pookie start` running so the daemon can continue checking online.", opts.Schedule)
+		p.Blank()
+	}
+}
+
+func parseResearchAnalyzeArgs(args []string) (researchAnalyzeOptions, error) {
+	var opts researchAnalyzeOptions
+
+	fs := flag.NewFlagSet("analyze", flag.ContinueOnError)
+	var stderr bytes.Buffer
+	fs.SetOutput(&stderr)
+
+	name := fs.String("name", "", "Watchlist display name")
+	topic := fs.String("topic", "", "Topic label for the dossier")
+	company := fs.String("company", "", "Target brand or company name")
+	competitors := fs.String("competitors", "", "Comma-separated competitors to compare")
+	domains := fs.String("domains", "", "Comma-separated public domains to prioritize")
+	pages := fs.String("pages", "", "Comma-separated public pages to observe directly")
+	focusAreas := fs.String("focus-areas", "", "Comma-separated focus areas such as pricing, positioning, offers")
+	market := fs.String("market", "", "Market context")
+	country := fs.String("country", "", "Country code for search geo")
+	location := fs.String("location", "", "Location string for search geo")
+	provider := fs.String("provider", "", "Research provider (auto|internal|firecrawl|jina)")
+	maxSources := fs.Int("max-sources", 0, "Maximum public sources to keep (default 6)")
+	schedule := fs.String("schedule", scheduler.ModeManual, "Run once or enable recurring refreshes (manual|hourly|daily)")
+	debug := fs.Bool("debug", false, "Include debug-level research output")
+	noExport := fs.Bool("no-export", false, "Skip the automatic local Markdown brief")
+
+	if err := fs.Parse(args); err != nil {
+		return opts, fmt.Errorf("invalid analyze flags: %w", err)
+	}
+	if len(fs.Args()) > 0 {
+		return opts, fmt.Errorf("unexpected positional arguments: %s", strings.Join(fs.Args(), " "))
+	}
+
+	opts = researchAnalyzeOptions{
+		Name:        strings.TrimSpace(*name),
+		Topic:       strings.TrimSpace(*topic),
+		Company:     strings.TrimSpace(*company),
+		Market:      strings.TrimSpace(*market),
+		Country:     strings.TrimSpace(*country),
+		Location:    strings.TrimSpace(*location),
+		Provider:    strings.TrimSpace(*provider),
+		Schedule:    strings.TrimSpace(*schedule),
+		Debug:       *debug,
+		NoExport:    *noExport,
+		MaxSources:  *maxSources,
+		Competitors: splitCSVArgs(*competitors),
+		Domains:     splitCSVArgs(*domains),
+		Pages:       splitCSVArgs(*pages),
+		FocusAreas:  splitCSVArgs(*focusAreas),
+	}
+
+	if opts.Schedule == "" {
+		opts.Schedule = scheduler.ModeManual
+	}
+	switch opts.Schedule {
+	case scheduler.ModeManual, scheduler.ModeHourly, scheduler.ModeDaily:
+	default:
+		return opts, fmt.Errorf("schedule must be manual, hourly, or daily")
+	}
+	if opts.Company == "" && len(opts.Competitors) == 0 {
+		return opts, fmt.Errorf("company or competitors is required")
+	}
+	if opts.Provider != "" {
+		switch strings.ToLower(opts.Provider) {
+		case "auto", "internal", "firecrawl", "jina":
+		default:
+			return opts, fmt.Errorf("provider must be auto, internal, firecrawl, or jina")
+		}
+	}
+	if opts.MaxSources < 0 {
+		return opts, fmt.Errorf("max-sources must be zero or greater")
+	}
+	return opts, nil
+}
+
+func runResearchAnalyze(ctx context.Context, svc *dossier.Service, secrets engine.SecretProvider, opts researchAnalyzeOptions, setSchedule func(string) error, runtimeRoot string, out io.Writer) error {
+	p := cli.New(out)
+	stateDir := filepath.Join(runtimeRoot, "state", "research")
+	p.Box("Analyze Request", [][2]string{
+		{"company", emptyDash(opts.Company)},
+		{"competitors", emptyDash(strings.Join(opts.Competitors, ", "))},
+		{"domains", emptyDash(strings.Join(opts.Domains, ", "))},
+		{"pages", emptyDash(strings.Join(opts.Pages, ", "))},
+		{"focus", emptyDash(strings.Join(opts.FocusAreas, ", "))},
+		{"market", emptyDash(opts.Market)},
+		{"geo", emptyDash(strings.TrimSpace(strings.TrimSpace(opts.Country + " " + opts.Location)))},
+		{"provider", firstNonEmpty(strings.ToLower(opts.Provider), "default")},
+		{"max sources", fmt.Sprintf("%d", normalizeAnalyzeMaxSources(opts.MaxSources))},
+		{"schedule", opts.Schedule},
+	})
+	p.Blank()
+	p.Info("Checking bounded public sources online and saving a local dossier under %s", stateDir)
+	p.Blank()
+
+	generated, err := svc.GenerateDossier(ctx, dossier.GenerateRequest{
+		Name:           opts.Name,
+		Topic:          opts.Topic,
+		Company:        opts.Company,
+		Competitors:    opts.Competitors,
+		Domains:        opts.Domains,
+		Pages:          opts.Pages,
+		Market:         opts.Market,
+		Country:        opts.Country,
+		Location:       opts.Location,
+		MaxSources:     opts.MaxSources,
+		FocusAreas:     opts.FocusAreas,
+		Provider:       opts.Provider,
+		Debug:          opts.Debug,
+		SkipExport:     opts.NoExport,
+		TrustedDomains: nil,
+	}, secrets)
+	if err != nil {
+		return err
+	}
+
+	if opts.Schedule != scheduler.ModeManual && setSchedule != nil {
+		if err := setSchedule(opts.Schedule); err != nil {
+			return fmt.Errorf("save research schedule: %w", err)
+		}
+	}
+
+	p.Success("Competitor analysis saved locally")
+	p.Blank()
+	p.Box("Research Result", [][2]string{
+		{"watchlist", generated.Watchlist.ID},
+		{"dossier", generated.Dossier.ID},
+		{"topic", emptyDash(generated.Dossier.Topic)},
+		{"provider", emptyDash(generated.Dossier.Provider)},
+		{"coverage", formatCoverage(generated.Dossier.Coverage)},
+		{"evidence", fmt.Sprintf("%d", len(generated.Evidence))},
+		{"changes", fmt.Sprintf("%d", len(generated.Changes))},
+		{"recommendations", fmt.Sprintf("%d", len(generated.Recommendations))},
+	})
+	p.Blank()
+	p.Box("Saved Output", [][2]string{
+		{"state dir", stateDir},
+		{"watchlist json", filepath.Join(stateDir, "watchlists", generated.Watchlist.ID+".json")},
+		{"dossier json", filepath.Join(stateDir, "dossiers", generated.Dossier.ID+".json")},
+		{"markdown brief", firstNonEmpty(generated.Dossier.MarkdownPath, "disabled")},
+	})
+	if len(generated.Dossier.Warnings) > 0 {
+		p.Blank()
+		for _, warning := range generated.Dossier.Warnings {
+			p.Warning("%s", warning)
+		}
+	}
+	p.Blank()
+	return nil
+}
+
+func researchAnalyzeHint(err error) string {
+	if err == nil {
+		return ""
+	}
+	text := err.Error()
+	switch {
+	case strings.Contains(text, "company or competitors is required"),
+		strings.Contains(text, "bounded research requires at least one competitor or company"):
+		return "Provide --company or --competitors. Example: pookie research analyze --company \"PookiePaws\" --competitors \"OpenClaw,PetBox\" --domains \"openclaw.com,petbox.com\"."
+	case strings.Contains(text, "firecrawl_api_key"):
+		return "Configure firecrawl_api_key in your local settings or use --provider internal/auto."
+	case strings.Contains(text, "research_provider=jina requires explicit domains"):
+		return "Add --domains when using --provider jina so the run has public pages to seed from."
+	default:
+		return ""
+	}
+}
+
+func splitCSVArgs(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == '\n' || r == '\r'
+	})
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		key := strings.ToLower(part)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, part)
+	}
+	return out
+}
+
+func normalizeAnalyzeMaxSources(value int) int {
+	if value <= 0 || value > 6 {
+		return 6
+	}
+	return value
 }
 
 // --- watchlists subcommand ---
@@ -205,6 +491,9 @@ func runResearchWatchlistsShow(ctx context.Context, svc *dossier.Service, id str
 	fmt.Fprintf(tw, "Topic:\t%s\n", emptyDash(wl.Topic))
 	fmt.Fprintf(tw, "Company:\t%s\n", emptyDash(wl.Company))
 	fmt.Fprintf(tw, "Market:\t%s\n", emptyDash(wl.Market))
+	fmt.Fprintf(tw, "Country:\t%s\n", emptyDash(wl.Country))
+	fmt.Fprintf(tw, "Location:\t%s\n", emptyDash(wl.Location))
+	fmt.Fprintf(tw, "MaxSources:\t%d\n", wl.MaxSources)
 	fmt.Fprintf(tw, "Domains:\t%s\n", emptyDash(strings.Join(wl.Domains, ", ")))
 	fmt.Fprintf(tw, "Competitors:\t%s\n", emptyDash(strings.Join(wl.Competitors, ", ")))
 	fmt.Fprintf(tw, "FocusAreas:\t%s\n", emptyDash(strings.Join(wl.FocusAreas, ", ")))
@@ -314,6 +603,7 @@ func runResearchDossierShow(ctx context.Context, svc *dossier.Service, id string
 	fmt.Fprintf(tw, "Provider:\t%s\n", emptyDash(found.Provider))
 	fmt.Fprintf(tw, "Summary:\t%s\n", emptyDash(found.Summary))
 	fmt.Fprintf(tw, "FallbackReason:\t%s\n", emptyDash(found.FallbackReason))
+	fmt.Fprintf(tw, "MarkdownPath:\t%s\n", emptyDash(found.MarkdownPath))
 	fmt.Fprintf(tw, "Findings:\t%d\n", len(found.Findings))
 	fmt.Fprintf(tw, "Evidence:\t%d\n", len(found.EvidenceIDs))
 	fmt.Fprintf(tw, "Changes:\t%d\n", len(found.ChangeIDs))
@@ -445,18 +735,19 @@ func cmdResearchSchedule(args []string) {
 // researchStatusPayload is the shape returned by buildResearchStatusPayload.
 // Centralized so both the JSON and human renderings agree on the hint logic.
 type researchStatusPayload struct {
-	Scheduler       scheduler.State `json:"scheduler"`
-	Watchlists      *int            `json:"watchlists,omitempty"`
-	WatchlistsError string          `json:"watchlists_error,omitempty"`
-	Hint            string          `json:"hint,omitempty"`
+	Scheduler       scheduler.State       `json:"scheduler"`
+	Watchlists      *int                  `json:"watchlists,omitempty"`
+	WatchlistsError string                `json:"watchlists_error,omitempty"`
+	Latest          *latestResearchStatus `json:"latest,omitempty"`
+	Hint            string                `json:"hint,omitempty"`
 }
 
 // buildResearchStatusPayload constructs the status payload and attaches a
 // helpful hint when the scheduler state looks completely empty (no schedule
 // configured AND no tick has ever happened). That combination almost always
 // means the daemon hasn't been started.
-func buildResearchStatusPayload(st scheduler.State, watchlistsCount int, watchlistsErr error) researchStatusPayload {
-	p := researchStatusPayload{Scheduler: st}
+func buildResearchStatusPayload(st scheduler.State, watchlistsCount int, watchlistsErr error, latest *latestResearchStatus) researchStatusPayload {
+	p := researchStatusPayload{Scheduler: st, Latest: latest}
 	if watchlistsErr != nil {
 		p.WatchlistsError = watchlistsErr.Error()
 	} else {
@@ -482,8 +773,12 @@ func cmdResearchStatus(args []string) {
 	}
 	svc := mustDossierService()
 	wls, wlErr := svc.ListWatchlists(context.Background())
+	latest, latestErr := loadLatestResearchStatus(context.Background(), svc)
+	if latestErr != nil {
+		slog.Error("load latest research failed", "err", latestErr)
+	}
 
-	payload := buildResearchStatusPayload(st, len(wls), wlErr)
+	payload := buildResearchStatusPayload(st, len(wls), wlErr, latest)
 
 	if *jsonOut {
 		emitJSONOrExit(payload)
@@ -501,6 +796,11 @@ func cmdResearchStatus(args []string) {
 	fmt.Printf("last workflow:   %s\n", emptyDash(st.LastWorkflow))
 	fmt.Printf("next due:        %s\n", formatTime(st.NextDueAt))
 	fmt.Printf("last error:      %s\n", emptyDash(st.LastError))
+	if payload.Latest != nil {
+		fmt.Printf("latest dossier:  %s\n", emptyDash(payload.Latest.DossierID))
+		fmt.Printf("latest topic:    %s\n", emptyDash(payload.Latest.Topic))
+		fmt.Printf("latest export:   %s\n", formatLatestExport(payload.Latest))
+	}
 	if payload.Hint != "" {
 		fmt.Printf("\nHint: %s\n", payload.Hint)
 	}
@@ -671,4 +971,79 @@ func emptyDash(s string) string {
 		return "-"
 	}
 	return s
+}
+
+func loadLatestResearchStatus(ctx context.Context, svc *dossier.Service) (*latestResearchStatus, error) {
+	if svc == nil {
+		return nil, nil
+	}
+	items, err := svc.ListDossiers(ctx, 1)
+	if err != nil {
+		return nil, err
+	}
+	if len(items) == 0 {
+		return nil, nil
+	}
+	latest := items[0]
+	status := &latestResearchStatus{
+		DossierID:     latest.ID,
+		WatchlistID:   latest.WatchlistID,
+		Topic:         latest.Topic,
+		Company:       latest.Company,
+		CreatedAt:     latest.CreatedAt,
+		MarkdownPath:  latest.MarkdownPath,
+		MarkdownSaved: false,
+	}
+	if strings.TrimSpace(latest.MarkdownPath) != "" {
+		if _, err := os.Stat(latest.MarkdownPath); err == nil {
+			status.MarkdownSaved = true
+		}
+	}
+	return status, nil
+}
+
+func formatLatestExport(latest *latestResearchStatus) string {
+	if latest == nil {
+		return "-"
+	}
+	switch {
+	case latest.MarkdownPath == "":
+		return "disabled"
+	case latest.MarkdownSaved:
+		return latest.MarkdownPath
+	default:
+		return latest.MarkdownPath + " (missing)"
+	}
+}
+
+func latestResearchID(latest *latestResearchStatus) string {
+	if latest == nil {
+		return ""
+	}
+	return latest.DossierID
+}
+
+func latestResearchTopic(latest *latestResearchStatus) string {
+	if latest == nil {
+		return ""
+	}
+	return latest.Topic
+}
+
+func latestResearchCreatedAt(latest *latestResearchStatus) string {
+	if latest == nil {
+		return "-"
+	}
+	return formatTime(latest.CreatedAt)
+}
+
+func formatCoverage(coverage research.Coverage) string {
+	return fmt.Sprintf(
+		"%s / kept %d / discovered %d / scraped %d / skipped %d",
+		firstNonEmpty(coverage.Mode, "-"),
+		coverage.Kept,
+		coverage.Discovered,
+		coverage.Scraped,
+		coverage.Skipped,
+	)
 }

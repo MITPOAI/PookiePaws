@@ -12,7 +12,7 @@ events:
 approval_policy: report_only
 timeout: 2m
 ---
-Generate a source-backed dossier for a competitor or topic. Persist the dossier, evidence records, detected changes, and recommendation queue into the local runtime so operators can review and act from one console.
+Analyze the public competitor landscape for the target brand and named competitors. Check bounded public sources online, prioritize official domains, explicit pages, and trusted domains, capture source-backed claims on pricing, positioning, offers, features, promos, proof points, and messaging, compare findings against the last saved dossier when available, persist structured local records, write a readable local Markdown brief, and emit actionable recommendations plus warnings when coverage is thin.
 
 ## Inputs
 - watchlist_id (string, optional): Existing watchlist identifier.
@@ -24,6 +24,9 @@ Generate a source-backed dossier for a competitor or topic. Persist the dossier,
 - pages (array, optional): Explicit public pages to observe directly.
 - focus_areas (array, optional): Pricing, positioning, offers, or other scoped lenses.
 - market (string, optional): Market context.
+- country (string, optional): Country code for bounded search geo.
+- location (string, optional): Location string for bounded search geo.
+- max_sources (number, optional): Maximum public sources to keep.
 - trusted_domains (string, optional): Comma or newline separated allowlisted domains for tracked pages.
 - provider (string, optional): Research provider preference.
 - debug (boolean, optional): Include debug-level research output.

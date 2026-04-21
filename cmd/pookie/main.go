@@ -116,7 +116,7 @@ func printUsage() {
 	p.Plain("  start              Boot the local agent and open the Home console")
 	p.Plain("  chat               Talk to Pookie in your terminal (AI mode)")
 	p.Plain("  list               Show all installed marketing skills")
-	p.Plain("  research <sub>     Manage research watchlists, scheduler, and dossiers")
+	p.Plain("  research <sub>     Analyze competitors, manage watchlists, scheduler, and dossiers")
 	p.Plain("  run <skill>        Execute a marketing skill in this terminal")
 	p.Plain("  status             Check whether the agent is running")
 	p.Plain("  sessions           Inspect persisted control-plane sessions")

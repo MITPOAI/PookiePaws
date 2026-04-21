@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/mitpoai/pookiepaws/internal/dossier"
 	"github.com/mitpoai/pookiepaws/internal/engine"
 	"github.com/mitpoai/pookiepaws/internal/security"
 )
@@ -170,6 +172,13 @@ func TestDossierGenerateAndWatchlistRefreshSkills(t *testing.T) {
 	if _, ok := result.Output["recommendations"]; !ok {
 		t.Fatalf("expected recommendations in output")
 	}
+	generatedDossier, ok := result.Output["dossier"].(dossier.Dossier)
+	if !ok {
+		t.Fatalf("expected typed dossier output, got %+v", result.Output["dossier"])
+	}
+	if generatedDossier.MarkdownPath == "" {
+		t.Fatal("expected generated dossier to include markdown path")
+	}
 
 	refresh := NewWatchlistRefreshSkill(Manifest{Name: "mitpo-watchlist-refresh"})
 	refreshResult, err := refresh.Execute(context.Background(), engine.SkillRequest{
@@ -183,6 +192,16 @@ func TestDossierGenerateAndWatchlistRefreshSkills(t *testing.T) {
 	}
 	if count, _ := refreshResult.Output["watchlist_count"].(int); count == 0 {
 		t.Fatalf("expected refreshed watchlists, got %+v", refreshResult.Output)
+	}
+	dossiersOut, ok := refreshResult.Output["dossiers"].([]dossier.Dossier)
+	if !ok || len(dossiersOut) == 0 {
+		t.Fatalf("expected dossiers in refresh output, got %+v", refreshResult.Output["dossiers"])
+	}
+	if dossiersOut[0].MarkdownPath == "" {
+		t.Fatal("expected scheduled refresh dossier to include markdown path")
+	}
+	if _, err := os.Stat(dossiersOut[0].MarkdownPath); err != nil {
+		t.Fatalf("expected markdown export to exist after scheduled refresh, got %v", err)
 	}
 }
 

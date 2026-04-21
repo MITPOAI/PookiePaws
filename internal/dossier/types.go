@@ -16,6 +16,9 @@ type Watchlist struct {
 	Domains        []string   `json:"domains,omitempty"`
 	Pages          []string   `json:"pages,omitempty"`
 	Market         string     `json:"market,omitempty"`
+	Country        string     `json:"country,omitempty"`
+	Location       string     `json:"location,omitempty"`
+	MaxSources     int        `json:"max_sources,omitempty"`
 	FocusAreas     []string   `json:"focus_areas,omitempty"`
 	TrustedDomains []string   `json:"trusted_domains,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
@@ -33,6 +36,7 @@ type Dossier struct {
 	Provider          string                    `json:"provider,omitempty"`
 	FallbackReason    string                    `json:"fallback_reason,omitempty"`
 	Coverage          research.Coverage         `json:"coverage"`
+	MarkdownPath      string                    `json:"markdown_path,omitempty"`
 	Findings          []string                  `json:"findings,omitempty"`
 	CompetitorNotes   []research.CompetitorNote `json:"competitor_notes,omitempty"`
 	Warnings          []string                  `json:"warnings,omitempty"`
@@ -118,10 +122,14 @@ type GenerateRequest struct {
 	Domains        []string
 	Pages          []string
 	Market         string
+	Country        string
+	Location       string
+	MaxSources     int
 	FocusAreas     []string
 	TrustedDomains []string
 	Provider       string
 	Debug          bool
+	SkipExport     bool
 }
 
 type GeneratedDossier struct {

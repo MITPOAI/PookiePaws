@@ -38,6 +38,7 @@ func NewServiceWithResearch(runtimeRoot string, researchService *research.Servic
 		filepath.Join(root, "evidence"),
 		filepath.Join(root, "changes"),
 		filepath.Join(root, "recommendations"),
+		filepath.Join(root, "exports"),
 	} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, err
@@ -298,6 +299,9 @@ func (s *Service) RefreshWatchlists(ctx context.Context, watchlists []Watchlist,
 			Domains:        watchlist.Domains,
 			Pages:          watchlist.Pages,
 			Market:         watchlist.Market,
+			Country:        watchlist.Country,
+			Location:       watchlist.Location,
+			MaxSources:     watchlist.MaxSources,
 			FocusAreas:     watchlist.FocusAreas,
 			TrustedDomains: watchlist.TrustedDomains,
 		}, secrets)
@@ -327,6 +331,9 @@ func (s *Service) GenerateDossier(ctx context.Context, req GenerateRequest, secr
 		Domains:        dedupeStrings(req.Domains),
 		Pages:          dedupeStrings(req.Pages),
 		Market:         strings.TrimSpace(req.Market),
+		Country:        strings.TrimSpace(req.Country),
+		Location:       strings.TrimSpace(req.Location),
+		MaxSources:     req.MaxSources,
 		FocusAreas:     dedupeStrings(req.FocusAreas),
 		TrustedDomains: dedupeStrings(req.TrustedDomains),
 	}
@@ -339,6 +346,9 @@ func (s *Service) GenerateDossier(ctx context.Context, req GenerateRequest, secr
 		Pages:       watchlist.Pages,
 		FocusAreas:  watchlist.FocusAreas,
 		Market:      watchlist.Market,
+		Country:     watchlist.Country,
+		Location:    watchlist.Location,
+		MaxSources:  watchlist.MaxSources,
 		Provider:    strings.TrimSpace(req.Provider),
 		Debug:       req.Debug,
 	}, secrets)
@@ -371,6 +381,13 @@ func (s *Service) GenerateDossier(ctx context.Context, req GenerateRequest, secr
 		ChangeIDs:         collectChangeIDs(changes),
 		RecommendationIDs: collectRecommendationIDs(recommendations),
 		CreatedAt:         now,
+	}
+	if !req.SkipExport {
+		markdownPath, err := s.writeDossierMarkdown(watchlist, dossier, analysis, evidence, changes, recommendations)
+		if err != nil {
+			return GeneratedDossier{}, err
+		}
+		dossier.MarkdownPath = markdownPath
 	}
 
 	watchlist.UpdatedAt = now
@@ -542,6 +559,15 @@ func normalizeWatchlist(watchlist *Watchlist, defaultTrusted []string, now time.
 	watchlist.Topic = strings.TrimSpace(watchlist.Topic)
 	watchlist.Company = strings.TrimSpace(watchlist.Company)
 	watchlist.Market = strings.TrimSpace(watchlist.Market)
+	watchlist.Country = strings.TrimSpace(watchlist.Country)
+	if watchlist.Country == "" {
+		watchlist.Country = "AU"
+	}
+	watchlist.Location = strings.TrimSpace(watchlist.Location)
+	if watchlist.Location == "" {
+		watchlist.Location = "Australia"
+	}
+	watchlist.MaxSources = normalizeMaxSources(watchlist.MaxSources)
 	watchlist.Competitors = dedupeStrings(watchlist.Competitors)
 	watchlist.Domains = dedupeStrings(watchlist.Domains)
 	watchlist.Pages = dedupeStrings(watchlist.Pages)
@@ -855,6 +881,204 @@ func recommendationConfidence(evidence []EvidenceRecord, changes []ChangeRecord,
 	return score
 }
 
+func normalizeMaxSources(value int) int {
+	if value <= 0 || value > 6 {
+		return 6
+	}
+	return value
+}
+
+func (s *Service) writeDossierMarkdown(watchlist Watchlist, dossier Dossier, analysis research.Result, evidence []EvidenceRecord, changes []ChangeRecord, recommendations []Recommendation) (string, error) {
+	path := filepath.Join(s.root, "exports", exportFilename(watchlist.ID, dossier.ID))
+	content := renderDossierMarkdown(watchlist, dossier, analysis, evidence, changes, recommendations)
+	if err := saveTextFile(path, content); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func exportFilename(watchlistID, dossierID string) string {
+	base := firstNonEmpty(strings.TrimSpace(watchlistID), strings.TrimSpace(dossierID), "research")
+	return fmt.Sprintf("%s--%s.md", slug(base), slug(firstNonEmpty(strings.TrimSpace(dossierID), base)))
+}
+
+func renderDossierMarkdown(watchlist Watchlist, dossier Dossier, analysis research.Result, evidence []EvidenceRecord, changes []ChangeRecord, recommendations []Recommendation) string {
+	var builder strings.Builder
+	title := firstNonEmpty(dossier.Topic, watchlist.Topic, watchlist.Name, watchlist.Company, dossier.ID)
+	builder.WriteString("# ")
+	builder.WriteString(title)
+	builder.WriteString("\n\n")
+
+	builder.WriteString("## Run Summary\n")
+	builder.WriteString("- Dossier ID: `")
+	builder.WriteString(dossier.ID)
+	builder.WriteString("`\n")
+	builder.WriteString("- Watchlist ID: `")
+	builder.WriteString(firstNonEmpty(watchlist.ID, dossier.WatchlistID, "-"))
+	builder.WriteString("`\n")
+	builder.WriteString("- Company: ")
+	builder.WriteString(firstNonEmpty(dossier.Company, watchlist.Company, "-"))
+	builder.WriteString("\n")
+	builder.WriteString("- Provider: ")
+	builder.WriteString(firstNonEmpty(dossier.Provider, "-"))
+	builder.WriteString("\n")
+	builder.WriteString("- Market: ")
+	builder.WriteString(firstNonEmpty(watchlist.Market, "-"))
+	builder.WriteString("\n")
+	builder.WriteString("- Country: ")
+	builder.WriteString(firstNonEmpty(watchlist.Country, "-"))
+	builder.WriteString("\n")
+	builder.WriteString("- Location: ")
+	builder.WriteString(firstNonEmpty(watchlist.Location, "-"))
+	builder.WriteString("\n")
+	builder.WriteString("- Max sources: ")
+	builder.WriteString(fmt.Sprintf("%d", watchlist.MaxSources))
+	builder.WriteString("\n")
+	builder.WriteString("- Created: ")
+	builder.WriteString(dossier.CreatedAt.Format(time.RFC3339))
+	builder.WriteString("\n\n")
+
+	builder.WriteString("## Coverage\n")
+	builder.WriteString("- Mode: ")
+	builder.WriteString(firstNonEmpty(dossier.Coverage.Mode, "-"))
+	builder.WriteString("\n")
+	builder.WriteString("- Queries: ")
+	builder.WriteString(fmt.Sprintf("%d", dossier.Coverage.Queries))
+	builder.WriteString("\n")
+	builder.WriteString("- Discovered: ")
+	builder.WriteString(fmt.Sprintf("%d", dossier.Coverage.Discovered))
+	builder.WriteString("\n")
+	builder.WriteString("- Scraped: ")
+	builder.WriteString(fmt.Sprintf("%d", dossier.Coverage.Scraped))
+	builder.WriteString("\n")
+	builder.WriteString("- Kept: ")
+	builder.WriteString(fmt.Sprintf("%d", dossier.Coverage.Kept))
+	builder.WriteString("\n")
+	builder.WriteString("- Skipped: ")
+	builder.WriteString(fmt.Sprintf("%d", dossier.Coverage.Skipped))
+	builder.WriteString("\n\n")
+
+	builder.WriteString("## Summary\n")
+	builder.WriteString(firstNonEmpty(dossier.Summary, analysis.Summary, "No summary available."))
+	builder.WriteString("\n\n")
+
+	if len(dossier.Findings) > 0 {
+		builder.WriteString("## Findings\n")
+		for _, finding := range dossier.Findings {
+			builder.WriteString("- ")
+			builder.WriteString(strings.TrimSpace(finding))
+			builder.WriteString("\n")
+		}
+		builder.WriteString("\n")
+	}
+
+	if len(dossier.CompetitorNotes) > 0 {
+		builder.WriteString("## Competitor Notes\n")
+		for _, note := range dossier.CompetitorNotes {
+			builder.WriteString("### ")
+			builder.WriteString(firstNonEmpty(note.Competitor, "Research"))
+			builder.WriteString("\n")
+			builder.WriteString(note.Note)
+			builder.WriteString("\n")
+			for _, highlight := range note.Highlights {
+				builder.WriteString("- ")
+				builder.WriteString(strings.TrimSpace(highlight))
+				builder.WriteString("\n")
+			}
+			builder.WriteString("\n")
+		}
+	}
+
+	if len(dossier.Warnings) > 0 {
+		builder.WriteString("## Warnings\n")
+		for _, warning := range dossier.Warnings {
+			builder.WriteString("- ")
+			builder.WriteString(strings.TrimSpace(warning))
+			builder.WriteString("\n")
+		}
+		builder.WriteString("\n")
+	}
+
+	builder.WriteString("## Evidence\n")
+	if len(evidence) == 0 {
+		builder.WriteString("- No evidence was captured.\n\n")
+	} else {
+		for _, item := range evidence {
+			builder.WriteString("### ")
+			builder.WriteString(firstNonEmpty(item.Title, item.SourceURL))
+			builder.WriteString("\n")
+			builder.WriteString("- Entity: ")
+			builder.WriteString(firstNonEmpty(item.Entity, "-"))
+			builder.WriteString("\n")
+			builder.WriteString("- Page type: ")
+			builder.WriteString(firstNonEmpty(item.PageType, "-"))
+			builder.WriteString("\n")
+			builder.WriteString("- URL: ")
+			builder.WriteString(item.SourceURL)
+			builder.WriteString("\n")
+			builder.WriteString("- Observed: ")
+			builder.WriteString(item.ObservedAt.Format(time.RFC3339))
+			builder.WriteString("\n")
+			builder.WriteString("- Claim: ")
+			builder.WriteString(firstNonEmpty(item.Claim, item.Excerpt, "-"))
+			builder.WriteString("\n")
+			if strings.TrimSpace(item.Excerpt) != "" && strings.TrimSpace(item.Excerpt) != strings.TrimSpace(item.Claim) {
+				builder.WriteString("- Excerpt: ")
+				builder.WriteString(strings.TrimSpace(item.Excerpt))
+				builder.WriteString("\n")
+			}
+			builder.WriteString("\n")
+		}
+	}
+
+	builder.WriteString("## Changes\n")
+	if len(changes) == 0 {
+		builder.WriteString("- No net evidence changes were detected.\n\n")
+	} else {
+		for _, change := range changes {
+			builder.WriteString("- [")
+			builder.WriteString(strings.ToUpper(change.Kind))
+			builder.WriteString("] ")
+			builder.WriteString(change.Summary)
+			if strings.TrimSpace(change.SourceURL) != "" {
+				builder.WriteString(" (")
+				builder.WriteString(change.SourceURL)
+				builder.WriteString(")")
+			}
+			builder.WriteString("\n")
+		}
+		builder.WriteString("\n")
+	}
+
+	builder.WriteString("## Recommendations\n")
+	if len(recommendations) == 0 {
+		builder.WriteString("- No operator-ready recommendations were generated.\n")
+	} else {
+		for _, item := range recommendations {
+			builder.WriteString("### ")
+			builder.WriteString(item.Title)
+			builder.WriteString("\n")
+			builder.WriteString("- Status: ")
+			builder.WriteString(string(item.Status))
+			builder.WriteString("\n")
+			builder.WriteString("- Confidence: ")
+			builder.WriteString(fmt.Sprintf("%.2f", item.Confidence))
+			builder.WriteString("\n")
+			builder.WriteString("- Summary: ")
+			builder.WriteString(item.Summary)
+			builder.WriteString("\n")
+			if item.ProposedWorkflow.Skill != "" {
+				builder.WriteString("- Workflow: ")
+				builder.WriteString(item.ProposedWorkflow.Skill)
+				builder.WriteString("\n")
+			}
+			builder.WriteString("\n")
+		}
+	}
+
+	return strings.TrimSpace(builder.String()) + "\n"
+}
+
 func listRecords[T any](dir string) ([]T, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -895,6 +1119,17 @@ func saveRecord(dir string, id string, value any) error {
 		return err
 	}
 	path := filepath.Join(dir, id+".json")
+	return saveBytes(path, data)
+}
+
+func saveTextFile(path string, content string) error {
+	return saveBytes(path, []byte(content))
+}
+
+func saveBytes(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return err

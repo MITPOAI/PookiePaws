@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -72,6 +74,16 @@ func TestGenerateDossierInternalAndDiff(t *testing.T) {
 	if first.Dossier.Provider != "internal" {
 		t.Fatalf("expected internal provider, got %q", first.Dossier.Provider)
 	}
+	if first.Dossier.MarkdownPath == "" {
+		t.Fatal("expected markdown export path to be set")
+	}
+	firstExport, err := os.ReadFile(first.Dossier.MarkdownPath)
+	if err != nil {
+		t.Fatalf("read markdown export: %v", err)
+	}
+	if !strings.Contains(string(firstExport), "## Evidence") {
+		t.Fatalf("expected evidence section in markdown export, got: %s", string(firstExport))
+	}
 	if len(first.Evidence) == 0 {
 		t.Fatal("expected evidence to be persisted")
 	}
@@ -95,6 +107,9 @@ func TestGenerateDossierInternalAndDiff(t *testing.T) {
 	}
 	if len(second.Changes) == 0 {
 		t.Fatal("expected change records after content changed")
+	}
+	if second.Dossier.MarkdownPath == "" {
+		t.Fatal("expected second markdown export path to be set")
 	}
 
 	diff, err := service.DiffLatest(context.Background(), first.Watchlist.ID)
@@ -297,5 +312,38 @@ func TestRefreshConfiguredWatchlistsEmptyStateErrors(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no watchlists configured") {
 		t.Fatalf("expected error to mention 'no watchlists configured', got: %v", err)
+	}
+}
+
+func TestGenerateDossierFixtureWritesStableMarkdownBrief(t *testing.T) {
+	service := newDossierServiceForTest(t)
+
+	result, err := service.GenerateDossier(context.Background(), GenerateRequest{
+		Name:        "OpenClaw fixture watchlist",
+		Topic:       "OpenClaw",
+		Company:     "PookiePaws",
+		Competitors: []string{"OpenClaw"},
+		Domains:     []string{"openclaw.example"},
+		FocusAreas:  []string{"pricing", "positioning"},
+	}, stubSecrets{})
+	if err != nil {
+		t.Fatalf("GenerateDossier: %v", err)
+	}
+	if result.Dossier.MarkdownPath == "" {
+		t.Fatal("expected markdown path")
+	}
+	if !strings.Contains(filepath.Base(result.Dossier.MarkdownPath), result.Watchlist.ID) {
+		t.Fatalf("expected stable filename to include watchlist id, got %q", result.Dossier.MarkdownPath)
+	}
+	data, err := os.ReadFile(result.Dossier.MarkdownPath)
+	if err != nil {
+		t.Fatalf("read markdown path: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "# OpenClaw") {
+		t.Fatalf("expected topic heading in markdown export, got: %s", text)
+	}
+	if !strings.Contains(text, "## Recommendations") {
+		t.Fatalf("expected recommendations section in markdown export, got: %s", text)
 	}
 }

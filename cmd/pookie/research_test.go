@@ -376,7 +376,7 @@ func TestResearchRecommendationsQueueRequiresWorkflow(t *testing.T) {
 // --- status hint ---
 
 func TestBuildResearchStatusPayloadEmptyAddsHint(t *testing.T) {
-	p := buildResearchStatusPayload(scheduler.State{}, 0, nil)
+	p := buildResearchStatusPayload(scheduler.State{}, 0, nil, nil)
 	if p.Hint == "" {
 		t.Fatalf("expected hint when scheduler state is empty")
 	}
@@ -390,7 +390,7 @@ func TestBuildResearchStatusPayloadEmptyAddsHint(t *testing.T) {
 
 func TestBuildResearchStatusPayloadWithScheduleNoHint(t *testing.T) {
 	st := scheduler.State{Schedule: "hourly"}
-	p := buildResearchStatusPayload(st, 2, nil)
+	p := buildResearchStatusPayload(st, 2, nil, nil)
 	if p.Hint != "" {
 		t.Fatalf("expected no hint when schedule is set, got: %q", p.Hint)
 	}
@@ -398,14 +398,14 @@ func TestBuildResearchStatusPayloadWithScheduleNoHint(t *testing.T) {
 
 func TestBuildResearchStatusPayloadWithLastTickNoHint(t *testing.T) {
 	st := scheduler.State{LastTickAt: time.Now()}
-	p := buildResearchStatusPayload(st, 0, nil)
+	p := buildResearchStatusPayload(st, 0, nil, nil)
 	if p.Hint != "" {
 		t.Fatalf("expected no hint when daemon has ticked, got: %q", p.Hint)
 	}
 }
 
 func TestBuildResearchStatusPayloadWithWatchlistsError(t *testing.T) {
-	p := buildResearchStatusPayload(scheduler.State{}, 0, errors.New("boom"))
+	p := buildResearchStatusPayload(scheduler.State{}, 0, errors.New("boom"), nil)
 	if p.WatchlistsError != "boom" {
 		t.Fatalf("expected watchlists_error=boom, got: %q", p.WatchlistsError)
 	}
@@ -436,5 +436,125 @@ func TestResearchRecommendationsDiscardRoundTrip(t *testing.T) {
 	}
 	if updated.Status != dossier.RecommendationDiscarded {
 		t.Fatalf("expected status discarded, got: %q", updated.Status)
+	}
+}
+
+type analyzeTestSecrets map[string]string
+
+func (s analyzeTestSecrets) Get(name string) (string, error) {
+	return s[name], nil
+}
+
+func (s analyzeTestSecrets) RedactMap(payload map[string]any) map[string]any {
+	return payload
+}
+
+func TestParseResearchAnalyzeArgsParsesListsAndDefaults(t *testing.T) {
+	opts, err := parseResearchAnalyzeArgs([]string{
+		"--company", "PookiePaws",
+		"--competitors", "OpenClaw, PetBox",
+		"--domains", "openclaw.example,petbox.example",
+		"--focus-areas", "pricing, offer structure",
+		"--schedule", "hourly",
+	})
+	if err != nil {
+		t.Fatalf("parseResearchAnalyzeArgs: %v", err)
+	}
+	if opts.Company != "PookiePaws" {
+		t.Fatalf("Company = %q", opts.Company)
+	}
+	if len(opts.Competitors) != 2 || opts.Competitors[1] != "PetBox" {
+		t.Fatalf("Competitors = %#v", opts.Competitors)
+	}
+	if len(opts.FocusAreas) != 2 || opts.FocusAreas[1] != "offer structure" {
+		t.Fatalf("FocusAreas = %#v", opts.FocusAreas)
+	}
+	if opts.Schedule != scheduler.ModeHourly {
+		t.Fatalf("Schedule = %q", opts.Schedule)
+	}
+	if opts.MaxSources != 0 {
+		t.Fatalf("expected zero max sources before normalization, got %d", opts.MaxSources)
+	}
+}
+
+func TestParseResearchAnalyzeArgsRequiresCompanyOrCompetitors(t *testing.T) {
+	_, err := parseResearchAnalyzeArgs([]string{"--domains", "openclaw.example"})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "company or competitors is required") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunResearchAnalyzeWritesMarkdownAndSchedule(t *testing.T) {
+	svc, root := newTestDossierServiceWithRoot(t)
+	var scheduled string
+	var buf bytes.Buffer
+
+	err := runResearchAnalyze(context.Background(), svc, analyzeTestSecrets{}, researchAnalyzeOptions{
+		Name:        "OpenClaw fixture watchlist",
+		Topic:       "OpenClaw",
+		Company:     "PookiePaws",
+		Competitors: []string{"OpenClaw"},
+		Domains:     []string{"openclaw.example"},
+		FocusAreas:  []string{"pricing", "positioning"},
+		Schedule:    scheduler.ModeHourly,
+	}, func(mode string) error {
+		scheduled = mode
+		return nil
+	}, root, &buf)
+	if err != nil {
+		t.Fatalf("runResearchAnalyze: %v", err)
+	}
+	if scheduled != scheduler.ModeHourly {
+		t.Fatalf("expected hourly schedule to be persisted, got %q", scheduled)
+	}
+	if !strings.Contains(buf.String(), "Competitor analysis saved locally") {
+		t.Fatalf("expected success output, got %q", buf.String())
+	}
+	dossiers, err := svc.ListDossiers(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("ListDossiers: %v", err)
+	}
+	if len(dossiers) != 1 || dossiers[0].MarkdownPath == "" {
+		t.Fatalf("expected latest dossier markdown path, got %+v", dossiers)
+	}
+	if _, err := os.Stat(dossiers[0].MarkdownPath); err != nil {
+		t.Fatalf("expected markdown export to exist, got %v", err)
+	}
+}
+
+func TestRunResearchAnalyzeNoExportSkipsMarkdown(t *testing.T) {
+	svc, root := newTestDossierServiceWithRoot(t)
+	var buf bytes.Buffer
+
+	err := runResearchAnalyze(context.Background(), svc, analyzeTestSecrets{}, researchAnalyzeOptions{
+		Name:        "OpenClaw fixture watchlist",
+		Topic:       "OpenClaw",
+		Company:     "PookiePaws",
+		Competitors: []string{"OpenClaw"},
+		Domains:     []string{"openclaw.example"},
+		NoExport:    true,
+		Schedule:    scheduler.ModeManual,
+	}, func(string) error {
+		t.Fatal("manual schedule should not write schedule")
+		return nil
+	}, root, &buf)
+	if err != nil {
+		t.Fatalf("runResearchAnalyze: %v", err)
+	}
+	dossiers, err := svc.ListDossiers(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("ListDossiers: %v", err)
+	}
+	if len(dossiers) != 1 {
+		t.Fatalf("expected one dossier, got %d", len(dossiers))
+	}
+	if dossiers[0].MarkdownPath != "" {
+		t.Fatalf("expected no markdown path when export disabled, got %q", dossiers[0].MarkdownPath)
+	}
+	if !strings.Contains(buf.String(), "disabled") {
+		t.Fatalf("expected disabled export message, got %q", buf.String())
 	}
 }

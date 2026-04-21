@@ -12,7 +12,7 @@ events:
 approval_policy: report_only
 timeout: 2m
 ---
-Collect bounded public competitor intelligence, structure findings into a business analysis report, and return actionable insights a marketer can use for positioning and campaign planning.
+Analyze the public competitor landscape for the target brand and named competitors. Check bounded public sources online, prioritize official domains, explicit pages, and trusted domains, capture source-backed claims on pricing, positioning, offers, features, promos, proof points, and CTA or messaging changes, and return an operator-ready business analysis report with actionable insights plus warnings when coverage is thin.
 
 ## Inputs
 - company (string, optional): Target brand or company name.

@@ -12,7 +12,7 @@ events:
 approval_policy: report_only
 timeout: 3m
 ---
-Run the observe-extract-diff-summarize-recommend loop across configured watchlists. This is the control-plane entrypoint for recurring competitive research.
+Run the recurring observe-extract-diff-summarize-recommend loop across configured watchlists. For each saved watchlist, check bounded public sources online, prioritize official and trusted domains, capture source-backed claims on pricing, positioning, offers, features, promos, proof points, and messaging, compare against the last saved dossier, persist local JSON state, refresh the local Markdown brief, and emit operator-ready recommendations with warnings when coverage is degraded.
 
 ## Inputs
 - watchlists_json (string, optional): JSON array of watchlists to refresh inline.
