@@ -37,6 +37,7 @@ type Config struct {
 	WhatsApp        engine.ChannelAdapter
 	Dossier         *dossier.Service
 	Address         string
+	AppVersion      string
 	RequestShutdown func()
 	// MaxBodyBytes caps incoming request body size. 0 uses the default
 	// (1 MiB, matching nginx's client_max_body_size). A negative value
@@ -249,6 +250,7 @@ type ThemeOption struct {
 
 type IndexViewModel struct {
 	Title        string
+	AppVersion   string
 	DefaultTheme string
 	AssetVersion string
 	ThemeOptions []ThemeOption
@@ -300,6 +302,7 @@ func NewServer(cfg Config) *Server {
 		indexTmpl:       indexTmpl,
 		indexView: IndexViewModel{
 			Title:        "PookiePaws Operator Console",
+			AppVersion:   firstNonEmpty(cfg.AppVersion, "dev"),
 			DefaultTheme: "dark",
 			AssetVersion: fmt.Sprintf("%d", time.Now().Unix()),
 			ThemeOptions: []ThemeOption{

@@ -116,6 +116,7 @@ func newHarness(t *testing.T, address string, promptBrain PromptDispatcher) harn
 			WhatsApp:    adapters.NewMockWhatsAppAdapter(),
 			Dossier:     dossierSvc,
 			Address:     address,
+			AppVersion:  "test-version",
 		}),
 		bus:         bus,
 		coord:       coord,
@@ -318,6 +319,16 @@ func TestGatewayStaticAssets(t *testing.T) {
 		}
 		if recorder.Body.Len() == 0 {
 			t.Fatalf("expected body for %s", route)
+		}
+	}
+
+	indexRequest := httptest.NewRequest(http.MethodGet, "/", nil)
+	indexRecorder := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(indexRecorder, indexRequest)
+	body := indexRecorder.Body.String()
+	for _, needle := range []string{"Home", "Run", "Review", "Settings", "Next Best Action", "PookiePaws vtest-version"} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("expected index to contain %q, body=%s", needle, body)
 		}
 	}
 }

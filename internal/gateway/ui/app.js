@@ -5,10 +5,10 @@
   const THEME_STORAGE_KEY = "pookiepaws:theme:v1";
   const THEMES = Object.freeze(["light", "dark", "soft"]);
   const VIEW_METADATA = Object.freeze({
-    dashboard: { title: "Dashboard", breadcrumb: "Dashboard / Overview" },
-    workflows: { title: "Workflows", breadcrumb: "Workflows / Active" },
-    settings: { title: "Vault / Settings", breadcrumb: "Vault / Settings" },
-    audit: { title: "Audit Log", breadcrumb: "Audit Log / Live" }
+    dashboard: { title: "Home", breadcrumb: "Home / Action Center" },
+    workflows: { title: "Run", breadcrumb: "Run / Analyze" },
+    settings: { title: "Settings", breadcrumb: "Settings / Setup" },
+    audit: { title: "Review", breadcrumb: "Review / Queue" }
   });
 
   // UI microcopy guidelines:
@@ -42,7 +42,7 @@
     errors: {
       generic: "Something interrupted that step. Your current workspace state is still intact.",
       console: "The console could not refresh right now. The last known state is still on screen.",
-      brainRequired: "Free-text routing needs a configured brain first. Direct tools are still available below.",
+      brainRequired: "Free-text routing needs a configured brain first. Open Settings or use the direct skills and builder below.",
       vault: "Those settings could not be saved just yet. Your existing saved values were left unchanged."
     },
     empty: {
@@ -113,6 +113,32 @@
       config: { channel: "sms" }
     }
   };
+  const ANALYZE_MODES = Object.freeze({
+    research: {
+      label: "Research",
+      placeholder: "Research our top competitor's latest offer changes and tell me what matters.",
+      detail: "Bounded provider-based research that stays observable and grounded in the current control plane.",
+      promptPrefix: "Research request"
+    },
+    campaign: {
+      label: "Campaign",
+      placeholder: "Plan a counter-campaign for this week's competitor promotion and keep approvals in place.",
+      detail: "Operator-guided planning for coordinated campaign work and queued follow-on steps.",
+      promptPrefix: "Campaign request"
+    },
+    message: {
+      label: "Message",
+      placeholder: "Draft a WhatsApp and SMS response for VIP customers affected by a price change.",
+      detail: "Use when the output should end in approval-gated messaging or channel drafts.",
+      promptPrefix: "Message request"
+    },
+    validation: {
+      label: "Validation",
+      placeholder: "Validate this launch URL, channel setup, and compliance posture before we send.",
+      detail: "Use when the operator needs a safety or readiness check before execution.",
+      promptPrefix: "Validation request"
+    }
+  });
 
   const state = {
     view: "dashboard",
@@ -127,6 +153,7 @@
     activeApprovalId: null,
     eventSource: null,
     theme: "light",
+    analyzeMode: "research",
     lastBrainResponse: null,
     chatSession: null,
     chatMessages: [],
@@ -171,6 +198,7 @@
   function cacheRefs() {
     refs.navItems = Array.from(document.querySelectorAll(".nav-item"));
     refs.views = Array.from(document.querySelectorAll(".view"));
+    refs.analyzeModeButtons = Array.from(document.querySelectorAll("[data-analyze-mode]"));
     refs.themeToggle = document.getElementById("theme-toggle");
     refs.themeToggleIcon = document.getElementById("theme-toggle-icon");
     refs.themeStatus = document.getElementById("theme-status");
@@ -184,6 +212,7 @@
     refs.brainDetail = document.getElementById("brain-detail");
     refs.providerFlags = document.getElementById("provider-flags");
     refs.summaryStrip = document.getElementById("summary-strip");
+    refs.nextBestAction = document.getElementById("next-best-action");
     refs.runDemoSmoke = document.getElementById("run-demo-smoke");
     refs.runLiveResearchSmoke = document.getElementById("run-live-research-smoke");
     refs.runWatchlists = document.getElementById("run-watchlists");
@@ -196,9 +225,11 @@
     refs.workflowQueue = document.getElementById("workflow-queue");
     refs.approvalSummary = document.getElementById("approval-summary");
     refs.filePermissionSummary = document.getElementById("file-permission-summary");
+    refs.reviewSummaryStrip = document.getElementById("review-summary-strip");
     refs.approvalsList = document.getElementById("approvals-list");
     refs.filePermissionsList = document.getElementById("file-permissions-list");
     refs.vaultStatusCards = document.getElementById("vault-status-cards");
+    refs.setupChecklist = document.getElementById("setup-checklist");
     refs.auditStream = document.getElementById("audit-stream");
     refs.streamIndicator = document.getElementById("stream-indicator");
     refs.goalForm = document.getElementById("goal-form");
@@ -212,10 +243,15 @@
     refs.chatSessionLabel = document.getElementById("chat-session-label");
     refs.chatClear = document.getElementById("chat-clear");
     refs.brainGuard = document.getElementById("brain-guard");
+    refs.brainGuardCard = document.getElementById("brain-guard-card");
     refs.brainResponse = document.getElementById("brain-response");
     refs.canvasPlanStatus = document.getElementById("canvas-plan-status");
     refs.refreshConsole = document.getElementById("refresh-console");
     refs.openApprovals = document.getElementById("open-approvals");
+    refs.openRun = document.getElementById("open-run");
+    refs.openReviewSecondary = document.getElementById("open-review-secondary");
+    refs.openSettingsFromRun = document.getElementById("open-settings-from-run");
+    refs.openDirectSkills = document.getElementById("open-direct-skills");
     refs.runCanvas = document.getElementById("run-canvas");
     refs.resetCanvas = document.getElementById("reset-canvas");
     refs.canvasBoard = document.getElementById("canvas-board");
@@ -240,6 +276,15 @@
     refs.navItems.forEach((item) => {
       item.addEventListener("click", () => setView(item.dataset.view));
     });
+    refs.analyzeModeButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        state.analyzeMode = button.dataset.analyzeMode || "research";
+        renderAnalyzeHero();
+        if (refs.goalInput) {
+          refs.goalInput.focus();
+        }
+      });
+    });
     if (refs.refreshConsole) {
       refs.refreshConsole.addEventListener("click", () => refreshConsoleState());
     }
@@ -252,8 +297,14 @@
     if (refs.runWatchlists) {
       refs.runWatchlists.addEventListener("click", () => runWatchlists());
     }
+    if (refs.openRun) {
+      refs.openRun.addEventListener("click", () => setView("workflows"));
+    }
     if (refs.openApprovals) {
-      refs.openApprovals.addEventListener("click", () => setView("audit"));
+      refs.openApprovals.addEventListener("click", () => openViewSection("audit", "review-approvals"));
+    }
+    if (refs.openReviewSecondary) {
+      refs.openReviewSecondary.addEventListener("click", () => openViewSection("audit", "review-approvals"));
     }
   }
 
@@ -299,18 +350,30 @@
   }
 
   function bindForms() {
+    if (refs.openSettingsFromRun) {
+      refs.openSettingsFromRun.addEventListener("click", () => setView("settings"));
+    }
+    if (refs.openDirectSkills) {
+      refs.openDirectSkills.addEventListener("click", () => {
+        const target = document.getElementById("utm-form");
+        if (target) {
+          target.closest(".panel").scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      });
+    }
     refs.goalForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       const prompt = refs.goalInput.value.trim();
       if (!prompt) {
-        setCanvasMessage("Add a campaign goal first so Pookie knows what outcome to plan for.");
+        const mode = ANALYZE_MODES[state.analyzeMode] || ANALYZE_MODES.research;
+        setCanvasMessage(`Add a ${mode.label.toLowerCase()} request first so Pookie knows what outcome to route.`);
         return;
       }
       if (!isBrainEnabled()) {
         showBrainRequired();
         return;
       }
-      await dispatchBrain(prompt);
+      await dispatchBrain(buildAnalyzePrompt(prompt));
     });
 
     document.getElementById("utm-form").addEventListener("submit", async (event) => {
@@ -439,8 +502,10 @@
     if (!initialRenderDone) {
       // First render populates all views so content is ready when switching tabs.
       renderSummaryStrip();
+      renderNextBestAction();
       renderDemoSmoke();
       renderResearchWarRoom();
+      renderAnalyzeHero();
       renderTemplates();
       renderWorkflowQueue();
       renderApprovals();
@@ -456,11 +521,13 @@
     // Subsequent renders only touch the active view to reduce DOM writes.
     if (active === "dashboard") {
       renderSummaryStrip();
+      renderNextBestAction();
       renderDemoSmoke();
       renderResearchWarRoom();
       renderWorkflowQueue();
       renderApprovals();
     } else if (active === "workflows") {
+      renderAnalyzeHero();
       renderTemplates();
       renderCanvas();
       renderBrainResponse();
@@ -500,7 +567,7 @@
     const pendingApprovals = Number(status.pending_approvals || 0);
     const pendingFilePermissions = Number(status.pending_file_permissions || 0);
     refs.runtimeBadge.textContent = `${status.workflows} workflows tracked`;
-    refs.runtimeDetail.textContent = `${pendingApprovals} approvals and ${pendingFilePermissions} file requests pending in ${status.workspace_root}`;
+    refs.runtimeDetail.textContent = `${pendingApprovals} approvals and ${pendingFilePermissions} file requests are waiting in ${status.workspace_root}`;
 
     const brain = state.console.brain || { enabled: false, provider: "OpenAI-compatible", mode: "disabled" };
     refs.brainBadge.textContent = brain.enabled ? "Enabled" : "Disabled";
@@ -580,25 +647,194 @@
     setError("sched-last-error", sched.last_error);
   }
 
+  function getStalledWorkflows() {
+    return ((state.console && state.console.workflows) || []).filter((workflow) => {
+      const status = String(workflow.status || "").toLowerCase();
+      return ["failed", "rejected", "blocked", "paused"].includes(status) || Boolean(workflow.error);
+    });
+  }
+
+  function buildHomeActions() {
+    const status = (state.console && state.console.status) || {};
+    const watchlists = (state.console && state.console.watchlists) || [];
+    const approvals = getPendingApprovals();
+    const filePermissions = getPendingFilePermissions();
+    const stalled = getStalledWorkflows();
+    const brainReady = isBrainEnabled();
+    return [
+      {
+        label: "Pending approvals",
+        value: approvals.length ? `${approvals.length} waiting` : "Clear",
+        detail: approvals.length
+          ? "Outbound work is paused until someone reviews the queue."
+          : "No outbound approvals are blocking work right now.",
+        tone: approvals.length ? "danger" : "success",
+        cta: "Open Review",
+        view: "audit",
+        section: "review-approvals"
+      },
+      {
+        label: "File permissions",
+        value: filePermissions.length ? `${filePermissions.length} waiting` : "Clear",
+        detail: filePermissions.length
+          ? "Protected workspace reads and writes are waiting on an operator."
+          : "No workspace file requests are waiting for a decision.",
+        tone: filePermissions.length ? "warning" : "success",
+        cta: "Open Review",
+        view: "audit",
+        section: "review-file-permissions"
+      },
+      {
+        label: "Stalled workflows",
+        value: stalled.length ? `${stalled.length} blocked` : "Stable",
+        detail: stalled.length
+          ? firstNonEmpty(stalled[0].error, `${stalled[0].name || "Workflow"} needs intervention before it can continue.`)
+          : "Recent workflow runs are not reporting failed or blocked states.",
+        tone: stalled.length ? "warning" : "neutral",
+        cta: "Open Home",
+        view: "dashboard",
+        section: "dashboard-heading"
+      },
+      {
+        label: "Brain routing",
+        value: brainReady ? "Ready" : "Missing",
+        detail: brainReady
+          ? firstNonEmpty(state.console && state.console.brain && state.console.brain.model, "Analyze is available from the Run view.")
+          : "Configure an OpenAI-compatible endpoint before using the one-shot Analyze flow.",
+        tone: brainReady ? "success" : "warning",
+        cta: "Open Settings",
+        view: "settings"
+      },
+      {
+        label: "Watchlists",
+        value: watchlists.length ? `${watchlists.length} saved` : "Missing",
+        detail: watchlists.length
+          ? "Refresh from Home to update dossiers, changes, and recommendations."
+          : "Apply watchlists with the CLI, then refresh them from Home.",
+        tone: watchlists.length ? "neutral" : "warning",
+        cta: watchlists.length ? "Open Home" : "Open Run",
+        view: watchlists.length ? "dashboard" : "workflows"
+      }
+    ];
+  }
+
+  function buildNextBestAction() {
+    const approvals = getPendingApprovals();
+    if (approvals.length) {
+      return {
+        eyebrow: "Review queue",
+        title: "Clear the outbound approval queue first",
+        detail: `${approvals.length} outbound action${approvals.length === 1 ? "" : "s"} are waiting on a human decision before work can continue.`,
+        cta: "Open Review",
+        view: "audit",
+        section: "review-approvals"
+      };
+    }
+    const filePermissions = getPendingFilePermissions();
+    if (filePermissions.length) {
+      return {
+        eyebrow: "Review queue",
+        title: "Resolve protected file requests",
+        detail: `${filePermissions.length} workspace file request${filePermissions.length === 1 ? "" : "s"} are paused until an operator approves or rejects them.`,
+        cta: "Open Review",
+        view: "audit",
+        section: "review-file-permissions"
+      };
+    }
+    const stalled = getStalledWorkflows();
+    if (stalled.length) {
+      return {
+        eyebrow: "Runtime hold",
+        title: "Recover a stalled workflow",
+        detail: firstNonEmpty(stalled[0].error, `${stalled[0].name || "A workflow"} is blocked and needs intervention before you queue more work.`),
+        cta: "Open Home",
+        view: "dashboard",
+        section: "workflow-queue"
+      };
+    }
+    if (!isBrainEnabled()) {
+      return {
+        eyebrow: "Setup",
+        title: "Configure brain routing before using Analyze",
+        detail: "Run stays usable through direct skills and the builder, but one-shot Analyze needs a configured OpenAI-compatible endpoint first.",
+        cta: "Open Settings",
+        view: "settings",
+        section: "settings-heading"
+      };
+    }
+    const watchlists = (state.console && state.console.watchlists) || [];
+    if (!watchlists.length) {
+      return {
+        eyebrow: "Research",
+        title: "Load your first watchlist",
+        detail: "Apply watchlists with the CLI, then return Home and refresh them so dossiers and recommendations can start accumulating.",
+        cta: "Open Run",
+        view: "workflows",
+        section: "workflows-heading"
+      };
+    }
+    return {
+      eyebrow: "Run",
+      title: "Queue the next analysis",
+      detail: "The operator surface is clear. Use Analyze for a one-shot request, or refresh watchlists if you want the research loop to advance.",
+      cta: "Open Run",
+      view: "workflows",
+      section: "workflows-heading"
+    };
+  }
+
+  function renderAnalyzeHero() {
+    const mode = ANALYZE_MODES[state.analyzeMode] || ANALYZE_MODES.research;
+    refs.analyzeModeButtons.forEach((button) => {
+      button.classList.toggle("is-active", button.dataset.analyzeMode === state.analyzeMode);
+    });
+    if (refs.goalInput) {
+      refs.goalInput.placeholder = mode.placeholder;
+    }
+    if (!refs.canvasPlanStatus.textContent.trim()) {
+      setCanvasMessage(mode.detail);
+    }
+    if (!isBrainEnabled()) {
+      refs.brainGuard.textContent = MICROCOPY.errors.brainRequired;
+      refs.brainGuard.hidden = false;
+      refs.brainGuardCard.hidden = false;
+      return;
+    }
+    refs.brainGuard.hidden = true;
+    refs.brainGuardCard.hidden = true;
+  }
+
   function renderSummaryStrip() {
     if (!state.console) {
       return;
     }
-    const status = state.console.status;
-    const cards = [
-      ["Workflow queue", String(status.workflows), "Local runs and structured submissions tracked from one console."],
-      ["Pending approvals", String(status.pending_approvals || 0), "Outbound steps stay paused until a person decides."],
-      ["File access", String(status.pending_file_permissions || 0), "Workspace reads and writes are operator-visible actions."],
-      ["Provider health", providerHealthText(), "Brain, Firecrawl, CRM, SMS, and WhatsApp readiness across the current vault."],
-      ["Event bus", String(status.event_bus.published), "Internal runtime events published since startup."]
-    ];
-    refs.summaryStrip.innerHTML = cards.map(([label, value, detail]) => `
-      <article class="summary-card">
-        <span class="status-label">${escapeHTML(label)}</span>
-        <strong>${escapeHTML(value)}</strong>
-        <p>${escapeHTML(detail)}</p>
+    const cards = buildHomeActions();
+    refs.summaryStrip.innerHTML = cards.map((card) => `
+      <article class="summary-card summary-card--${escapeAttribute(card.tone)}">
+        <span class="status-label">${escapeHTML(card.label)}</span>
+        <strong>${escapeHTML(card.value)}</strong>
+        <p>${escapeHTML(card.detail)}</p>
+        <button class="button ghost summary-card__action" type="button" data-open-view="${escapeHTML(card.view)}" ${card.section ? `data-open-section="${escapeHTML(card.section)}"` : ""}>${escapeHTML(card.cta)}</button>
       </article>
     `).join("");
+    bindViewTargetButtons(refs.summaryStrip);
+  }
+
+  function renderNextBestAction() {
+    if (!refs.nextBestAction || !state.console) {
+      return;
+    }
+    const next = buildNextBestAction();
+    refs.nextBestAction.innerHTML = `
+      <span class="status-label">${escapeHTML(next.eyebrow)}</span>
+      <strong>${escapeHTML(next.title)}</strong>
+      <p>${escapeHTML(next.detail)}</p>
+      <div class="button-row">
+        <button class="button" type="button" data-open-view="${escapeHTML(next.view)}" ${next.section ? `data-open-section="${escapeHTML(next.section)}"` : ""}>${escapeHTML(next.cta)}</button>
+        <button class="button ghost" type="button" data-open-view="dashboard" data-open-section="dashboard-heading">Refresh Home</button>
+      </div>
+    `;
+    bindViewTargetButtons(refs.nextBestAction);
   }
 
   function renderDemoSmoke() {
@@ -685,29 +921,30 @@
     const policy = state.vault || {};
     if (!watchlists.length) {
       refs.watchlistsSummary.innerHTML = `
-        <article class="status-card">
-          <span class="status-label">Empty</span>
+        <article class="status-card research-snapshot-card">
+          <span class="status-label">Watchlist readiness</span>
           <strong>No watchlists saved yet</strong>
-          <p>Save JSON watchlists in Vault / Settings, then run the watchlist refresh loop from this dashboard.</p>
+          <p>Apply watchlists with <code>pookie research watchlists apply --file watchlists.json</code>, then return Home and refresh them.</p>
           <p class="inline-note">Provider: ${escapeHTML(firstNonEmpty(policy.research_provider, "internal"))} / Schedule: ${escapeHTML(firstNonEmpty(policy.research_schedule, "manual"))}</p>
           <p class="inline-note">Autonomy: ${escapeHTML(firstNonEmpty(policy.autonomy_policy, "trusted_ops_v1"))} / Action policy: ${escapeHTML(firstNonEmpty(policy.action_policy, "approval_gated"))}</p>
         </article>
       `;
       return;
     }
-    refs.watchlistsSummary.innerHTML = watchlists.map((item) => `
-      <article class="status-card">
-        <span class="status-label">${escapeHTML(firstNonEmpty(item.topic, item.name, "Watchlist"))}</span>
-        <strong>${escapeHTML(firstNonEmpty(item.name, item.topic, "Watchlist"))}</strong>
-        <p>${escapeHTML([
-          `${((item.competitors) || []).length} competitors`,
-          `${((item.domains) || []).length} domains`,
-          `${((item.pages) || []).length} tracked pages`
+    const latest = watchlists[0];
+    refs.watchlistsSummary.innerHTML = `
+      <article class="status-card research-snapshot-card">
+        <span class="status-label">Watchlist readiness</span>
+        <strong>${escapeHTML(`${watchlists.length} watchlist${watchlists.length === 1 ? "" : "s"} ready`)}</strong>
+        <p>${escapeHTML(firstNonEmpty(latest.name, latest.topic, "Latest watchlist"))}</p>
+        <p class="inline-note">${escapeHTML([
+          `${((latest.competitors) || []).length} competitors`,
+          `${((latest.domains) || []).length} domains`,
+          `${((latest.pages) || []).length} tracked pages`
         ].join(" / "))}</p>
-        <p class="inline-note">Last dossier: ${escapeHTML(firstNonEmpty(item.last_dossier_id, "None yet"))}</p>
-        <p class="inline-note">Last run: ${escapeHTML(item.last_run_at ? formatDateTime(item.last_run_at) : "Not run yet")}</p>
+        <p class="inline-note">Last run: ${escapeHTML(latest.last_run_at ? formatDateTime(latest.last_run_at) : "Not run yet")}</p>
       </article>
-    `).join("");
+    `;
   }
 
   function renderChangesSummary() {
@@ -715,22 +952,25 @@
       return;
     }
     const changes = (state.console && state.console.changes) || [];
-    refs.changesSummary.innerHTML = changes.length
-      ? changes.slice(0, 8).map((item) => `
-        <article class="status-card">
-          <span class="status-label">${escapeHTML(firstNonEmpty(item.kind, "change"))}</span>
-          <strong>${escapeHTML(firstNonEmpty(item.entity, "Tracked evidence"))}</strong>
-          <p>${escapeHTML(firstNonEmpty(item.summary, item.source_url, "Change detected."))}</p>
-          <p class="inline-note">${escapeHTML(firstNonEmpty(item.source_url, "No source URL"))}</p>
-        </article>
-      `).join("")
-      : `
-        <article class="status-card">
-          <span class="status-label">Stable</span>
+    if (!changes.length) {
+      refs.changesSummary.innerHTML = `
+        <article class="status-card research-snapshot-card">
+          <span class="status-label">Change count</span>
           <strong>No tracked changes yet</strong>
           <p>The latest watchlist cycle has not produced any persisted change records.</p>
         </article>
       `;
+      return;
+    }
+    const latest = changes[0];
+    refs.changesSummary.innerHTML = `
+      <article class="status-card research-snapshot-card">
+        <span class="status-label">Change count</span>
+        <strong>${escapeHTML(`${changes.length} recent change${changes.length === 1 ? "" : "s"}`)}</strong>
+        <p>${escapeHTML(firstNonEmpty(latest.summary, latest.entity, "Change detected."))}</p>
+        <p class="inline-note">${escapeHTML(firstNonEmpty(latest.source_url, "No source URL"))}</p>
+      </article>
+    `;
   }
 
   function renderDossiersSummary() {
@@ -738,24 +978,26 @@
       return;
     }
     const dossiers = (state.console && state.console.dossiers) || [];
-    refs.dossiersSummary.innerHTML = dossiers.length
-      ? dossiers.map((item) => `
-        <article class="status-card">
-          <span class="status-label">${escapeHTML(firstNonEmpty(item.provider, "internal"))}</span>
-          <strong>${escapeHTML(firstNonEmpty(item.topic, item.company, "Dossier"))}</strong>
-          <p>${escapeHTML(firstNonEmpty(item.summary, "No dossier summary available."))}</p>
-          <p class="inline-note">Evidence: ${escapeHTML(String(((item.evidence_ids) || []).length))} / Changes: ${escapeHTML(String(((item.change_ids) || []).length))} / Recommendations: ${escapeHTML(String(((item.recommendation_ids) || []).length))}</p>
-          <p class="inline-note">Created: ${escapeHTML(formatDateTime(item.created_at))}</p>
-          ${item.fallback_reason ? `<p class="inline-note">Fallback: ${escapeHTML(item.fallback_reason)}</p>` : ""}
-        </article>
-      `).join("")
-      : `
-        <article class="status-card">
-          <span class="status-label">Idle</span>
+    if (!dossiers.length) {
+      refs.dossiersSummary.innerHTML = `
+        <article class="status-card research-snapshot-card">
+          <span class="status-label">Latest dossier</span>
           <strong>No dossiers generated yet</strong>
-          <p>Run a watchlist refresh or generate a dossier from a workflow template to start the research memory layer.</p>
+          <p>Run a watchlist refresh or generate a dossier from Run to start the research memory layer.</p>
         </article>
       `;
+      return;
+    }
+    const latest = dossiers[0];
+    refs.dossiersSummary.innerHTML = `
+      <article class="status-card research-snapshot-card">
+        <span class="status-label">${escapeHTML(firstNonEmpty(latest.provider, "internal"))}</span>
+        <strong>${escapeHTML(firstNonEmpty(latest.topic, latest.company, "Dossier"))}</strong>
+        <p>${escapeHTML(firstNonEmpty(latest.summary, "No dossier summary available."))}</p>
+        <p class="inline-note">Evidence: ${escapeHTML(String(((latest.evidence_ids) || []).length))} / Changes: ${escapeHTML(String(((latest.change_ids) || []).length))} / Recommendations: ${escapeHTML(String(((latest.recommendation_ids) || []).length))}</p>
+        <p class="inline-note">Created: ${escapeHTML(formatDateTime(latest.created_at))}</p>
+      </article>
+    `;
   }
 
   function renderRecommendationsSummary() {
@@ -765,39 +1007,29 @@
     const recommendations = (state.console && state.console.recommendations) || [];
     if (!recommendations.length) {
       refs.recommendationsSummary.innerHTML = `
-        <article class="status-card">
-          <span class="status-label">Queue</span>
+        <article class="status-card research-snapshot-card">
+          <span class="status-label">Recommendation queue</span>
           <strong>No recommendations yet</strong>
           <p>Recommendations appear after a dossier is generated and remain editable until they are queued or discarded.</p>
         </article>
       `;
       return;
     }
-    refs.recommendationsSummary.innerHTML = recommendations.map((item) => `
-      <article class="status-card" data-recommendation-card="${escapeHTML(item.id)}">
-        <span class="status-label">${escapeHTML(firstNonEmpty(item.status, "draft"))}</span>
-        <strong>${escapeHTML(firstNonEmpty(item.title, "Recommendation"))}</strong>
-        <p class="inline-note">Confidence: ${escapeHTML(formatConfidence(item.confidence))} / Approval: ${escapeHTML(firstNonEmpty(item.approval_status, "report_only"))}</p>
-        <label class="field">
-          <span class="inline-note">Title</span>
-          <input type="text" data-recommendation-title="${escapeHTML(item.id)}" value="${escapeHTML(firstNonEmpty(item.title, ""))}">
-        </label>
-        <label class="field">
-          <span class="inline-note">Summary</span>
-          <textarea data-recommendation-summary="${escapeHTML(item.id)}">${escapeHTML(firstNonEmpty(item.summary, ""))}</textarea>
-        </label>
-        <label class="field">
-          <span class="inline-note">Workflow payload (JSON)</span>
-          <textarea data-recommendation-workflow="${escapeHTML(item.id)}">${escapeHTML(JSON.stringify(item.proposed_workflow || {}, null, 2))}</textarea>
-        </label>
-        <p class="inline-note">Why: ${escapeHTML(String(((item.evidence_ids) || []).length))} evidence items / ${escapeHTML(String(((item.source_urls) || []).length))} source URLs</p>
-        <p class="inline-note">${escapeHTML(((item.source_urls) || []).slice(0, 2).join(" • ") || "No source URLs recorded")}</p>
+    const queuedCount = recommendations.filter((item) => String(item.status || "").toLowerCase() === "queued").length;
+    const draftCount = recommendations.length - queuedCount;
+    const top = recommendations[0];
+    refs.recommendationsSummary.innerHTML = `
+      <article class="status-card research-snapshot-card" data-recommendation-card="${escapeHTML(top.id)}">
+        <span class="status-label">Recommendation queue</span>
+        <strong>${escapeHTML(`${draftCount} draft / ${queuedCount} queued`)}</strong>
+        <p>${escapeHTML(firstNonEmpty(top.title, top.summary, "Recommendation"))}</p>
+        <p class="inline-note">Confidence: ${escapeHTML(formatConfidence(top.confidence))} / Approval: ${escapeHTML(firstNonEmpty(top.approval_status, "report_only"))}</p>
         <div class="button-row">
-          <button class="button secondary" type="button" data-recommendation-queue="${escapeHTML(item.id)}">Edit + Queue</button>
-          <button class="button ghost" type="button" data-recommendation-discard="${escapeHTML(item.id)}">Discard</button>
+          <button class="button secondary" type="button" data-recommendation-queue="${escapeHTML(top.id)}">Queue Top Item</button>
+          <button class="button ghost" type="button" data-recommendation-discard="${escapeHTML(top.id)}">Discard</button>
         </div>
       </article>
-    `).join("");
+    `;
 
     refs.recommendationsSummary.querySelectorAll("[data-recommendation-queue]").forEach((button) => {
       button.addEventListener("click", () => queueRecommendation(button.dataset.recommendationQueue));
@@ -853,6 +1085,26 @@
     });
   }
 
+  function buildAnalyzePrompt(prompt) {
+    const mode = ANALYZE_MODES[state.analyzeMode] || ANALYZE_MODES.research;
+    return `${mode.promptPrefix}: ${prompt}`;
+  }
+
+  function openViewSection(view, sectionID) {
+    setView(view, sectionID);
+  }
+
+  function bindViewTargetButtons(root) {
+    if (!root) {
+      return;
+    }
+    root.querySelectorAll("[data-open-view]").forEach((button) => {
+      button.addEventListener("click", () => {
+        openViewSection(button.dataset.openView, button.dataset.openSection || "");
+      });
+    });
+  }
+
   function renderWorkflowQueue() {
     const workflows = (state.console && state.console.workflows) || [];
     refs.workflowQueue.innerHTML = workflows.length
@@ -890,17 +1142,54 @@
   function renderApprovals() {
     const approvals = getPendingApprovals();
     const filePermissions = getPendingFilePermissions();
-    const approvalMarkup = approvals.length
+    refs.approvalSummary.innerHTML = approvals.length
+      ? approvals.slice(0, 2).map((approval) => renderApprovalCard(approval, true)).join("")
+      : renderCompactQueueState("Approvals", MICROCOPY.empty.approvals);
+    refs.approvalsList.innerHTML = approvals.length
       ? renderApprovalsTable(approvals)
       : renderEmptyTable("No pending approvals", MICROCOPY.empty.approvals, 5);
-    refs.approvalSummary.innerHTML = approvalMarkup;
-    refs.approvalsList.innerHTML = approvalMarkup;
 
-    const filePermissionMarkup = filePermissions.length
+    refs.filePermissionSummary.innerHTML = filePermissions.length
+      ? filePermissions.slice(0, 2).map((permission) => renderFilePermissionCard(permission)).join("")
+      : renderCompactQueueState("File permissions", MICROCOPY.empty.filePermissions);
+    refs.filePermissionsList.innerHTML = filePermissions.length
       ? renderFilePermissionTable(filePermissions)
       : renderEmptyTable("No file requests", MICROCOPY.empty.filePermissions, 5);
-    refs.filePermissionSummary.innerHTML = filePermissionMarkup;
-    refs.filePermissionsList.innerHTML = filePermissionMarkup;
+
+    if (refs.reviewSummaryStrip) {
+      const totalDecisions = approvals.length + filePermissions.length;
+      refs.reviewSummaryStrip.innerHTML = [
+        {
+          label: "Pending approvals",
+          value: approvals.length ? `${approvals.length} waiting` : "Clear",
+          detail: approvals.length ? "Outbound work is paused until a person reviews it." : "No outbound approvals are waiting right now.",
+          tone: approvals.length ? "danger" : "neutral",
+          section: "review-approvals"
+        },
+        {
+          label: "File permissions",
+          value: filePermissions.length ? `${filePermissions.length} waiting` : "Clear",
+          detail: filePermissions.length ? "Protected workspace requests need a human decision." : "No file requests are paused right now.",
+          tone: filePermissions.length ? "warning" : "neutral",
+          section: "review-file-permissions"
+        },
+        {
+          label: "Queue pressure",
+          value: totalDecisions ? `${totalDecisions} decisions` : "Steady",
+          detail: totalDecisions ? "Work is waiting on operator input before it can move." : "The review queue is clear, so runtime activity can continue without manual holds.",
+          tone: totalDecisions ? "warning" : "success",
+          section: "review-approvals"
+        }
+      ].map((item) => `
+        <article class="summary-card summary-card--${escapeAttribute(item.tone)}">
+          <span class="status-label">${escapeHTML(item.label)}</span>
+          <strong>${escapeHTML(item.value)}</strong>
+          <p>${escapeHTML(item.detail)}</p>
+          <button class="button ghost summary-card__action" type="button" data-open-view="audit" data-open-section="${escapeHTML(item.section)}">Open Section</button>
+        </article>
+      `).join("");
+      bindViewTargetButtons(refs.reviewSummaryStrip);
+    }
 
     [refs.approvalSummary, refs.approvalsList].forEach((node) => {
       node.querySelectorAll("[data-approval-open]").forEach((button) => {
@@ -929,17 +1218,62 @@
       return;
     }
     refs.vaultStatusCards.innerHTML = [
+      vaultStatusCard("Loopback writes", state.vault.can_write, state.vault.can_write ? "This workstation can save vault settings from the UI." : "Secrets stay read-only until the server is bound to loopback."),
       vaultStatusCard("Brain", state.vault.brain && state.vault.brain.configured, state.vault.brain && state.vault.brain.mode ? `${state.vault.brain.provider} / ${state.vault.brain.mode}` : "Not configured"),
       vaultStatusCard("Research", true, `Provider: ${firstNonEmpty(state.vault.research_provider, "internal")} / Schedule: ${firstNonEmpty(state.vault.research_schedule, "manual")} / Autonomy: ${firstNonEmpty(state.vault.autonomy_policy, "trusted_ops_v1")}`),
       vaultStatusCard("Firecrawl", state.vault.firecrawl && state.vault.firecrawl.configured, "Optional external fallback for bounded web research"),
-      vaultStatusCard("Salesmanago", state.vault.salesmanago && state.vault.salesmanago.configured, "CRM lead routing"),
       vaultStatusCard("Mitto", state.vault.mitto && state.vault.mitto.configured, "SMS drafting and send intents"),
       vaultStatusCard("WhatsApp", state.vault.whatsapp && state.vault.whatsapp.configured, channelStatusDetail("whatsapp"))
     ].join("");
 
+    if (refs.setupChecklist) {
+      const watchlists = (state.console && state.console.watchlists) || [];
+      const channelReady = Boolean(
+        (state.vault.salesmanago && state.vault.salesmanago.configured) ||
+        (state.vault.mitto && state.vault.mitto.configured) ||
+        (state.vault.whatsapp && state.vault.whatsapp.configured)
+      );
+      refs.setupChecklist.innerHTML = [
+        {
+          title: "Brain quickstart",
+          ready: Boolean(state.vault.brain && state.vault.brain.configured),
+          detail: state.vault.brain && state.vault.brain.configured
+            ? "Analyze can route plain-language requests from the Run view."
+            : "Configure an OpenAI-compatible local or remote endpoint before using Analyze."
+        },
+        {
+          title: "Channel connections",
+          ready: channelReady,
+          detail: channelReady
+            ? "At least one outbound channel is configured and still approval-gated."
+            : "Configure Salesmanago, Mitto, or WhatsApp if you need outbound actions."
+        },
+        {
+          title: "Research controls",
+          ready: Boolean(watchlists.length),
+          detail: watchlists.length
+            ? `${watchlists.length} watchlist${watchlists.length === 1 ? "" : "s"} are ready for refresh from Home.`
+            : "Apply watchlists with the CLI, then return Home and run Refresh Watchlists."
+        },
+        {
+          title: "Loopback protection",
+          ready: Boolean(state.vault.can_write),
+          detail: state.vault.can_write
+            ? "This UI can save settings because the daemon is bound to loopback."
+            : "This UI is read-only until the daemon is bound to loopback."
+        }
+      ].map((item) => `
+        <article class="checklist-card${item.ready ? " is-ready" : ""}">
+          <span class="status-label">${escapeHTML(item.title)}</span>
+          <strong>${escapeHTML(item.ready ? "Ready" : "Needs attention")}</strong>
+          <p>${escapeHTML(item.detail)}</p>
+        </article>
+      `).join("");
+    }
+
     refs.vaultMessage.textContent = state.vaultNotice || (state.vault.can_write
-      ? "Vault writes are available because this server is bound to loopback."
-      : "To protect secrets, vault writes stay off until this server is bound to loopback.");
+      ? "Loopback-only write mode is active. This UI can save settings because the server is bound to loopback."
+      : "To protect secrets, writes stay off until this server is bound to loopback.");
     document.getElementById("save-vault").disabled = !state.vault.can_write;
     refs.testWhatsApp.disabled = !(state.vault.whatsapp && state.vault.whatsapp.configured);
   }
@@ -1447,11 +1781,13 @@
   }
 
   async function dispatchBrain(prompt) {
+    const mode = ANALYZE_MODES[state.analyzeMode] || ANALYZE_MODES.research;
     refs.brainGuard.hidden = true;
+    refs.brainGuardCard.hidden = true;
     setBrainResponse({
       kind: "loading",
       eyebrow: "Planning",
-      title: "Translating your request into workflow steps",
+      title: `Translating your ${mode.label.toLowerCase()} request into workflow steps`,
       detail: MICROCOPY.loading.brain
     });
     setCanvasMessage(MICROCOPY.loading.brain);
@@ -1813,11 +2149,16 @@
     }
   }
 
-  function setView(view) {
+  function setView(view, sectionID) {
     state.view = resolveView(view);
-    renderNavigation();
-    if (state.view === "workflows") {
-      renderCanvas();
+    render();
+    if (sectionID) {
+      requestAnimationFrame(() => {
+        const target = document.getElementById(sectionID);
+        if (target) {
+          target.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      });
     }
   }
 
@@ -2200,6 +2541,17 @@
   function showBrainRequired() {
     refs.brainGuard.textContent = MICROCOPY.errors.brainRequired;
     refs.brainGuard.hidden = false;
+    refs.brainGuardCard.hidden = false;
+  }
+
+  function renderCompactQueueState(title, detail) {
+    return `
+      <article class="status-card review-mini-card">
+        <span class="status-label">${escapeHTML(title)}</span>
+        <strong>Clear</strong>
+        <p>${escapeHTML(detail)}</p>
+      </article>
+    `;
   }
 
   function renderApprovalCard(approval, compact) {
@@ -2586,7 +2938,15 @@
     const summaryNode = document.querySelector(`[data-recommendation-summary="${cssEscape(id)}"]`);
     const workflowNode = document.querySelector(`[data-recommendation-workflow="${cssEscape(id)}"]`);
     if (!titleNode || !summaryNode || !workflowNode) {
-      return null;
+      const recommendation = ((state.console && state.console.recommendations) || []).find((item) => item.id === id);
+      if (!recommendation) {
+        return null;
+      }
+      return {
+        title: firstNonEmpty(recommendation.title, "Recommendation"),
+        summary: firstNonEmpty(recommendation.summary, ""),
+        proposed_workflow: recommendation.proposed_workflow || {}
+      };
     }
     let workflow;
     try {

@@ -21,7 +21,7 @@ import (
 	"github.com/mitpoai/pookiepaws/internal/scheduler"
 )
 
-var version = "0.5.2"
+var version = "1.1.0"
 
 func main() {
 	initLogger()
@@ -81,7 +81,7 @@ func launchInteractiveMenu() {
 	p.Banner()
 
 	items := []string{
-		"Start Web UI & Daemon",
+		"Open Home Console & Daemon",
 		"Chat with Pookie (AI Mode)",
 		"List Marketing Skills",
 		"Run Specific Skill",
@@ -113,7 +113,7 @@ func printUsage() {
 	p.Blank()
 	p.Accent("Commands:")
 	p.Blank()
-	p.Plain("  start              Boot the local agent and open the web console")
+	p.Plain("  start              Boot the local agent and open the Home console")
 	p.Plain("  chat               Talk to Pookie in your terminal (AI mode)")
 	p.Plain("  list               Show all installed marketing skills")
 	p.Plain("  research <sub>     Manage research watchlists, scheduler, and dossiers")
@@ -139,7 +139,8 @@ func printUsage() {
 	p.Plain("      --verbose       Print request timing logs (for start)")
 	p.Blank()
 	p.Dim("Most diagnostic commands accept --json for machine-readable output.")
-	p.Dim("Run pookie with no arguments for an interactive menu.")
+	p.Dim("Run pookie with no arguments for the interactive operator menu.")
+	p.Dim("The web console is organised around Home, Run, Review, and Settings.")
 	p.Dim("Source:  github.com/mitpoai/pookiepaws")
 	p.Blank()
 }
@@ -205,7 +206,7 @@ func cmdStart(args []string) {
 			Secrets:      stack.secrets,
 			StateStore:   scheduler.NewStateStore(scheduler.DefaultStatePath(runtimeRoot)),
 			MaxLastRunAt: stack.dossier.MaxLastRunAt,
-			Logger: schedulerLoggerAdapter(slog.Default()),
+			Logger:       schedulerLoggerAdapter(slog.Default()),
 		})
 		sched.Run(schedCtx)
 	}()
@@ -220,6 +221,7 @@ func cmdStart(args []string) {
 		WhatsApp:     adapters.NewWhatsAppAdapter(),
 		Dossier:      stack.dossier,
 		Address:      *addr,
+		AppVersion:   version,
 		MaxBodyBytes: *maxBody,
 		RequestShutdown: func() {
 			select {
