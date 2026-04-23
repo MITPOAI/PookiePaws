@@ -19,6 +19,7 @@ import (
 )
 
 func cmdSessions(args []string) {
+	defer maybeShowUpdateNotice(context.Background(), version, os.Stderr, "")
 	fs := flag.NewFlagSet("sessions", flag.ExitOnError)
 	home := fs.String("home", "", "override runtime home directory")
 	sessionID := fs.String("id", "", "show one session in detail")
@@ -132,6 +133,7 @@ func cmdSessions(args []string) {
 }
 
 func cmdApprovals(args []string) {
+	defer maybeShowUpdateNotice(context.Background(), version, os.Stderr, "")
 	fs := flag.NewFlagSet("approvals", flag.ExitOnError)
 	home := fs.String("home", "", "override runtime home directory")
 	approveID := fs.String("approve", "", "approve a pending approval id")
@@ -220,6 +222,7 @@ func cmdApprovals(args []string) {
 }
 
 func cmdAudit(args []string) {
+	defer maybeShowUpdateNotice(context.Background(), version, os.Stderr, "")
 	fs := flag.NewFlagSet("audit", flag.ExitOnError)
 	home := fs.String("home", "", "override runtime home directory")
 	lines := fs.Int("n", 20, "number of recent audit lines to show")
@@ -489,6 +492,7 @@ func firstValue(values ...string) string {
 }
 
 func cmdContext(args []string) {
+	defer maybeShowUpdateNotice(context.Background(), version, os.Stderr, "")
 	fs := flag.NewFlagSet("context", flag.ExitOnError)
 	home := fs.String("home", "", "override runtime home directory")
 	showPrompt := fs.Bool("prompt", false, "render the full system routing prompt")
@@ -605,6 +609,7 @@ func cmdContext(args []string) {
 }
 
 func cmdMemory(args []string) {
+	defer maybeShowUpdateNotice(context.Background(), version, os.Stderr, "")
 	fs := flag.NewFlagSet("memory", flag.ExitOnError)
 	home := fs.String("home", "", "override runtime home directory")
 	prune := fs.Bool("prune", false, "remove all persistent memory entries and variables")

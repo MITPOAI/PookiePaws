@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"os"
 	"path/filepath"
 	"strings"
@@ -484,6 +485,28 @@ func TestParseResearchAnalyzeArgsRequiresCompanyOrCompetitors(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "company or competitors is required") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestParseResearchAnalyzeArgsHelpReturnsFlagErrHelp(t *testing.T) {
+	_, err := parseResearchAnalyzeArgs([]string{"--help"})
+	if !errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("expected flag.ErrHelp, got %v", err)
+	}
+}
+
+func TestPrintResearchAnalyzeUsageIncludesExamples(t *testing.T) {
+	var buf bytes.Buffer
+	printResearchAnalyzeUsage(&buf)
+	text := buf.String()
+	if !strings.Contains(text, "pookie research analyze [flags]") {
+		t.Fatalf("expected analyze usage header, got %q", text)
+	}
+	if !strings.Contains(text, "--schedule <mode>") {
+		t.Fatalf("expected schedule flag help, got %q", text)
+	}
+	if !strings.Contains(text, "Recurring schedules only run while \"pookie start\" is running.") {
+		t.Fatalf("expected scheduler note, got %q", text)
 	}
 }
 

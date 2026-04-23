@@ -1,9 +1,9 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -26,12 +26,13 @@ import (
 // Each subcommand wraps a small `runXxx` helper that takes injected
 // dependencies so the helpers stay testable in isolation.
 func cmdResearch(args []string) {
+	defer maybeShowUpdateNotice(context.Background(), version, os.Stderr, "")
 	if len(args) == 0 {
 		printResearchUsage(os.Stderr)
 		os.Exit(2)
 	}
 	switch args[0] {
-	case "analyze":
+	case "analyze", "analyse":
 		cmdResearchAnalyze(args[1:])
 	case "watchlists":
 		cmdResearchWatchlists(args[1:])
@@ -48,7 +49,10 @@ func cmdResearch(args []string) {
 	case "help", "--help", "-h":
 		printResearchUsage(os.Stdout)
 	default:
-		slog.Error("unknown research subcommand", "subcommand", args[0])
+		fmt.Fprintf(os.Stderr, "unknown research subcommand: %s\n", args[0])
+		if suggestion := suggestCommand(args[0], researchSubcommands); suggestion != "" {
+			fmt.Fprintf(os.Stderr, "did you mean: pookie research %s\n\n", suggestion)
+		}
 		printResearchUsage(os.Stderr)
 		os.Exit(2)
 	}
@@ -58,6 +62,7 @@ func printResearchUsage(w io.Writer) {
 	fmt.Fprint(w, `pookie research <subcommand>
 
   analyze --company <name> [flags]            Check competitors online and save a local dossier
+  analyse --company <name> [flags]            Alias for analyze
   watchlists list                            Print configured watchlists
   watchlists apply --file <json>             Replace watchlists from JSON file (or --stdin)
   watchlists show <id>                       Show a single watchlist
@@ -73,6 +78,49 @@ func printResearchUsage(w io.Writer) {
   recommendations show <id>                  Show a single recommendation
   recommendations queue <id> --workflow <wf> Mark a recommendation as queued for a workflow
   recommendations discard <id>               Mark a recommendation as discarded
+
+Examples:
+  pookie research analyze --company "PookiePaws" --competitors "OpenClaw,PetBox"
+  pookie research analyse --company "PookiePaws" --domains "openclaw.com" --schedule hourly
+  pookie research status
+  pookie research dossier list
+
+Use "pookie research analyze --help" for the full analysis flag reference.
+`)
+}
+
+func printResearchAnalyzeUsage(w io.Writer) {
+	fmt.Fprint(w, `pookie research analyze [flags]
+
+Run bounded online competitor research, save local JSON state, and write a
+Markdown brief under the runtime research state directory.
+
+Required:
+  --company <name> or --competitors <name1,name2>
+
+Common flags:
+  --company <name>             Target brand or company name
+  --competitors <csv>          Named competitors to compare
+  --domains <csv>              Public domains to prioritize
+  --pages <csv>                Specific public pages to check directly
+  --focus-areas <csv>          Focus areas such as pricing, positioning, offers
+  --name <text>                Optional watchlist display name
+  --topic <text>               Optional dossier topic label
+  --market <text>              Market context
+  --country <code>             Country code for search geo
+  --location <text>            Location string for search geo
+  --provider <name>            auto, internal, firecrawl, or jina
+  --max-sources <n>            Maximum public sources to keep (default 6)
+  --schedule <mode>            manual, hourly, or daily
+  --debug                      Include debug-level research output
+  --no-export                  Skip the automatic Markdown brief
+
+Examples:
+  pookie research analyze --company "PookiePaws" --competitors "OpenClaw,PetBox"
+  pookie research analyze --company "PookiePaws" --domains "openclaw.com,petbox.com" --focus-areas "pricing,positioning"
+  pookie research analyse --company "PookiePaws" --competitors "OpenClaw" --schedule hourly
+
+Recurring schedules only run while "pookie start" is running.
 `)
 }
 
@@ -111,9 +159,16 @@ func cmdResearchAnalyze(args []string) {
 
 	opts, err := parseResearchAnalyzeArgs(args)
 	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			printResearchAnalyzeUsage(os.Stdout)
+			return
+		}
 		p.Error("%v", err)
+		if hint := researchAnalyzeHint(err); hint != "" {
+			p.Info("%s", hint)
+		}
 		p.Blank()
-		printResearchUsage(os.Stderr)
+		printResearchAnalyzeUsage(os.Stderr)
 		os.Exit(2)
 	}
 
@@ -161,8 +216,7 @@ func parseResearchAnalyzeArgs(args []string) (researchAnalyzeOptions, error) {
 	var opts researchAnalyzeOptions
 
 	fs := flag.NewFlagSet("analyze", flag.ContinueOnError)
-	var stderr bytes.Buffer
-	fs.SetOutput(&stderr)
+	fs.SetOutput(io.Discard)
 
 	name := fs.String("name", "", "Watchlist display name")
 	topic := fs.String("topic", "", "Topic label for the dossier")

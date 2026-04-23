@@ -19,6 +19,7 @@ import (
 	"github.com/mitpoai/pookiepaws/internal/dossier"
 	"github.com/mitpoai/pookiepaws/internal/gateway"
 	"github.com/mitpoai/pookiepaws/internal/scheduler"
+	"github.com/mitpoai/pookiepaws/internal/security"
 )
 
 var version = "1.1.0"
@@ -69,8 +70,7 @@ func main() {
 	case "help", "--help", "-h":
 		printUsage()
 	default:
-		slog.Error("unknown command", "command", os.Args[1])
-		printUsage()
+		printUnknownCommand(os.Args[1])
 		os.Exit(1)
 	}
 }
@@ -80,35 +80,84 @@ func launchInteractiveMenu() {
 	p := cli.Stdout()
 	p.Banner()
 
-	items := []string{
-		"Open Home Console & Daemon",
-		"Chat with Pookie (AI Mode)",
-		"List Marketing Skills",
-		"Run Specific Skill",
-		"Exit",
+	items := []cli.MenuItem{
+		{
+			Label: "Open Home Console & Daemon",
+			Hint:  "Start the local runtime, web console, and recurring research scheduler.",
+		},
+		{
+			Label: "Guided Competitor Research",
+			Hint:  "Prompt for company, competitors, domains, and schedule, then save a local dossier.",
+		},
+		{
+			Label: "Research Status",
+			Hint:  "Show scheduler state, latest dossier, and latest local export path.",
+		},
+		{
+			Label: "Recent Dossiers",
+			Hint:  "List saved competitor dossiers and recent analysis runs.",
+		},
+		{
+			Label: "Chat with Pookie (AI Mode)",
+			Hint:  "Open the terminal chat interface.",
+		},
+		{
+			Label: "List Marketing Skills",
+			Hint:  "Show executable skills. This is different from top-level commands like research or doctor.",
+		},
+		{
+			Label: "Run Specific Skill",
+			Hint:  "Execute a skill directly by name.",
+		},
+		{
+			Label: "Diagnostics",
+			Hint:  "Open doctor to inspect runtime, brain, scheduler, and latest research state.",
+		},
+		{
+			Label: "Exit",
+			Hint:  "Leave the operator menu.",
+		},
 	}
 
-	choice := cli.RunMenu(p, "What would you like to do?", items)
+	choice, _ := cli.NewWizard(p).Select(
+		"What would you like to do?",
+		"Use competitor research for command-driven analysis and `list` only for installed skills.",
+		items,
+		len(items)-1,
+	)
 	p.Blank()
 
 	switch choice {
 	case 0:
 		cmdStart(nil)
 	case 1:
-		cmdChat(nil)
+		launchGuidedResearchAnalyze()
 	case 2:
-		cmdList(nil)
+		cmdResearch([]string{"status"})
 	case 3:
-		cmdRun(nil)
+		cmdResearch([]string{"dossier", "list"})
 	case 4:
+		cmdChat(nil)
+	case 5:
+		cmdList(nil)
+	case 6:
+		cmdRun(nil)
+	case 7:
+		cmdDoctor(nil)
+	case 8:
 		p.Dim("Goodbye! \u2014 Pookie")
 		p.Blank()
 	}
 }
 
 func printUsage() {
+	defer maybeShowUpdateNotice(context.Background(), version, os.Stderr, "")
 	p := cli.Stdout()
 	p.Banner()
+	printUsageBody(p)
+}
+
+func printUsageBody(p *cli.Printer) {
 	p.Plain("Usage:  pookie [command] [flags]")
 	p.Blank()
 	p.Accent("Commands:")
@@ -130,6 +179,12 @@ func printUsage() {
 	p.Plain("  init               Interactive first-run setup wizard")
 	p.Plain("  completion <shell> Generate shell completion (bash|zsh|fish|powershell)")
 	p.Blank()
+	p.Accent("Quick Start:")
+	p.Blank()
+	p.Plain("  pookie research analyze --company \"PookiePaws\" --competitors \"OpenClaw,PetBox\"")
+	p.Plain("  pookie research status")
+	p.Plain("  pookie research dossier list")
+	p.Blank()
 	p.Accent("Flags:")
 	p.Blank()
 	p.Plain("  -v, --version       Print version and build info (use --check to force a live release lookup)")
@@ -140,9 +195,108 @@ func printUsage() {
 	p.Blank()
 	p.Dim("Most diagnostic commands accept --json for machine-readable output.")
 	p.Dim("Run pookie with no arguments for the interactive operator menu.")
+	p.Dim("`pookie list` shows installed skills. `pookie --help` shows top-level commands.")
 	p.Dim("The web console is organised around Home, Run, Review, and Settings.")
 	p.Dim("Source:  github.com/mitpoai/pookiepaws")
 	p.Blank()
+}
+
+func printUnknownCommand(command string) {
+	defer maybeShowUpdateNotice(context.Background(), version, os.Stderr, "")
+	p := cli.Stdout()
+	p.Banner()
+	p.Error("Unknown command: %s", command)
+	if suggestion := suggestCommand(command, topLevelCommands); suggestion != "" {
+		p.Info("Did you mean: pookie %s", suggestion)
+	}
+	p.Dim("Top-level commands live under `pookie --help`.")
+	p.Blank()
+	printUsageBody(p)
+}
+
+func launchGuidedResearchAnalyze() {
+	p := cli.Stdout()
+	p.Banner()
+	p.Accent("Guided Competitor Research")
+	p.Dim("Press Enter to skip optional fields. Company is required.")
+	p.Blank()
+
+	company, ok := cli.ReadLine(p, "Company > ")
+	if !ok || strings.TrimSpace(company) == "" {
+		p.Warning("Research setup cancelled.")
+		p.Blank()
+		return
+	}
+	competitors, _ := cli.ReadLine(p, "Competitors (comma-separated) > ")
+	domains, _ := cli.ReadLine(p, "Domains (comma-separated) > ")
+	focusAreas, _ := cli.ReadLine(p, "Focus areas (comma-separated) > ")
+	market, _ := cli.ReadLine(p, "Market (optional) > ")
+
+	schedule := scheduler.ModeManual
+	selection, _ := cli.NewWizard(p).Select(
+		"Research Schedule",
+		"Manual runs once. Hourly and daily keep checking online while `pookie start` is running.",
+		[]cli.MenuItem{
+			{Label: "Manual", Hint: "Run once and save local state only."},
+			{Label: "Hourly", Hint: "Keep refreshing the saved watchlist every hour while the daemon is running."},
+			{Label: "Daily", Hint: "Keep refreshing the saved watchlist every day while the daemon is running."},
+		},
+		0,
+	)
+	switch selection {
+	case 1:
+		schedule = scheduler.ModeHourly
+	case 2:
+		schedule = scheduler.ModeDaily
+	}
+
+	runtimeRoot := resolveRuntimeRoot()
+	svc, err := dossier.NewService(runtimeRoot)
+	if err != nil {
+		p.Error("init dossier service: %v", err)
+		p.Blank()
+		return
+	}
+	secrets, err := security.NewJSONSecretProvider(runtimeRoot)
+	if err != nil {
+		p.Error("open secrets vault: %v", err)
+		p.Blank()
+		return
+	}
+
+	err = runResearchAnalyze(
+		context.Background(),
+		svc,
+		secrets,
+		researchAnalyzeOptions{
+			Company:     strings.TrimSpace(company),
+			Competitors: splitCSVArgs(competitors),
+			Domains:     splitCSVArgs(domains),
+			FocusAreas:  splitCSVArgs(focusAreas),
+			Market:      strings.TrimSpace(market),
+			Schedule:    schedule,
+		},
+		func(mode string) error {
+			if mode == scheduler.ModeManual {
+				return nil
+			}
+			return writeVaultSecret("research_schedule", mode)
+		},
+		runtimeRoot,
+		os.Stdout,
+	)
+	if err != nil {
+		p.Error("research analyze failed: %v", err)
+		if hint := researchAnalyzeHint(err); hint != "" {
+			p.Info("%s", hint)
+		}
+		p.Blank()
+		return
+	}
+	if schedule != scheduler.ModeManual {
+		p.Info("Recurring research is set to %s. Keep `pookie start` running for scheduled refreshes.", schedule)
+		p.Blank()
+	}
 }
 
 // ── pookie start ─────────────────────────────────────────────────────────────
@@ -285,6 +439,7 @@ func cmdStart(args []string) {
 // ── pookie status ────────────────────────────────────────────────────────────
 
 func cmdStatus(args []string) {
+	defer maybeShowUpdateNotice(context.Background(), version, os.Stderr, "")
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
 	addr := fs.String("addr", "127.0.0.1:18800", "agent address")
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")

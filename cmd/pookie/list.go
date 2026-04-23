@@ -142,9 +142,12 @@ func cmdList(args []string) {
 	}
 
 	p.Blank()
-	p.Box("Marketing Skills", rows)
+	p.Box("Installed Skills", rows)
 	p.Blank()
 	p.Dim("  %d skill(s) installed", len(sorted))
+	p.Dim("  This list shows executable skills, not top-level CLI commands.")
+	p.Dim("  For commands run:  pookie --help")
+	p.Dim("  For competitor research run:  pookie research analyze --company \"PookiePaws\" --competitors \"OpenClaw\"")
 	p.Blank()
 }
 
