@@ -8,10 +8,11 @@ GO         ?= go
 GOFMT      ?= gofmt
 BIN_DIR    ?= ./bin
 BIN        := $(BIN_DIR)/pookie
+AD_BIN     := $(BIN_DIR)/pookiepaws
 LDFLAGS    ?= -s -w
 PKGS       := ./...
 
-.PHONY: help build test test-race vet fmt lint smoke release-snapshot clean install-tools
+.PHONY: help build build-pookiepaws test test-race vet fmt lint smoke release-snapshot clean install-tools
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -19,6 +20,10 @@ help: ## Show this help
 build: ## Compile pookie binary into ./bin/
 	@mkdir -p $(BIN_DIR)
 	$(GO) build -ldflags="$(LDFLAGS)" -o $(BIN) ./cmd/pookie
+
+build-pookiepaws: ## Compile pookiepaws ad automation CLI into ./bin/
+	@mkdir -p $(BIN_DIR)
+	$(GO) build -ldflags="$(LDFLAGS)" -o $(AD_BIN) ./cmd/pookiepaws
 
 test: ## Run all tests (no race detector)
 	$(GO) test $(PKGS)

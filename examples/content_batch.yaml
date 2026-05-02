@@ -1,0 +1,26 @@
+name: paw-balm-launch-week
+product: "PookiePaws Paw Balm"
+goal: "Generate a small review queue of social ad drafts for launch week."
+style: "cute high-energy motion graphics with bold captions"
+platforms:
+  - tiktok
+  - instagram
+duration_sec: 12
+variants: 4
+provider: mock
+items:
+  - id: hook-demo
+    platform: tiktok
+    angle: "thumb-stopping product introduction"
+    notes:
+      - "Start with a bold caption."
+      - "Keep claims plain and safe."
+  - id: problem-solution
+    platform: instagram
+    angle: "problem to solution transformation"
+  - id: proof-cta
+    platform: tiktok
+    angle: "benefit proof and CTA"
+  - id: offer-reminder
+    platform: instagram
+    angle: "friendly offer reminder without fake urgency"

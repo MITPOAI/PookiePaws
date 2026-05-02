@@ -1,0 +1,46 @@
+{
+  "format": "9:16",
+  "width": 1080,
+  "height": 1920,
+  "fps": 30,
+  "duration": 15,
+  "scenes": [
+    {
+      "id": "scene-1-hook",
+      "start": 0,
+      "end": 5,
+      "background_color": "#202124",
+      "text": "Stop scrolling!",
+      "subtext": "Meet PookiePaws Paw Balm",
+      "animation": "pop"
+    },
+    {
+      "id": "scene-2-benefit",
+      "start": 5,
+      "end": 10,
+      "background_color": "#ff4fa3",
+      "text": "Cute fix. Clear benefit.",
+      "subtext": "Designed for everyday use",
+      "animation": "slide"
+    },
+    {
+      "id": "scene-3-cta",
+      "start": 10,
+      "end": 15,
+      "background_color": "#0f766e",
+      "text": "Shop now",
+      "subtext": "Ready when you are",
+      "cta": "Shop now",
+      "animation": "bounce"
+    }
+  ],
+  "audio": {
+    "music_placeholder": "Add licensed upbeat background music before publishing.",
+    "sound_effect_placeholder": "Add soft pop/whoosh effects on scene changes."
+  },
+  "export": {
+    "codec": "libx264",
+    "pixel_format": "yuv420p",
+    "crf": 20
+  }
+}

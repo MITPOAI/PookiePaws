@@ -1,0 +1,18 @@
+name: pookiepaws-paw-balm-studio
+brand_name: PookiePaws
+product: "PookiePaws Paw Balm"
+niche: "pet care and paw comfort"
+goal: "Prepare a launch-ready local marketing workspace with research, ad copy, content drafts, and manual launch files."
+offer: "Shop the launch bundle"
+target_audience: "Pet owners who want simple, cute, practical care routines."
+competitors:
+  - "Competitor A"
+  - "Competitor B"
+  - "Competitor C"
+platforms:
+  - tiktok
+  - instagram
+content_variants: 4
+duration_sec: 12
+style: "cute high-energy motion graphics with bold captions"
+provider: mock

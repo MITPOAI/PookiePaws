@@ -1,0 +1,14 @@
+browser_workflow:
+  name: upload_draft_to_social
+  steps:
+    - action: open
+      url: "https://example.com"
+    - action: click
+      selector: "button.upload"
+    - action: upload
+      selector: "input[type=file]"
+      file: "outputs/final.mp4"
+    - action: wait
+      seconds: 3
+    - action: require_user_confirmation
+      message: "Ready to post. Confirm manually."

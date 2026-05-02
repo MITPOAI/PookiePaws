@@ -114,6 +114,75 @@ update is available; opt out with `POOKIEPAWS_NO_UPDATE_NOTIFIER=1`
 
 ## Quick Start
 
+### Social Ad Automation MVP
+
+The `pookiepaws` command now includes a local-first MVP for generating commercial ad drafts. It uses SQLite memory, deterministic planning, a no-cost mock media provider, and an FFmpeg render helper.
+
+Local prerequisites:
+
+- Go 1.22+ for source builds and local development
+- Python 3.10+ for the media render helper
+- FFmpeg on `PATH` for real MP4 rendering
+
+Optional environment variables:
+
+- `RUNWARE_API_KEY` for future Runware-backed generation
+- `FAL_KEY` for future fal.ai-backed generation
+- `POOKIEPAWS_HOME` to move local memory/runtime state away from `~/.pookiepaws`
+- `PYTHON` to point at a specific Python executable
+- `FFMPEG` to point at a specific FFmpeg executable when it is not on `PATH`
+
+Check the machine before rendering:
+
+```powershell
+go run ./cmd/pookiepaws doctor
+# or
+go run ./cmd/pookiepaws setup check --json
+```
+
+```powershell
+go run ./cmd/pookiepaws init --brand-name "PookiePaws" --niche "pet care"
+
+go run ./cmd/pookiepaws create-ad `
+  --platform tiktok `
+  --duration 15 `
+  --product "PookiePaws Paw Balm" `
+  --style "cute high-energy motion graphics" `
+  --provider mock
+```
+
+Generate a multi-draft content review queue:
+
+```powershell
+go run ./cmd/pookiepaws automate --file examples/content_batch.yaml
+
+go run ./cmd/pookiepaws automate `
+  --product "PookiePaws Paw Balm" `
+  --goal "Launch week social ad drafts" `
+  --platforms "tiktok,instagram" `
+  --variants 4 `
+  --provider mock
+```
+
+Create a full local marketing studio workspace:
+
+```powershell
+go run ./cmd/pookiepaws studio campaign --file examples/studio_campaign.yaml --provider mock
+```
+
+Useful follow-up commands:
+
+```powershell
+go run ./cmd/pookiepaws memory show
+go run ./cmd/pookiepaws render --plan examples/edit_plan.json --dry-run
+go run ./cmd/pookiepaws render --plan examples/edit_plan.json --out outputs/example.mp4  # requires FFmpeg
+go run ./cmd/pookiepaws feedback add --project-id <id> --score 5 --lessons "large captions worked"
+go run ./cmd/pookiepaws browser dry-run examples/workflow_browser.yaml
+go run ./cmd/pookiepaws serve
+```
+
+Remote provider keys are read from environment variables (`RUNWARE_API_KEY`, `FAL_KEY`). Browser automation is dry-run/scaffolded in this milestone and never posts or uploads without an explicit future confirmation path. CapCut and OpenCut stay optional adapter targets; FFmpeg remains the core renderer. See [docs/architecture.md](./docs/architecture.md), [docs/studio.md](./docs/studio.md), [docs/automation.md](./docs/automation.md), [docs/providers.md](./docs/providers.md), [docs/memory.md](./docs/memory.md), and [docs/capcut.md](./docs/capcut.md).
+
 1. Install `pookie`.
 
 Use a release binary from the [latest release](https://github.com/MITPOAI/PookiePaws/releases/latest), the installer scripts above, or build it locally if you need a development build:

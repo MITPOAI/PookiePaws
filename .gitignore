@@ -19,9 +19,21 @@ cover.out
 .pookiepaws/
 workspace/
 tmp/
+outputs/
 *.log
 .security.json
 .security.*.json
+pookiepaws.db
+pookiepaws.db-shm
+pookiepaws.db-wal
+
+# Generated media artifacts
+*.mp4
+*.mov
+*.webm
+*.m4v
+*.wav
+*.mp3
 
 # Research and snapshots
 /research/
